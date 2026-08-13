@@ -37,10 +37,19 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Time logs: an employee can create/update only their own log, and read
-    // only their own; admin can read everything.
+    // Time logs: an employee can create/update and read only their own; admin can
+    // read everything.
+    //
+    // "get" is split from "list" on purpose. The app reads timeLogs/{uid}_{date}
+    // directly, and before someone clocks in that document does not exist yet —
+    // for a missing document `resource` is null, so `resource.data.uid` would
+    // error and deny the read. The `resource == null` check below is what lets an
+    // employee open the app before clocking in. Listing stays admin-only, since
+    // only the dashboard queries across everyone.
     match /timeLogs/{logId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isAdmin();
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
       allow update: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow delete: if isAdmin();
@@ -48,7 +57,9 @@ service cloud.firestore {
 
     // Fuel logs: same pattern as time logs.
     match /fuelLogs/{logId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isAdmin();
       allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
       allow update, delete: if isAdmin();
     }

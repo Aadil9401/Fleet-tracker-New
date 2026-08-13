@@ -22,6 +22,7 @@ data class SignUpUiState(
     val employeeNumber: String = "",
     val province: String = "",
     val teamName: String = "",
+    val vehicleRegistration: String = "",
     val password: String = "",
     val confirmPassword: String = "",
     val loading: Boolean = false,
@@ -52,6 +53,7 @@ class SignUpViewModel(
     fun onEmployeeNumberChange(value: String) { uiState = uiState.copy(employeeNumber = value, error = null) }
     fun onProvinceChange(value: String) { uiState = uiState.copy(province = value, error = null) }
     fun onTeamNameChange(value: String) { uiState = uiState.copy(teamName = value, error = null) }
+    fun onVehicleRegistrationChange(value: String) { uiState = uiState.copy(vehicleRegistration = value, error = null) }
     fun onPasswordChange(value: String) { uiState = uiState.copy(password = value, error = null) }
     fun onConfirmPasswordChange(value: String) { uiState = uiState.copy(confirmPassword = value, error = null) }
 
@@ -67,6 +69,7 @@ class SignUpViewModel(
                     employeeNumber = uiState.employeeNumber,
                     province = uiState.province,
                     teamName = uiState.teamName,
+                    vehicleRegistration = uiState.vehicleRegistration,
                     password = uiState.password
                 )
                 uiState = uiState.copy(loading = false)

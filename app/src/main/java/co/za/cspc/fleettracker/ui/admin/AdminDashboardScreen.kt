@@ -42,6 +42,11 @@ fun AdminDashboardScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Admin Dashboard") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 actions = {
                     IconButton(onClick = { viewModel.refresh() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
@@ -132,6 +137,13 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                             .joinToString(" • ")
                         if (teamAndProvince.isNotBlank()) {
                             Text(teamAndProvince, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (emp.vehicleRegistration.isNotBlank()) {
+                            Text(
+                                "Vehicle: ${emp.vehicleRegistration}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
                         Text("Login: ${emp.email}", style = MaterialTheme.typography.bodySmall)
                         if (emp.contactEmail.isNotBlank()) {

@@ -40,19 +40,28 @@ class AdminViewModel(
     fun refresh() {
         uiState = uiState.copy(loading = true)
         viewModelScope.launch {
-            val employees = repo.listEmployees()
-            val vehicles = repo.listVehicles()
-            val todaysLogs = repo.listTodaysTimeLogs()
-            val fuelLogs = repo.listRecentFuelLogs()
-            val settings = repo.getSettings()
-            uiState = uiState.copy(
-                loading = false,
-                employees = employees,
-                vehicles = vehicles,
-                todaysLogs = todaysLogs,
-                recentFuelLogs = fuelLogs,
-                settings = settings
-            )
+            // Same reasoning as EmployeeViewModel.load(): an uncaught Firebase error
+            // here would crash the dashboard rather than show a message.
+            try {
+                val employees = repo.listEmployees()
+                val vehicles = repo.listVehicles()
+                val todaysLogs = repo.listTodaysTimeLogs()
+                val fuelLogs = repo.listRecentFuelLogs()
+                val settings = repo.getSettings()
+                uiState = uiState.copy(
+                    loading = false,
+                    employees = employees,
+                    vehicles = vehicles,
+                    todaysLogs = todaysLogs,
+                    recentFuelLogs = fuelLogs,
+                    settings = settings
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(
+                    loading = false,
+                    message = "Could not load the dashboard: ${e.message}"
+                )
+            }
         }
     }
 

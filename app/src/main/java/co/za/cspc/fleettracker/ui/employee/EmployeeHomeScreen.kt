@@ -38,6 +38,11 @@ fun EmployeeHomeScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Hi, ${profile.name}") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 actions = {
                     IconButton(onClick = onLogout) {
                         Icon(Icons.Filled.Logout, contentDescription = "Log out")

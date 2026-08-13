@@ -30,11 +30,20 @@ class EmployeeViewModel(
     fun load(profile: UserProfile) {
         uiState = uiState.copy(loading = true, profile = profile)
         viewModelScope.launch {
-            val vehicle = if (profile.assignedVehicleId.isNotBlank()) {
-                repo.getVehicle(profile.assignedVehicleId)
-            } else null
-            val log = repo.todaysTimeLog(profile.uid)
-            uiState = uiState.copy(loading = false, vehicle = vehicle, todaysLog = log)
+            // Anything here can fail (no signal, rules not deployed). Without this
+            // catch the exception escapes the coroutine and takes the app down.
+            try {
+                val vehicle = if (profile.assignedVehicleId.isNotBlank()) {
+                    repo.getVehicle(profile.assignedVehicleId)
+                } else null
+                val log = repo.todaysTimeLog(profile.uid)
+                uiState = uiState.copy(loading = false, vehicle = vehicle, todaysLog = log)
+            } catch (e: Exception) {
+                uiState = uiState.copy(
+                    loading = false,
+                    message = "Could not load your details: ${e.message}"
+                )
+            }
         }
     }
 

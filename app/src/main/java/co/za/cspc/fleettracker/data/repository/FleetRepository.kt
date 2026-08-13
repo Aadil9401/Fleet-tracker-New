@@ -64,6 +64,7 @@ class FleetRepository(
         employeeNumber: String,
         province: String,
         teamName: String,
+        vehicleRegistration: String,
         password: String
     ): UserProfile {
         val cleanEmail = email.trim()
@@ -79,6 +80,7 @@ class FleetRepository(
             employeeNumber = employeeNumber.trim(),
             province = province.trim(),
             teamName = teamName.trim(),
+            vehicleRegistration = vehicleRegistration.trim().uppercase(),
             role = Role.EMPLOYEE,
             assignedVehicleId = "",
             active = true,
@@ -95,6 +97,7 @@ class FleetRepository(
                     "employeeNumber" to profile.employeeNumber,
                     "province" to profile.province,
                     "teamName" to profile.teamName,
+                    "vehicleRegistration" to profile.vehicleRegistration,
                     "role" to profile.role,
                     "assignedVehicleId" to profile.assignedVehicleId,
                     "active" to profile.active,

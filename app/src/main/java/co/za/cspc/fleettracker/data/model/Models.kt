@@ -37,6 +37,13 @@ data class UserProfile(
     val employeeNumber: String = "",
     val province: String = "",
     val teamName: String = "",
+    /**
+     * Registration the employee typed for the vehicle they drive. Free text, so it
+     * works even before that vehicle exists in the fleet. The admin still assigns
+     * the real [Vehicle] record via [assignedVehicleId] — employees can't do that
+     * themselves, by design.
+     */
+    val vehicleRegistration: String = "",
     val role: String = Role.EMPLOYEE,
     val assignedVehicleId: String = "",
     val active: Boolean = true,

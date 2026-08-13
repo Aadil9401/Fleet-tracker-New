@@ -1,11 +1,14 @@
 package co.za.cspc.fleettracker.ui.login
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -21,59 +24,113 @@ fun LoginScreen(
 ) {
     val state = viewModel.uiState
 
-    Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+    Surface(color = MaterialTheme.colorScheme.background) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("My Daily Work Info", style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(32.dp))
+
+            Text(
+                "My Daily Work Info",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center
+            )
             Text(
                 "Sign in to continue",
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
+                modifier = Modifier.padding(top = 6.dp, bottom = 28.dp)
             )
 
-            OutlinedTextField(
-                value = state.email,
-                onValueChange = viewModel::onEmailChange,
-                label = { Text("Email / Username") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = state.password,
-                onValueChange = viewModel::onPasswordChange,
-                label = { Text("Password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth()
-            )
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    OutlinedTextField(
+                        value = state.email,
+                        onValueChange = viewModel::onEmailChange,
+                        label = { Text("Email / Username") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = state.password,
+                        onValueChange = viewModel::onPasswordChange,
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-            if (state.error != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(state.error, color = MaterialTheme.colorScheme.error)
+                    if (state.error != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                state.error,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = { viewModel.login(onLoggedIn) },
+                        enabled = !state.loading &&
+                            state.email.isNotBlank() &&
+                            state.password.isNotBlank(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                    ) {
+                        if (state.loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Text("Sign in", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = { viewModel.login(onLoggedIn) },
-                enabled = !state.loading && state.email.isNotBlank() && state.password.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
+            HorizontalDivider(modifier = Modifier.fillMaxWidth(0.6f))
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                "First time using the app?",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(
+                onClick = onSignUpClick,
+                enabled = !state.loading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .height(48.dp)
             ) {
-                if (state.loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                } else {
-                    Text("Sign in")
-                }
+                Text("Create an account")
             }
-            Spacer(Modifier.height(4.dp))
-            TextButton(onClick = onSignUpClick, enabled = !state.loading) {
-                Text("New here? Create an account")
-            }
+
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
