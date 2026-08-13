@@ -20,6 +20,7 @@ import java.util.Locale
 
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.US)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmployeeHomeScreen(
     profile: UserProfile,

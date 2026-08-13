@@ -22,6 +22,7 @@ import java.util.Locale
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.US)
 private val tabs = listOf("Today", "Employees", "Vehicles", "Logs", "Settings")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminDashboardScreen(
     onLogout: () -> Unit,
