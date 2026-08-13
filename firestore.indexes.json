@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "timeLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "startTimeMillis", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
