@@ -1,9 +1,10 @@
 /**
- * Fleet Tracker Cloud Functions
- * -----------------------------
+ * My Daily Work Info Cloud Functions
+ * ----------------------------------
  * 1. createEmployee   - callable, admin-only. Creates a Firebase Auth account
- *                       + Firestore profile for a new employee and returns
- *                       generated login credentials.
+ *                       + Firestore profile for a new employee, emails the
+ *                       generated login details to the employee's own address,
+ *                       and returns them to the admin as well.
  * 2. checkAttendance  - scheduled hourly. Emails the admin if any active
  *                       employee hasn't clocked in by the configured hour.
  * 3. checkServiceReminders - scheduled daily. Emails the admin about any
@@ -43,6 +44,17 @@ function makeTransporter() {
   });
 }
 
+/** Sends to any address. Used to deliver login details to a new employee. */
+async function sendEmail(to, subject, html) {
+  const transporter = makeTransporter();
+  await transporter.sendMail({
+    from: `"My Daily Work Info" <${GMAIL_USER.value()}>`,
+    to,
+    subject,
+    html,
+  });
+}
+
 async function sendAdminEmail(subject, html) {
   const settingsSnap = await db.collection("config").doc("settings").get();
   const settings = settingsSnap.exists ? settingsSnap.data() : {};
@@ -50,13 +62,7 @@ async function sendAdminEmail(subject, html) {
   const adminEmail = settings.adminEmail;
   if (!enabled || !adminEmail) return;
 
-  const transporter = makeTransporter();
-  await transporter.sendMail({
-    from: `"Fleet Tracker" <${GMAIL_USER.value()}>`,
-    to: adminEmail,
-    subject,
-    html,
-  });
+  await sendEmail(adminEmail, subject, html);
 }
 
 function todayString(tz) {
@@ -93,10 +99,22 @@ exports.createEmployee = onCall({ secrets: [GMAIL_USER, GMAIL_APP_PASSWORD] }, a
     throw new HttpsError("permission-denied", "Only an admin can add employees.");
   }
 
-  const name = (request.data && request.data.name || "").trim();
-  const surname = (request.data && request.data.surname || "").trim();
+  const data = request.data || {};
+  const name = (data.name || "").trim();
+  const surname = (data.surname || "").trim();
+  const employeeNumber = (data.employeeNumber || "").trim();
+  const province = (data.province || "").trim();
+  const teamName = (data.teamName || "").trim();
+  const contactEmail = (data.contactEmail || "").trim().toLowerCase();
+
   if (!name || !surname) {
     throw new HttpsError("invalid-argument", "Name and surname are required.");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "A valid email address is required — the login details are sent there."
+    );
   }
 
   const base = `${slugify(name)}.${slugify(surname)}`;
@@ -125,13 +143,38 @@ exports.createEmployee = onCall({ secrets: [GMAIL_USER, GMAIL_APP_PASSWORD] }, a
     name,
     surname,
     email,
+    contactEmail,
+    employeeNumber,
+    province,
+    teamName,
     role: "employee",
     assignedVehicleId: "",
     active: true,
     createdAt: Date.now(),
   });
 
-  return { email, password };
+  // The account already exists at this point, so a mail failure must NOT fail the
+  // whole call — the admin still gets the credentials back to hand over by hand.
+  let emailSent = false;
+  let emailError = "";
+  try {
+    await sendEmail(
+      contactEmail,
+      "Your My Daily Work Info login details",
+      `<p>Hi ${name},</p>
+       <p>An account has been created for you on <b>My Daily Work Info</b>.
+       Use these details to sign in on your phone:</p>
+       <p><b>Username:</b> ${email}<br>
+          <b>Password:</b> ${password}</p>
+       <p>Please keep them private. If you lose them, ask your admin to reset your account.</p>`
+    );
+    emailSent = true;
+  } catch (e) {
+    emailError = e.message || String(e);
+    console.error(`Could not email login details to ${contactEmail}:`, e);
+  }
+
+  return { email, password, contactEmail, emailSent, emailError };
 });
 
 // ---------------------------------------------------------------------------
@@ -167,7 +210,7 @@ exports.checkAttendance = onSchedule(
 
     const listHtml = notStarted.map((e) => `<li>${e.name} ${e.surname}</li>`).join("");
     await sendAdminEmail(
-      `Fleet Tracker: ${notStarted.length} team member(s) not started by ${targetHour}:00`,
+      `My Daily Work Info: ${notStarted.length} team member(s) not started by ${targetHour}:00`,
       `<p>The following team members have not clocked in yet today (${today}):</p><ul>${listHtml}</ul>`
     );
 
@@ -210,7 +253,7 @@ exports.checkServiceReminders = onSchedule(
       .join("");
 
     await sendAdminEmail(
-      `Fleet Tracker: ${dueVehicles.length} vehicle(s) due for service`,
+      `My Daily Work Info: ${dueVehicles.length} vehicle(s) due for service`,
       `<p>These vehicles are due (or overdue) for a service:</p><ul>${listHtml}</ul>`
     );
 

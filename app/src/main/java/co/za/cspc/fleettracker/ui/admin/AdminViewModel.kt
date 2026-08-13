@@ -11,6 +11,7 @@ import co.za.cspc.fleettracker.data.model.TimeLog
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
 import co.za.cspc.fleettracker.data.repository.FleetRepository
+import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
 import kotlinx.coroutines.launch
 
 data class AdminUiState(
@@ -22,7 +23,7 @@ data class AdminUiState(
     val settings: AppSettings = AppSettings(),
     val busy: Boolean = false,
     val message: String? = null,
-    val lastCreatedCredential: Pair<String, String>? = null
+    val lastCreatedCredential: NewEmployeeCredentials? = null
 )
 
 class AdminViewModel(
@@ -61,18 +62,33 @@ class AdminViewModel(
         return uiState.employees.filter { it.active && it.uid !in startedUids }
     }
 
-    fun addEmployee(name: String, surname: String, onDone: (email: String, password: String) -> Unit) {
-        if (name.isBlank() || surname.isBlank()) return
+    fun addEmployee(
+        name: String,
+        surname: String,
+        employeeNumber: String,
+        province: String,
+        teamName: String,
+        contactEmail: String,
+        onDone: (NewEmployeeCredentials) -> Unit
+    ) {
+        if (name.isBlank() || surname.isBlank() || contactEmail.isBlank()) return
         uiState = uiState.copy(busy = true, message = null)
         viewModelScope.launch {
             try {
-                val (email, password) = repo.createEmployee(name, surname)
+                val credentials = repo.createEmployee(
+                    name = name,
+                    surname = surname,
+                    employeeNumber = employeeNumber,
+                    province = province,
+                    teamName = teamName,
+                    contactEmail = contactEmail
+                )
                 uiState = uiState.copy(
                     busy = false,
-                    lastCreatedCredential = email to password,
+                    lastCreatedCredential = credentials,
                     employees = repo.listEmployees()
                 )
-                onDone(email, password)
+                onDone(credentials)
             } catch (e: Exception) {
                 uiState = uiState.copy(busy = false, message = "Could not create employee: ${e.message}")
             }

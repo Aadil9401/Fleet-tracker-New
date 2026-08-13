@@ -16,6 +16,18 @@ import java.util.Date
 import java.util.Locale
 
 /**
+ * Result of creating an employee: the generated login details, plus whether they
+ * were successfully emailed to the employee's own address.
+ */
+data class NewEmployeeCredentials(
+    val username: String,
+    val password: String,
+    val contactEmail: String,
+    val emailSent: Boolean,
+    val emailError: String
+)
+
+/**
  * Single access point for Firebase Auth / Firestore / Storage / Functions.
  * Keeps the rest of the app free of direct Firebase SDK calls.
  */
@@ -57,15 +69,35 @@ class FleetRepository(
 
     /**
      * Calls the "createEmployee" Cloud Function (admin-only) which uses the
-     * Firebase Admin SDK to create the account without disturbing the
-     * admin's own signed-in session. Returns the generated login email + password.
+     * Firebase Admin SDK to create the account without disturbing the admin's
+     * own signed-in session, and emails the login details to [contactEmail].
      */
-    suspend fun createEmployee(name: String, surname: String): Pair<String, String> {
-        val data = hashMapOf("name" to name.trim(), "surname" to surname.trim())
+    suspend fun createEmployee(
+        name: String,
+        surname: String,
+        employeeNumber: String,
+        province: String,
+        teamName: String,
+        contactEmail: String
+    ): NewEmployeeCredentials {
+        val data = hashMapOf(
+            "name" to name.trim(),
+            "surname" to surname.trim(),
+            "employeeNumber" to employeeNumber.trim(),
+            "province" to province.trim(),
+            "teamName" to teamName.trim(),
+            "contactEmail" to contactEmail.trim()
+        )
         val result = functions.getHttpsCallable("createEmployee").call(data).await()
         @Suppress("UNCHECKED_CAST")
-        val map = result.data as Map<String, Any>
-        return (map["email"] as String) to (map["password"] as String)
+        val map = result.data as Map<String, Any?>
+        return NewEmployeeCredentials(
+            username = map["email"] as? String ?: "",
+            password = map["password"] as? String ?: "",
+            contactEmail = map["contactEmail"] as? String ?: contactEmail.trim(),
+            emailSent = map["emailSent"] as? Boolean ?: false,
+            emailError = map["emailError"] as? String ?: ""
+        )
     }
 
     suspend fun setEmployeeActive(uid: String, active: Boolean) {

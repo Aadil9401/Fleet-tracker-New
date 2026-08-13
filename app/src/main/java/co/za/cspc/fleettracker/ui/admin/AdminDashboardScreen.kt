@@ -3,18 +3,25 @@ package co.za.cspc.fleettracker.ui.admin
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.AppSettings
+import co.za.cspc.fleettracker.data.model.SA_PROVINCES
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
+import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,7 +112,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
 @Composable
 private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
-    var credentialToShow by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var credentialToShow by remember { mutableStateOf<NewEmployeeCredentials?>(null) }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = { showAddDialog = true }, modifier = Modifier.fillMaxWidth()) {
@@ -117,7 +124,19 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 Card {
                     Column(Modifier.padding(12.dp)) {
                         Text(emp.fullName, fontWeight = FontWeight.Bold)
-                        Text(emp.email, style = MaterialTheme.typography.bodySmall)
+                        if (emp.employeeNumber.isNotBlank()) {
+                            Text("Employee no: ${emp.employeeNumber}", style = MaterialTheme.typography.bodySmall)
+                        }
+                        val teamAndProvince = listOf(emp.teamName, emp.province)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" • ")
+                        if (teamAndProvince.isNotBlank()) {
+                            Text(teamAndProvince, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("Login: ${emp.email}", style = MaterialTheme.typography.bodySmall)
+                        if (emp.contactEmail.isNotBlank()) {
+                            Text(emp.contactEmail, style = MaterialTheme.typography.bodySmall)
+                        }
                         Text(if (emp.active) "Active" else "Deactivated")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { viewModel.setEmployeeActive(emp.uid, !emp.active) }) {
@@ -153,26 +172,45 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     if (showAddDialog) {
         AddEmployeeDialog(
             busy = state.busy,
-            onConfirm = { name, surname ->
-                viewModel.addEmployee(name, surname) { email, password ->
-                    credentialToShow = email to password
-                }
+            onConfirm = { name, surname, employeeNumber, province, teamName, contactEmail ->
+                viewModel.addEmployee(
+                    name = name,
+                    surname = surname,
+                    employeeNumber = employeeNumber,
+                    province = province,
+                    teamName = teamName,
+                    contactEmail = contactEmail
+                ) { credentials -> credentialToShow = credentials }
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
         )
     }
 
-    credentialToShow?.let { (email, password) ->
+    credentialToShow?.let { credentials ->
         AlertDialog(
             onDismissRequest = { credentialToShow = null },
             title = { Text("Login details created") },
             text = {
                 Column {
-                    Text("Give these to the employee:")
+                    Text("Username: ${credentials.username}", fontWeight = FontWeight.Bold)
+                    Text("Password: ${credentials.password}", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
-                    Text("Username: $email", fontWeight = FontWeight.Bold)
-                    Text("Password: $password", fontWeight = FontWeight.Bold)
+                    if (credentials.emailSent) {
+                        Text("Emailed to ${credentials.contactEmail}.")
+                    } else {
+                        // The account exists regardless, so make it obvious the admin
+                        // must hand these over by hand.
+                        Text(
+                            "The email could not be sent — write these down and give them " +
+                                "to the employee yourself.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        if (credentials.emailError.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(credentials.emailError, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { credentialToShow = null }) { Text("Done") } }
@@ -183,26 +221,113 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
 @Composable
 private fun AddEmployeeDialog(
     busy: Boolean,
-    onConfirm: (name: String, surname: String) -> Unit,
+    onConfirm: (
+        name: String,
+        surname: String,
+        employeeNumber: String,
+        province: String,
+        teamName: String,
+        contactEmail: String
+    ) -> Unit,
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var surname by remember { mutableStateOf("") }
+    var employeeNumber by remember { mutableStateOf("") }
+    var province by remember { mutableStateOf("") }
+    var teamName by remember { mutableStateOf("") }
+    var contactEmail by remember { mutableStateOf("") }
+    var provinceMenuOpen by remember { mutableStateOf(false) }
+
+    // Mirrors the Cloud Function's check, so an obviously bad address is caught
+    // before we bother creating the account.
+    val emailLooksValid = contactEmail.contains("@") &&
+        contactEmail.substringAfterLast("@").contains(".")
+    val canCreate = !busy && name.isNotBlank() && surname.isNotBlank() && emailLooksValid
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add employee") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
-                OutlinedTextField(value = surname, onValueChange = { surname = it }, label = { Text("Surname") }, singleLine = true)
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = surname,
+                    onValueChange = { surname = it },
+                    label = { Text("Surname") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = employeeNumber,
+                    onValueChange = { employeeNumber = it },
+                    label = { Text("Employee number") },
+                    singleLine = true
+                )
+
+                Box {
+                    OutlinedTextField(
+                        value = province,
+                        onValueChange = { },
+                        readOnly = true,
+                        label = { Text("Province") },
+                        singleLine = true,
+                        trailingIcon = {
+                            IconButton(onClick = { provinceMenuOpen = true }) {
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose province")
+                            }
+                        }
+                    )
+                    DropdownMenu(
+                        expanded = provinceMenuOpen,
+                        onDismissRequest = { provinceMenuOpen = false }
+                    ) {
+                        SA_PROVINCES.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = {
+                                    province = option
+                                    provinceMenuOpen = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = teamName,
+                    onValueChange = { teamName = it },
+                    label = { Text("Team name") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = contactEmail,
+                    onValueChange = { contactEmail = it },
+                    label = { Text("Email address") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                )
                 Text(
-                    "A username and temporary password will be generated automatically.",
+                    "A username and temporary password will be generated and emailed to " +
+                        "this address.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy && name.isNotBlank() && surname.isNotBlank(), onClick = { onConfirm(name, surname) }) {
+            TextButton(
+                enabled = canCreate,
+                onClick = {
+                    onConfirm(name, surname, employeeNumber, province, teamName, contactEmail)
+                }
+            ) {
                 Text("Create")
             }
         },

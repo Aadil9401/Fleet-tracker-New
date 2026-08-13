@@ -25,7 +25,7 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Fleet Tracker", style = MaterialTheme.typography.headlineMedium)
+            Text("My Daily Work Info", style = MaterialTheme.typography.headlineMedium)
             Text(
                 "Sign in with the details your admin gave you",
                 style = MaterialTheme.typography.bodyMedium,

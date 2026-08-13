@@ -9,6 +9,19 @@ object Role {
     const val EMPLOYEE = "employee"
 }
 
+/** The nine South African provinces, offered as a picker on the add-employee form. */
+val SA_PROVINCES = listOf(
+    "Eastern Cape",
+    "Free State",
+    "Gauteng",
+    "KwaZulu-Natal",
+    "Limpopo",
+    "Mpumalanga",
+    "North West",
+    "Northern Cape",
+    "Western Cape"
+)
+
 /**
  * Mirrors a document in the top-level "users" collection.
  * Document ID == Firebase Auth UID.
@@ -17,7 +30,13 @@ data class UserProfile(
     @DocumentId val uid: String = "",
     val name: String = "",
     val surname: String = "",
+    /** Generated login username, e.g. "aadil.moolla@cspc.local". Not a real mailbox. */
     val email: String = "",
+    /** The employee's real email address; where their login details were sent. */
+    val contactEmail: String = "",
+    val employeeNumber: String = "",
+    val province: String = "",
+    val teamName: String = "",
     val role: String = Role.EMPLOYEE,
     val assignedVehicleId: String = "",
     val active: Boolean = true,
