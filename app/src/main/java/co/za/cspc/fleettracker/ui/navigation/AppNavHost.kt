@@ -20,9 +20,11 @@ import co.za.cspc.fleettracker.data.repository.FleetRepository
 import co.za.cspc.fleettracker.ui.admin.AdminDashboardScreen
 import co.za.cspc.fleettracker.ui.employee.EmployeeHomeScreen
 import co.za.cspc.fleettracker.ui.login.LoginScreen
+import co.za.cspc.fleettracker.ui.login.SignUpScreen
 
 private object Routes {
     const val LOGIN = "login"
+    const val SIGN_UP = "signUp"
     const val EMPLOYEE = "employee"
     const val ADMIN = "admin"
 }
@@ -60,13 +62,29 @@ fun AppNavHost(repo: FleetRepository = FleetRepository()) {
 
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Routes.LOGIN) {
-            LoginScreen(onLoggedIn = { loggedInProfile ->
-                profile = loggedInProfile
-                val destination = if (loggedInProfile.isAdmin) Routes.ADMIN else Routes.EMPLOYEE
-                navController.navigate(destination) {
-                    popUpTo(Routes.LOGIN) { inclusive = true }
-                }
-            })
+            LoginScreen(
+                onLoggedIn = { loggedInProfile ->
+                    profile = loggedInProfile
+                    val destination = if (loggedInProfile.isAdmin) Routes.ADMIN else Routes.EMPLOYEE
+                    navController.navigate(destination) {
+                        popUpTo(Routes.LOGIN) { inclusive = true }
+                    }
+                },
+                onSignUpClick = { navController.navigate(Routes.SIGN_UP) }
+            )
+        }
+        composable(Routes.SIGN_UP) {
+            SignUpScreen(
+                onSignedUp = { newProfile ->
+                    // Firebase leaves the new account signed in, so go straight to
+                    // their home screen rather than back to the login form.
+                    profile = newProfile
+                    navController.navigate(Routes.EMPLOYEE) {
+                        popUpTo(Routes.LOGIN) { inclusive = true }
+                    }
+                },
+                onBackToLogin = { navController.popBackStack() }
+            )
         }
         composable(Routes.EMPLOYEE) {
             profile?.let { p ->

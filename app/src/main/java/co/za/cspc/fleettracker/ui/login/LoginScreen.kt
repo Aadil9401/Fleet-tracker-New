@@ -16,6 +16,7 @@ import co.za.cspc.fleettracker.data.model.UserProfile
 @Composable
 fun LoginScreen(
     onLoggedIn: (UserProfile) -> Unit,
+    onSignUpClick: () -> Unit,
     viewModel: LoginViewModel = viewModel()
 ) {
     val state = viewModel.uiState
@@ -27,7 +28,7 @@ fun LoginScreen(
         ) {
             Text("My Daily Work Info", style = MaterialTheme.typography.headlineMedium)
             Text(
-                "Sign in with the details your admin gave you",
+                "Sign in to continue",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
@@ -68,6 +69,10 @@ fun LoginScreen(
                 } else {
                     Text("Sign in")
                 }
+            }
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = onSignUpClick, enabled = !state.loading) {
+                Text("New here? Create an account")
             }
         }
     }

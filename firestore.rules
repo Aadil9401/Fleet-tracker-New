@@ -16,12 +16,19 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    // User profiles. Accounts are created server-side by the createEmployee
-    // Cloud Function (Admin SDK bypasses these rules), so no client "create".
+    // User profiles. Admin-created accounts come from the createEmployee Cloud
+    // Function (Admin SDK bypasses these rules). Self-registration from the
+    // sign-up screen is allowed, but ONLY for the caller's own document and ONLY
+    // as an employee — that clause is what stops anyone making themselves admin.
+    // Only an admin can edit a profile afterwards, so role can't be changed later.
     match /users/{uid} {
       allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.role == 'employee'
+        && request.resource.data.active == true
+        && request.resource.data.assignedVehicleId == '';
       allow update: if isAdmin();
-      allow create, delete: if false;
+      allow delete: if false;
     }
 
     // Vehicles: everyone signed in can see fleet info, only admin edits it.

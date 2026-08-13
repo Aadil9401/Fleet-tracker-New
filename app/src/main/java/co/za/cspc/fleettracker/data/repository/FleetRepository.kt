@@ -52,6 +52,66 @@ class FleetRepository(
 
     fun logout() = auth.signOut()
 
+    /**
+     * Self-registration from the sign-up screen. Creates the Auth account and its
+     * matching profile document; the person's own email address is their login.
+     * Always an employee — the security rules reject any other role.
+     */
+    suspend fun signUp(
+        name: String,
+        surname: String,
+        email: String,
+        employeeNumber: String,
+        province: String,
+        teamName: String,
+        password: String
+    ): UserProfile {
+        val cleanEmail = email.trim()
+        val result = auth.createUserWithEmailAndPassword(cleanEmail, password).await()
+        val uid = result.user?.uid ?: throw IllegalStateException("Sign up did not return a user.")
+
+        val profile = UserProfile(
+            uid = uid,
+            name = name.trim(),
+            surname = surname.trim(),
+            email = cleanEmail,
+            contactEmail = cleanEmail,
+            employeeNumber = employeeNumber.trim(),
+            province = province.trim(),
+            teamName = teamName.trim(),
+            role = Role.EMPLOYEE,
+            assignedVehicleId = "",
+            active = true,
+            createdAt = System.currentTimeMillis()
+        )
+
+        try {
+            db.collection("users").document(uid).set(
+                mapOf(
+                    "name" to profile.name,
+                    "surname" to profile.surname,
+                    "email" to profile.email,
+                    "contactEmail" to profile.contactEmail,
+                    "employeeNumber" to profile.employeeNumber,
+                    "province" to profile.province,
+                    "teamName" to profile.teamName,
+                    "role" to profile.role,
+                    "assignedVehicleId" to profile.assignedVehicleId,
+                    "active" to profile.active,
+                    "createdAt" to profile.createdAt
+                )
+            ).await()
+        } catch (e: Exception) {
+            // Undo the half-made account. Without this the person is left with a
+            // login that has no profile, which fails as "Account not set up
+            // correctly" on every future attempt and can't be retried.
+            runCatching { result.user?.delete()?.await() }
+            throw e
+        }
+
+        return profile
+    }
+
     suspend fun currentUserProfile(): UserProfile? {
         val uid = currentUid ?: return null
         val snap = db.collection("users").document(uid).get().await()
