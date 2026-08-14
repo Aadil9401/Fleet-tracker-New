@@ -1,5 +1,7 @@
 package co.za.cspc.fleettracker.ui.admin
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +15,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -518,8 +521,37 @@ private fun BulkVehicleDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var pasted by remember { mutableStateOf("") }
+    var readError by remember { mutableStateOf<String?>(null) }
     val lineCount = pasted.lines().count { it.isNotBlank() }
+
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            val text = context.contentResolver.openInputStream(uri)
+                ?.bufferedReader()
+                ?.use { it.readText() }
+                .orEmpty()
+            when {
+                text.isBlank() ->
+                    readError = "That file looks empty."
+                // .xlsx files are zip archives; they start with "PK" and would
+                // otherwise come through as unreadable binary.
+                text.startsWith("PK") ->
+                    readError = "That's an Excel .xlsx file. In Excel use " +
+                        "File → Save As → CSV, then pick the .csv file."
+                else -> {
+                    pasted = text
+                    readError = null
+                }
+            }
+        } catch (e: Exception) {
+            readError = "Could not read that file: ${e.message}"
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -529,8 +561,28 @@ private fun BulkVehicleDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                OutlinedButton(
+                    onClick = { filePicker.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Choose CSV file")
+                }
+                readError?.let { err ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            err,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
                 Text(
-                    "Paste your list — one vehicle per line, separated by commas:",
+                    "…or paste your list below — one vehicle per line:",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Surface(
@@ -558,6 +610,7 @@ private fun BulkVehicleDialog(
                     value = pasted,
                     onValueChange = { pasted = it },
                     label = { Text("Your list") },
+                    supportingText = { Text("Check this before uploading — you can edit it here") },
                     minLines = 5,
                     maxLines = 10,
                     modifier = Modifier.fillMaxWidth()
