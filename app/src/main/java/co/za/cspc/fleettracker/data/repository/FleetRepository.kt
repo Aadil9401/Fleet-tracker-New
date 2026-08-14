@@ -176,6 +176,22 @@ class FleetRepository(
         db.collection("users").document(uid).update("active", active).await()
     }
 
+    /** Assigns vehicles to many employees at once. Keyed by employee uid. */
+    suspend fun assignVehicles(assignments: Map<String, String>) {
+        if (assignments.isEmpty()) return
+        assignments.entries.chunked(400).forEach { chunk ->
+            val batch = db.batch()
+            chunk.forEach { (uid, vehicleId) ->
+                batch.update(
+                    db.collection("users").document(uid),
+                    "assignedVehicleId",
+                    vehicleId
+                )
+            }
+            batch.commit().await()
+        }
+    }
+
     suspend fun assignVehicle(uid: String, vehicleId: String) {
         db.collection("users").document(uid).update("assignedVehicleId", vehicleId).await()
     }

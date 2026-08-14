@@ -133,6 +133,29 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
         Button(onClick = { showAddDialog = true }, modifier = Modifier.fillMaxWidth()) {
             Text("+ Add employee")
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { viewModel.autoAssignVehiclesByRegistration() },
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Auto-assign vehicles by registration")
+        }
+        state.message?.let { msg ->
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    msg,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+        }
         Spacer(Modifier.height(12.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.employees) { emp ->

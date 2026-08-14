@@ -124,6 +124,62 @@ class AdminViewModel(
         }
     }
 
+    /**
+     * Matches each employee's signed-up vehicle registration against the fleet and
+     * assigns the vehicle where it matches. Once assigned, the employee's clock-in
+     * screen picks up that vehicle's odometer reading automatically.
+     *
+     * Comparison ignores case, spaces and dashes, so "CA 123-456" typed at sign-up
+     * still matches "CA123456" from the upload.
+     */
+    fun autoAssignVehiclesByRegistration() {
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                val vehicles = repo.listVehicles()
+                val employees = repo.listEmployees()
+                val byRegistration = vehicles.associateBy { normaliseRegistration(it.registrationNumber) }
+
+                val assignments = mutableMapOf<String, String>()
+                val unmatched = mutableListOf<String>()
+                var alreadyCorrect = 0
+
+                employees.forEach { employee ->
+                    val registration = normaliseRegistration(employee.vehicleRegistration)
+                    if (registration.isBlank()) return@forEach
+                    val match = byRegistration[registration]
+                    when {
+                        match == null -> unmatched += "${employee.fullName} (${employee.vehicleRegistration})"
+                        match.id == employee.assignedVehicleId -> alreadyCorrect++
+                        else -> assignments[employee.uid] = match.id
+                    }
+                }
+
+                repo.assignVehicles(assignments)
+
+                val report = buildString {
+                    append("Assigned ${assignments.size} employee(s).")
+                    if (alreadyCorrect > 0) append(" $alreadyCorrect already correct.")
+                    if (unmatched.isNotEmpty()) {
+                        append(" No matching vehicle for: ${unmatched.joinToString("; ")}.")
+                    }
+                }
+
+                uiState = uiState.copy(
+                    busy = false,
+                    employees = repo.listEmployees(),
+                    vehicles = vehicles,
+                    message = report
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Auto-assign failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun normaliseRegistration(value: String): String =
+        value.uppercase().filter { it.isLetterOrDigit() }
+
     fun addVehicle(name: String, registration: String, odometer: Long, intervalKm: Long, intervalMonths: Long) {
         if (name.isBlank() && registration.isBlank()) return
         uiState = uiState.copy(busy = true, message = null)
