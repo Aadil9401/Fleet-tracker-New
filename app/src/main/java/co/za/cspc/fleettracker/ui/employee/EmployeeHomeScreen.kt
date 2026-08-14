@@ -5,6 +5,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
@@ -132,9 +134,10 @@ fun EmployeeHomeScreen(
             title = "Start time",
             confirmLabel = "Clock in",
             initialValue = state.vehicle?.currentOdometerKm ?: 0L,
-            onConfirm = { km ->
+            initialAreas = "",
+            onConfirm = { km, areas ->
                 showClockInDialog = false
-                viewModel.clockIn(km)
+                viewModel.clockIn(km, areas)
             },
             onDismiss = { showClockInDialog = false }
         )
@@ -145,9 +148,12 @@ fun EmployeeHomeScreen(
             title = "Knock off",
             confirmLabel = "Clock out",
             initialValue = state.vehicle?.currentOdometerKm ?: 0L,
-            onConfirm = { km ->
+            // Pre-filled with what was typed at start, so they can amend rather
+            // than retype the day's areas.
+            initialAreas = state.todaysLog?.mainAreasWorked ?: "",
+            onConfirm = { km, areas ->
                 showClockOutDialog = false
-                viewModel.clockOut(km)
+                viewModel.clockOut(km, areas)
             },
             onDismiss = { showClockOutDialog = false }
         )
@@ -179,6 +185,14 @@ private fun StatusCard(state: EmployeeUiState) {
                         "Distance travelled: ${log.kmTravelled} km"
                 )
             }
+            if (log != null && log.mainAreasWorked.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Areas: ${log.mainAreasWorked}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -188,28 +202,42 @@ private fun OdometerDialog(
     title: String,
     confirmLabel: String,
     initialValue: Long,
-    onConfirm: (Long) -> Unit,
+    initialAreas: String,
+    onConfirm: (odometerKm: Long, mainAreasWorked: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var text by remember { mutableStateOf(if (initialValue > 0) initialValue.toString() else "") }
+    var areas by remember { mutableStateOf(initialAreas) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text("Enter the vehicle's current odometer reading (km)")
-                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it.filter { c -> c.isDigit() } },
                     label = { Text("Odometer (km)") },
-                    singleLine = true
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = areas,
+                    onValueChange = { areas = it },
+                    label = { Text("Main areas worked") },
+                    supportingText = { Text("e.g. Umhlanga, Ballito, Verulam") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(text.toLongOrNull() ?: 0L) },
+                onClick = { onConfirm(text.toLongOrNull() ?: 0L, areas) },
                 enabled = text.toLongOrNull() != null
             ) { Text(confirmLabel) }
         },

@@ -73,6 +73,14 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    TextButton(
+                        onClick = { viewModel.sendPasswordReset() },
+                        enabled = !state.loading,
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Forgot password?")
+                    }
+
                     if (state.error != null) {
                         Surface(
                             color = MaterialTheme.colorScheme.errorContainer,
@@ -82,6 +90,21 @@ fun LoginScreen(
                             Text(
                                 state.error,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    if (state.info != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                state.info,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.padding(12.dp)
                             )

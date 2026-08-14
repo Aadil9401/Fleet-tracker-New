@@ -141,6 +141,63 @@ class AdminViewModel(
         }
     }
 
+    /**
+     * Bulk-adds vehicles from pasted text — one per line, comma separated:
+     * `registration, name, odometer, service interval km, service interval months`.
+     * Only the registration is required; anything missing falls back to a default.
+     * A header row is detected and skipped, so pasting straight out of a
+     * spreadsheet works.
+     */
+    fun bulkAddVehicles(pastedText: String) {
+        val vehicles = parseVehicleLines(pastedText)
+        if (vehicles.isEmpty()) {
+            uiState = uiState.copy(message = "Nothing to add — check the format and try again.")
+            return
+        }
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                val added = repo.addVehicles(vehicles)
+                uiState = uiState.copy(
+                    busy = false,
+                    vehicles = repo.listVehicles(),
+                    message = "Added $added vehicle(s)."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Bulk upload failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun parseVehicleLines(text: String): List<Vehicle> =
+        text.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot { line ->
+                // Skip a spreadsheet header row like "Registration, Name, Odometer".
+                val first = line.substringBefore(",").trim().lowercase()
+                first == "registration" || first == "reg" || first == "registrationnumber" ||
+                    first == "registration number"
+            }
+            .mapNotNull { line ->
+                val parts = line.split(",").map { it.trim() }
+                val registration = parts.getOrNull(0)?.uppercase().orEmpty()
+                if (registration.isBlank()) return@mapNotNull null
+
+                val odometer = parts.getOrNull(2)?.filter { it.isDigit() }?.toLongOrNull() ?: 0L
+                Vehicle(
+                    registrationNumber = registration,
+                    name = parts.getOrNull(1).orEmpty().ifBlank { registration },
+                    currentOdometerKm = odometer,
+                    // Treat today's reading as the service baseline, same as adding
+                    // a vehicle by hand does.
+                    lastServiceOdometerKm = odometer,
+                    lastServiceDateMillis = System.currentTimeMillis(),
+                    serviceIntervalKm = parts.getOrNull(3)?.filter { it.isDigit() }?.toLongOrNull() ?: 10000L,
+                    serviceIntervalMonths = parts.getOrNull(4)?.filter { it.isDigit() }?.toLongOrNull() ?: 6L
+                )
+            }
+
     fun markServiced(vehicleId: String, odometerKm: Long) {
         viewModelScope.launch {
             repo.markVehicleServiced(vehicleId, odometerKm)

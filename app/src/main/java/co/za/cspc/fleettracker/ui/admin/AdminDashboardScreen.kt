@@ -108,6 +108,13 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                     val ended = if (log.hasEnded) timeFormat.format(Date(log.endTimeMillis)) else "still working"
                     Text("Start: $started   Knock off: $ended")
                     if (log.hasEnded) Text("Distance: ${log.kmTravelled} km")
+                    if (log.mainAreasWorked.isNotBlank()) {
+                        Text(
+                            "Areas: ${log.mainAreasWorked}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -350,9 +357,35 @@ private fun AddEmployeeDialog(
 @Composable
 private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var showBulkDialog by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = { showAddDialog = true }, modifier = Modifier.fillMaxWidth()) {
             Text("+ Add vehicle")
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { showBulkDialog = true },
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Bulk upload vehicles")
+        }
+        // Bulk upload reports its result here — without this the count/error would
+        // only be visible on the Settings tab.
+        state.message?.let { msg ->
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    msg,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
         }
         Spacer(Modifier.height(12.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -386,6 +419,83 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
             onDismiss = { showAddDialog = false }
         )
     }
+
+    if (showBulkDialog) {
+        BulkVehicleDialog(
+            busy = state.busy,
+            onConfirm = { pasted ->
+                viewModel.bulkAddVehicles(pasted)
+                showBulkDialog = false
+            },
+            onDismiss = { showBulkDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun BulkVehicleDialog(
+    busy: Boolean,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var pasted by remember { mutableStateOf("") }
+    val lineCount = pasted.lines().count { it.isNotBlank() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Bulk upload vehicles") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Paste your list — one vehicle per line, separated by commas:",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(
+                        "registration, name, odometer, service km, service months\n\n" +
+                            "CA123456, Bakkie 1, 85000, 10000, 6\n" +
+                            "ND987654, Hilux, 120000",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+                Text(
+                    "Only the registration is required. Leave the rest off and it uses " +
+                        "0 km, 10 000 km and 6 months. A heading row is ignored.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = pasted,
+                    onValueChange = { pasted = it },
+                    label = { Text("Your list") },
+                    minLines = 5,
+                    maxLines = 10,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (lineCount > 0) {
+                    Text(
+                        "$lineCount line(s) ready to add",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && lineCount > 0,
+                onClick = { onConfirm(pasted) }
+            ) { Text("Upload") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

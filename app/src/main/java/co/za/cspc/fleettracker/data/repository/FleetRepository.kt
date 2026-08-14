@@ -53,6 +53,15 @@ class FleetRepository(
     fun logout() = auth.signOut()
 
     /**
+     * Sends Firebase's password-reset email. Only useful for accounts whose login is
+     * a real mailbox — i.e. people who signed themselves up. Admin-created logins use
+     * the generated "@cspc.local" address, which can't receive mail.
+     */
+    suspend fun sendPasswordReset(email: String) {
+        auth.sendPasswordResetEmail(email.trim()).await()
+    }
+
+    /**
      * Self-registration from the sign-up screen. Creates the Auth account and its
      * matching profile document; the person's own email address is their login.
      * Always an employee — the security rules reject any other role.
@@ -193,6 +202,33 @@ class FleetRepository(
         ).await()
     }
 
+    /**
+     * Writes many vehicles at once. Chunked because a Firestore batch caps out at
+     * 500 writes. Returns how many were added.
+     */
+    suspend fun addVehicles(vehicles: List<Vehicle>): Int {
+        if (vehicles.isEmpty()) return 0
+        vehicles.chunked(400).forEach { chunk ->
+            val batch = db.batch()
+            chunk.forEach { v ->
+                batch.set(
+                    db.collection("vehicles").document(),
+                    mapOf(
+                        "registrationNumber" to v.registrationNumber,
+                        "name" to v.name,
+                        "currentOdometerKm" to v.currentOdometerKm,
+                        "lastServiceOdometerKm" to v.lastServiceOdometerKm,
+                        "lastServiceDateMillis" to v.lastServiceDateMillis,
+                        "serviceIntervalKm" to v.serviceIntervalKm,
+                        "serviceIntervalMonths" to v.serviceIntervalMonths
+                    )
+                )
+            }
+            batch.commit().await()
+        }
+        return vehicles.size
+    }
+
     suspend fun markVehicleServiced(vehicleId: String, odometerKm: Long) {
         db.collection("vehicles").document(vehicleId).update(
             mapOf(
@@ -217,7 +253,13 @@ class FleetRepository(
         return if (snap.exists()) snap.toObject(TimeLog::class.java) else null
     }
 
-    suspend fun clockIn(uid: String, employeeName: String, vehicleId: String, startOdometerKm: Long) {
+    suspend fun clockIn(
+        uid: String,
+        employeeName: String,
+        vehicleId: String,
+        startOdometerKm: Long,
+        mainAreasWorked: String
+    ) {
         val docId = "${uid}_${todayString()}"
         db.collection("timeLogs").document(docId).set(
             mapOf(
@@ -226,20 +268,30 @@ class FleetRepository(
                 "date" to todayString(),
                 "startTimeMillis" to System.currentTimeMillis(),
                 "startOdometerKm" to startOdometerKm,
-                "vehicleId" to vehicleId
+                "vehicleId" to vehicleId,
+                "mainAreasWorked" to mainAreasWorked.trim()
             )
         ).await()
         updateVehicleOdometer(vehicleId, startOdometerKm)
     }
 
-    suspend fun clockOut(uid: String, vehicleId: String, endOdometerKm: Long) {
+    suspend fun clockOut(
+        uid: String,
+        vehicleId: String,
+        endOdometerKm: Long,
+        mainAreasWorked: String
+    ) {
         val docId = "${uid}_${todayString()}"
-        db.collection("timeLogs").document(docId).update(
-            mapOf(
-                "endTimeMillis" to System.currentTimeMillis(),
-                "endOdometerKm" to endOdometerKm
-            )
-        ).await()
+        val updates = mutableMapOf<String, Any>(
+            "endTimeMillis" to System.currentTimeMillis(),
+            "endOdometerKm" to endOdometerKm
+        )
+        // Blank means "leave it alone", so knocking off never wipes what was typed
+        // at the start of the day.
+        if (mainAreasWorked.isNotBlank()) {
+            updates["mainAreasWorked"] = mainAreasWorked.trim()
+        }
+        db.collection("timeLogs").document(docId).update(updates).await()
         updateVehicleOdometer(vehicleId, endOdometerKm)
     }
 

@@ -89,7 +89,9 @@ data class TimeLog(
     val startOdometerKm: Long = 0L,
     val endTimeMillis: Long = 0L,
     val endOdometerKm: Long = 0L,
-    val vehicleId: String = ""
+    val vehicleId: String = "",
+    /** Free text: the main areas this person worked in that day. */
+    val mainAreasWorked: String = ""
 ) {
     val hasStarted: Boolean get() = startTimeMillis > 0L
     val hasEnded: Boolean get() = endTimeMillis > 0L
