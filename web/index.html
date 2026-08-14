@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Daily Work Info — Admin</title>
+<style>
+  :root {
+    --primary: #00695C;
+    --on-primary: #ffffff;
+    --primary-container: #B2DFDB;
+    --on-primary-container: #00251E;
+    --secondary: #EF6C00;
+    --bg: #F5F8F7;
+    --surface: #ffffff;
+    --on-surface: #191C1B;
+    --muted: #5A6461;
+    --surface-variant: #DDE5E2;
+    --outline: #C4CFCB;
+    --error: #B3261E;
+    --error-container: #F9DEDC;
+    --on-error-container: #410E0B;
+    --radius: 16px;
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --primary: #4DB6AC;
+      --on-primary: #00382F;
+      --primary-container: #004D43;
+      --on-primary-container: #B2DFDB;
+      --secondary: #FFB74D;
+      --bg: #141918;
+      --surface: #1E2422;
+      --on-surface: #E1E3E1;
+      --muted: #AEB9B5;
+      --surface-variant: #2C3331;
+      --outline: #3F4946;
+      --error: #F2B8B5;
+      --error-container: #8C1D18;
+      --on-error-container: #F9DEDC;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--on-surface);
+    line-height: 1.5;
+  }
+  .hidden { display: none !important; }
+
+  /* ---- Login ---- */
+  #loginView {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+  .login-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 32px;
+    width: 100%;
+    max-width: 400px;
+  }
+  .brand { color: var(--primary); font-size: 1.6rem; font-weight: 700; margin: 0; }
+  .sub { color: var(--muted); margin: 4px 0 24px; }
+
+  label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
+  input, select, textarea {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--outline);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--on-surface);
+    font-size: 1rem;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: -1px;
+  }
+  .field { margin-bottom: 14px; }
+
+  button {
+    font: inherit;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    padding: 11px 16px;
+    cursor: pointer;
+    background: var(--primary);
+    color: var(--on-primary);
+    font-weight: 600;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  button.outline {
+    background: transparent;
+    color: var(--primary);
+    border-color: var(--outline);
+  }
+  button.ghost {
+    background: transparent;
+    color: var(--primary);
+    border-color: transparent;
+    padding: 7px 10px;
+    font-weight: 500;
+  }
+  button.danger { background: transparent; color: var(--error); border-color: transparent; }
+  button.block { width: 100%; }
+
+  .msg { border-radius: 10px; padding: 11px 12px; margin: 12px 0; font-size: .92rem; }
+  .msg.err { background: var(--error-container); color: var(--on-error-container); }
+  .msg.ok { background: var(--primary-container); color: var(--on-primary-container); }
+
+  /* ---- Shell ---- */
+  header.bar {
+    background: var(--primary);
+    color: var(--on-primary);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header.bar h1 { font-size: 1.1rem; margin: 0; flex: 1; font-weight: 600; }
+  header.bar .who { font-size: .85rem; opacity: .9; }
+  header.bar button {
+    background: rgba(255,255,255,.16);
+    color: var(--on-primary);
+    padding: 7px 12px;
+    font-size: .9rem;
+  }
+
+  nav.tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    padding: 0 12px;
+    border-bottom: 1px solid var(--outline);
+    overflow-x: auto;
+  }
+  nav.tabs button {
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    color: var(--muted);
+    padding: 14px 16px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  nav.tabs button.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  h2.section { font-size: 1.05rem; margin: 0 0 12px; }
+
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .tile {
+    background: var(--primary-container);
+    color: var(--on-primary-container);
+    border-radius: var(--radius);
+    padding: 18px;
+    text-align: center;
+  }
+  .tile .big { font-size: 1.9rem; font-weight: 700; line-height: 1.1; }
+  .tile .cap { font-size: .8rem; opacity: .85; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .93rem; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--surface-variant); vertical-align: middle; }
+  th { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  .table-wrap { overflow-x: auto; }
+
+  .avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--primary-container); color: var(--on-primary-container);
+    display: grid; place-items: center; font-weight: 700; font-size: .85rem;
+    flex-shrink: 0;
+  }
+  .avatar.dim { background: var(--surface-variant); color: var(--muted); }
+  .person { display: flex; align-items: center; gap: 10px; }
+  .person .nm { font-weight: 600; }
+  .person .meta { font-size: .8rem; color: var(--muted); }
+
+  .badge {
+    display: inline-block; padding: 3px 9px; border-radius: 8px;
+    font-size: .74rem; font-weight: 700;
+    background: var(--primary-container); color: var(--on-primary-container);
+  }
+  .badge.off { background: var(--error-container); color: var(--on-error-container); }
+  .badge.due { background: var(--error); color: #fff; }
+
+  .chip {
+    display: inline-block; padding: 3px 9px; border-radius: 8px;
+    background: var(--surface-variant); color: var(--muted);
+    font-size: .76rem; margin-right: 5px;
+  }
+
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+  .toolbar .grow { flex: 1; min-width: 200px; }
+  .count { color: var(--muted); font-size: .85rem; margin-bottom: 10px; }
+
+  .bar-track { height: 7px; background: var(--surface-variant); border-radius: 99px; overflow: hidden; min-width: 90px; }
+  .bar-fill { height: 100%; background: var(--primary); }
+  .bar-fill.due { background: var(--error); }
+
+  .empty { color: var(--muted); text-align: center; padding: 28px 12px; }
+  .row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  details.help { margin-top: 10px; font-size: .88rem; color: var(--muted); }
+  code { background: var(--surface-variant); padding: 1px 5px; border-radius: 5px; font-size: .85em; }
+  pre { background: var(--surface-variant); padding: 10px; border-radius: 10px; overflow-x: auto; font-size: .82rem; }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="loginView">
+  <div class="login-card">
+    <h1 class="brand">My Daily Work Info</h1>
+    <p class="sub">Admin portal</p>
+
+    <div id="configWarning" class="msg err hidden">
+      This page has not been configured yet. Paste your Firebase <b>web app</b> config
+      into <code>firebase-config.js</code>.
+    </div>
+
+    <form id="loginForm">
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div id="loginMsg"></div>
+      <button id="loginBtn" class="block" type="submit">Sign in</button>
+    </form>
+    <p class="sub" style="margin-top:16px;font-size:.85rem">
+      Use the same admin login as the phone app. Staff accounts can't sign in here.
+    </p>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="appView" class="hidden">
+  <header class="bar">
+    <h1>My Daily Work Info</h1>
+    <span class="who" id="whoami"></span>
+    <button id="refreshBtn">Refresh</button>
+    <button id="logoutBtn">Sign out</button>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="today" class="active">Today</button>
+    <button data-tab="employees">Employees</button>
+    <button data-tab="vehicles">Vehicles</button>
+    <button data-tab="logs">Logs</button>
+  </nav>
+
+  <main>
+    <div id="globalMsg"></div>
+
+    <!-- TODAY -->
+    <section id="tab-today">
+      <div class="tiles" id="todayTiles"></div>
+      <div id="notStartedCard"></div>
+      <div class="card">
+        <h2 class="section">Today's activity</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Employee</th><th>Start</th><th>Knock off</th><th>Distance</th><th>Areas</th></tr></thead>
+          <tbody id="todayRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- EMPLOYEES -->
+    <section id="tab-employees" class="hidden">
+      <div class="card">
+        <div class="toolbar">
+          <div class="grow">
+            <label for="empSearch">Search</label>
+            <input id="empSearch" type="search" placeholder="Name, employee no, team or registration">
+          </div>
+          <div>
+            <label for="provinceFilter">Province</label>
+            <select id="provinceFilter"></select>
+          </div>
+          <button id="autoAssignBtn" class="outline">Auto-assign vehicles</button>
+        </div>
+        <div class="count" id="empCount"></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Employee</th><th>Province</th><th>Vehicle reg</th><th>Assigned vehicle</th><th>Status</th><th></th></tr></thead>
+          <tbody id="empRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- VEHICLES -->
+    <section id="tab-vehicles" class="hidden">
+      <div class="card">
+        <h2 class="section">Bulk upload</h2>
+        <div class="field">
+          <label for="csvFile">Choose a CSV file</label>
+          <input id="csvFile" type="file" accept=".csv,text/csv,text/plain">
+        </div>
+        <div class="field">
+          <label for="bulkText">…or paste your list (one vehicle per line)</label>
+          <textarea id="bulkText" rows="6" placeholder="CA123456, Bakkie 1, 85000, 2026-03-15, 80000"></textarea>
+        </div>
+        <button id="bulkBtn">Upload vehicles</button>
+        <details class="help">
+          <summary>Format</summary>
+          <pre>registration, name, current odometer, last service date, last service odometer</pre>
+          Only the registration is required. Dates accept <code>yyyy-mm-dd</code> or
+          <code>dd/mm/yyyy</code>. Every vehicle is set to service every 15 000 km.
+          A heading row is ignored, and duplicates already on the list are skipped.
+        </details>
+      </div>
+
+      <div class="card">
+        <h2 class="section">Add one vehicle</h2>
+        <div class="toolbar">
+          <div><label for="vReg">Registration</label><input id="vReg"></div>
+          <div><label for="vName">Name</label><input id="vName"></div>
+          <div><label for="vOdo">Odometer</label><input id="vOdo" type="number" min="0"></div>
+          <button id="addVehicleBtn">Add</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <h2 class="section grow" style="margin:0">Fleet (<span id="vehCount">0</span>)</h2>
+          <button id="deleteAllBtn" class="danger">Delete all</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Vehicle</th><th>Odometer</th><th>Since service</th><th>Progress</th><th></th></tr></thead>
+          <tbody id="vehRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- LOGS -->
+    <section id="tab-logs" class="hidden">
+      <div class="card">
+        <h2 class="section">Recent fuel logs</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Employee</th><th>Date</th><th>Amount</th><th>Litres</th><th>Odometer</th><th>Receipt</th></tr></thead>
+          <tbody id="fuelRows"></tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <h2 class="section">Recent work days</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Employee</th><th>Date</th><th>Start</th><th>Knock off</th><th>Distance</th><th>Areas</th></tr></thead>
+          <tbody id="timeRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script type="module">
+import { firebaseConfig } from './firebase-config.js';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import {
+  getFirestore, collection, doc, getDoc, getDocs, query, where,
+  updateDoc, deleteDoc, writeBatch, orderBy, limit
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+const SERVICE_INTERVAL_KM = 15000;
+const ALL_PROVINCES = 'All provinces';
+const SA_PROVINCES = ['Eastern Cape','Free State','Gauteng','KwaZulu-Natal','Limpopo',
+  'Mpumalanga','North West','Northern Cape','Western Cape'];
+
+const $ = (id) => document.getElementById(id);
+
+if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith('PASTE')) {
+  $('configWarning').classList.remove('hidden');
+  $('loginBtn').disabled = true;
+}
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// Everything loaded for the signed-in admin.
+let data = { employees: [], vehicles: [], todaysLogs: [], recentTimeLogs: [], fuelLogs: [] };
+let filters = { query: '', province: ALL_PROVINCES };
+
+/* ---------------- helpers ---------------- */
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+const todayString = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+const hhmm = (millis) => millis
+  ? new Date(millis).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+  : '—';
+
+const normReg = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+const initials = (name, surname) =>
+  ((name?.[0] ?? '') + (surname?.[0] ?? '')).toUpperCase() || '?';
+
+const kmSince = (v) => Math.max(0, (v.currentOdometerKm || 0) - (v.lastServiceOdometerKm || 0));
+
+// Mirrors Vehicle.isServiceDue in the Android app, including the "0 months means
+// kilometres only" rule.
+function isServiceDue(v) {
+  const interval = v.serviceIntervalKm || SERVICE_INTERVAL_KM;
+  if (kmSince(v) >= interval) return true;
+  const months = typeof v.serviceIntervalMonths === 'number' ? v.serviceIntervalMonths : 6;
+  if (!v.lastServiceDateMillis || months <= 0) return false;
+  return Date.now() - v.lastServiceDateMillis >= months * 30 * 24 * 60 * 60 * 1000;
+}
+
+function showMsg(text, kind = 'ok') {
+  $('globalMsg').innerHTML = `<div class="msg ${kind}">${esc(text)}</div>`;
+  if (kind === 'ok') setTimeout(() => { $('globalMsg').innerHTML = ''; }, 6000);
+}
+
+/* ---------------- auth ---------------- */
+$('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('loginMsg').innerHTML = '';
+  $('loginBtn').disabled = true;
+  try {
+    await signInWithEmailAndPassword(auth, $('email').value.trim(), $('password').value);
+  } catch (err) {
+    const map = {
+      'auth/invalid-credential': 'Incorrect email or password.',
+      'auth/invalid-email': 'That email address does not look valid.',
+      'auth/user-not-found': 'Incorrect email or password.',
+      'auth/wrong-password': 'Incorrect email or password.',
+      'auth/network-request-failed': 'No internet connection.',
+      'auth/too-many-requests': 'Too many attempts. Please wait a moment.'
+    };
+    $('loginMsg').innerHTML =
+      `<div class="msg err">${esc(map[err.code] || err.message)}</div>`;
+  } finally {
+    $('loginBtn').disabled = false;
+  }
+});
+
+$('logoutBtn').addEventListener('click', () => signOut(auth));
+$('refreshBtn').addEventListener('click', () => loadAll());
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    $('appView').classList.add('hidden');
+    $('loginView').classList.remove('hidden');
+    return;
+  }
+  // Only admins belong in this portal. Staff have their own app.
+  let profile = null;
+  try {
+    const snap = await getDoc(doc(db, 'users', user.uid));
+    profile = snap.exists() ? snap.data() : null;
+  } catch (err) {
+    $('loginMsg').innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  }
+  if (!profile || profile.role !== 'admin') {
+    await signOut(auth);
+    $('loginMsg').innerHTML =
+      '<div class="msg err">This portal is for admins only. Staff should use the phone app.</div>';
+    return;
+  }
+  $('whoami').textContent = profile.email || user.email;
+  $('loginView').classList.add('hidden');
+  $('appView').classList.remove('hidden');
+  loadAll();
+});
+
+/* ---------------- loading ---------------- */
+async function loadAll() {
+  try {
+    const [employees, vehicles, todaysLogs, recentTimeLogs, fuelLogs] = await Promise.all([
+      getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
+      getDocs(collection(db, 'vehicles')),
+      getDocs(query(collection(db, 'timeLogs'), where('date', '==', todayString()))),
+      getDocs(query(collection(db, 'timeLogs'), orderBy('startTimeMillis', 'desc'), limit(50))),
+      getDocs(query(collection(db, 'fuelLogs'), orderBy('timestampMillis', 'desc'), limit(50)))
+    ]);
+    const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
+    data = {
+      employees: rows(employees),
+      vehicles: rows(vehicles),
+      todaysLogs: rows(todaysLogs),
+      recentTimeLogs: rows(recentTimeLogs),
+      fuelLogs: rows(fuelLogs)
+    };
+    renderAll();
+  } catch (err) {
+    showMsg('Could not load data: ' + err.message, 'err');
+  }
+}
+
+/* ---------------- tabs ---------------- */
+document.querySelectorAll('nav.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['today','employees','vehicles','logs'].forEach(t =>
+      $('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
+    $('globalMsg').innerHTML = '';
+  });
+});
+
+/* ---------------- render ---------------- */
+function renderAll() {
+  renderToday();
+  renderEmployees();
+  renderVehicles();
+  renderLogs();
+}
+
+function renderToday() {
+  const activeEmployees = data.employees.filter(e => e.active !== false);
+  const started = data.todaysLogs.filter(l => l.startTimeMillis > 0);
+  const startedUids = new Set(started.map(l => l.uid));
+  const knockedOff = data.todaysLogs.filter(l => l.endTimeMillis > 0).length;
+  const notStarted = activeEmployees.filter(e => !startedUids.has(e.id));
+
+  $('todayTiles').innerHTML = [
+    ['Started', `${started.length}/${activeEmployees.length}`],
+    ['Knocked off', knockedOff],
+    ['Vehicles', data.vehicles.length],
+    ['Employees', data.employees.length]
+  ].map(([cap, big]) =>
+    `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+  ).join('');
+
+  $('notStartedCard').innerHTML = notStarted.length === 0 ? '' : `
+    <div class="card" style="background:var(--error-container);color:var(--on-error-container)">
+      <h2 class="section">Not started yet (${notStarted.length})</h2>
+      ${notStarted.map(e => `<div>• ${esc(fullName(e))}</div>`).join('')}
+    </div>`;
+
+  $('todayRows').innerHTML = data.todaysLogs.length === 0
+    ? `<tr><td colspan="5" class="empty">Nobody has clocked in yet today.</td></tr>`
+    : data.todaysLogs.map(l => `<tr>
+        <td>${esc(l.employeeName)}</td>
+        <td>${hhmm(l.startTimeMillis)}</td>
+        <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
+        <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
+        <td>${esc(l.mainAreasWorked || '—')}</td>
+      </tr>`).join('');
+}
+
+const fullName = (e) => `${e.name || ''} ${e.surname || ''}`.trim();
+
+function renderEmployees() {
+  const counts = {};
+  data.employees.forEach(e => { counts[e.province] = (counts[e.province] || 0) + 1; });
+  const current = filters.province;
+  $('provinceFilter').innerHTML = [
+    `<option value="${ALL_PROVINCES}">${ALL_PROVINCES} (${data.employees.length})</option>`,
+    ...SA_PROVINCES.map(p =>
+      `<option value="${esc(p)}">${esc(p)} (${counts[p] || 0})</option>`)
+  ].join('');
+  $('provinceFilter').value = current;
+
+  const q = filters.query.trim().toLowerCase();
+  const filtered = data.employees.filter(e => {
+    const okProvince = filters.province === ALL_PROVINCES || e.province === filters.province;
+    const haystack = [fullName(e), e.employeeNumber, e.teamName, e.vehicleRegistration]
+      .map(v => String(v ?? '').toLowerCase());
+    return okProvince && (!q || haystack.some(h => h.includes(q)));
+  });
+
+  $('empCount').textContent = filtered.length === data.employees.length
+    ? `${data.employees.length} employee(s)`
+    : `Showing ${filtered.length} of ${data.employees.length}`;
+
+  const vehicleOptions = (selectedId) => [
+    `<option value="">— none —</option>`,
+    ...data.vehicles.map(v =>
+      `<option value="${esc(v.id)}" ${v.id === selectedId ? 'selected' : ''}>${esc(v.name || v.registrationNumber)}</option>`)
+  ].join('');
+
+  $('empRows').innerHTML = filtered.length === 0
+    ? `<tr><td colspan="6" class="empty">${data.employees.length === 0
+        ? 'No employees yet. They can sign up on the phone app.'
+        : 'Nobody matches that search.'}</td></tr>`
+    : filtered.map(e => {
+        const active = e.active !== false;
+        return `<tr>
+          <td><div class="person">
+            <div class="avatar ${active ? '' : 'dim'}">${esc(initials(e.name, e.surname))}</div>
+            <div>
+              <div class="nm">${esc(fullName(e))}</div>
+              <div class="meta">${esc([e.employeeNumber && 'No. ' + e.employeeNumber, e.teamName]
+                .filter(Boolean).join(' • '))}</div>
+              <div class="meta">${esc(e.contactEmail || e.email || '')}</div>
+            </div>
+          </div></td>
+          <td>${e.province ? `<span class="chip">${esc(e.province)}</span>` : '—'}</td>
+          <td>${esc(e.vehicleRegistration || '—')}</td>
+          <td><select data-assign="${esc(e.id)}">${vehicleOptions(e.assignedVehicleId)}</select></td>
+          <td><span class="badge ${active ? '' : 'off'}">${active ? 'Active' : 'Inactive'}</span></td>
+          <td><button class="ghost ${active ? 'danger' : ''}" data-toggle="${esc(e.id)}"
+              data-active="${active}">${active ? 'Deactivate' : 'Reactivate'}</button></td>
+        </tr>`;
+      }).join('');
+
+  $('empRows').querySelectorAll('[data-assign]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      try {
+        await updateDoc(doc(db, 'users', sel.dataset.assign), { assignedVehicleId: sel.value });
+        showMsg('Vehicle assignment updated.');
+        await loadAll();
+      } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
+    });
+  });
+  $('empRows').querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await updateDoc(doc(db, 'users', btn.dataset.toggle),
+          { active: btn.dataset.active !== 'true' });
+        await loadAll();
+      } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
+    });
+  });
+}
+
+$('empSearch').addEventListener('input', (e) => {
+  filters.query = e.target.value;
+  renderEmployees();
+});
+$('provinceFilter').addEventListener('change', (e) => {
+  filters.province = e.target.value;
+  renderEmployees();
+});
+
+$('autoAssignBtn').addEventListener('click', async () => {
+  const byReg = {};
+  data.vehicles.forEach(v => { byReg[normReg(v.registrationNumber)] = v; });
+  const unmatched = [];
+  let assigned = 0, alreadyCorrect = 0;
+  const batch = writeBatch(db);
+
+  data.employees.forEach(e => {
+    const reg = normReg(e.vehicleRegistration);
+    if (!reg) return;
+    const match = byReg[reg];
+    if (!match) { unmatched.push(`${fullName(e)} (${e.vehicleRegistration})`); return; }
+    if (match.id === e.assignedVehicleId) { alreadyCorrect++; return; }
+    batch.update(doc(db, 'users', e.id), { assignedVehicleId: match.id });
+    assigned++;
+  });
+
+  try {
+    if (assigned > 0) await batch.commit();
+    let report = `Assigned ${assigned} employee(s).`;
+    if (alreadyCorrect) report += ` ${alreadyCorrect} already correct.`;
+    if (unmatched.length) report += ` No matching vehicle for: ${unmatched.join('; ')}.`;
+    showMsg(report, unmatched.length ? 'err' : 'ok');
+    await loadAll();
+  } catch (err) { showMsg('Auto-assign failed: ' + err.message, 'err'); }
+});
+
+function renderVehicles() {
+  $('vehCount').textContent = data.vehicles.length;
+  $('vehRows').innerHTML = data.vehicles.length === 0
+    ? `<tr><td colspan="5" class="empty">No vehicles yet. Upload your list above.</td></tr>`
+    : data.vehicles.map(v => {
+        const due = isServiceDue(v);
+        const interval = v.serviceIntervalKm || SERVICE_INTERVAL_KM;
+        const pct = Math.min(100, Math.round(kmSince(v) / interval * 100));
+        return `<tr>
+          <td><div class="nm">${esc(v.name || v.registrationNumber)}</div>
+              <div class="meta">${esc(v.registrationNumber)}</div>
+              ${due ? '<span class="badge due">SERVICE DUE</span>' : ''}</td>
+          <td>${esc(v.currentOdometerKm || 0)} km</td>
+          <td>${esc(kmSince(v))} / ${esc(interval)} km</td>
+          <td><div class="bar-track"><div class="bar-fill ${due ? 'due' : ''}" style="width:${pct}%"></div></div></td>
+          <td class="row-actions">
+            <button class="ghost" data-serviced="${esc(v.id)}" data-odo="${esc(v.currentOdometerKm || 0)}">Mark serviced</button>
+            <button class="ghost danger" data-del="${esc(v.id)}">Delete</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+  $('vehRows').querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this vehicle? This cannot be undone.')) return;
+      try {
+        await deleteDoc(doc(db, 'vehicles', btn.dataset.del));
+        showMsg('Vehicle deleted.');
+        await loadAll();
+      } catch (err) { showMsg('Could not delete: ' + err.message, 'err'); }
+    });
+  });
+  $('vehRows').querySelectorAll('[data-serviced]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await updateDoc(doc(db, 'vehicles', btn.dataset.serviced), {
+          lastServiceOdometerKm: Number(btn.dataset.odo),
+          lastServiceDateMillis: Date.now(),
+          lastReminderNotifiedDate: ''
+        });
+        showMsg('Marked as serviced today.');
+        await loadAll();
+      } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
+    });
+  });
+}
+
+$('deleteAllBtn').addEventListener('click', async () => {
+  if (data.vehicles.length === 0) return;
+  if (!confirm(`Delete all ${data.vehicles.length} vehicles? This cannot be undone.`)) return;
+  try {
+    // Chunked for Firestore's 500-write batch cap.
+    for (let i = 0; i < data.vehicles.length; i += 400) {
+      const batch = writeBatch(db);
+      data.vehicles.slice(i, i + 400)
+        .forEach(v => batch.delete(doc(db, 'vehicles', v.id)));
+      await batch.commit();
+    }
+    showMsg('All vehicles deleted.');
+    await loadAll();
+  } catch (err) { showMsg('Could not delete: ' + err.message, 'err'); }
+});
+
+$('addVehicleBtn').addEventListener('click', async () => {
+  const reg = $('vReg').value.trim().toUpperCase();
+  if (!reg) { showMsg('Registration is required.', 'err'); return; }
+  const odo = Number($('vOdo').value || 0);
+  try {
+    const batch = writeBatch(db);
+    batch.set(doc(collection(db, 'vehicles')), {
+      registrationNumber: reg,
+      name: $('vName').value.trim() || reg,
+      currentOdometerKm: odo,
+      lastServiceOdometerKm: odo,
+      lastServiceDateMillis: Date.now(),
+      serviceIntervalKm: SERVICE_INTERVAL_KM,
+      serviceIntervalMonths: 0
+    });
+    await batch.commit();
+    $('vReg').value = ''; $('vName').value = ''; $('vOdo').value = '';
+    showMsg('Vehicle added.');
+    await loadAll();
+  } catch (err) { showMsg('Could not add: ' + err.message, 'err'); }
+});
+
+/* ---------------- bulk upload ---------------- */
+$('csvFile').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const text = await file.text();
+  if (text.startsWith('PK')) {
+    showMsg("That's an Excel .xlsx file. Use File → Save As → CSV, then pick the .csv.", 'err');
+    return;
+  }
+  $('bulkText').value = text;
+  showMsg('File loaded — check the list below, then press Upload vehicles.');
+});
+
+// Accepts yyyy-mm-dd, dd/mm/yyyy and the dash/slash variants, matching the app.
+function parseServiceDate(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return 0;
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) return dateOf(+m[1], +m[2], +m[3]);
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (m) return dateOf(+m[3], +m[2], +m[1]);
+  return 0;
+}
+function dateOf(y, mo, d) {
+  const dt = new Date(y, mo - 1, d);
+  return (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d) ? dt.getTime() : 0;
+}
+const digits = (s) => {
+  const only = String(s ?? '').replace(/[^0-9]/g, '');
+  return only ? Number(only) : null;
+};
+
+function parseVehicleLines(text) {
+  return text.split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean)
+    .filter(line => {
+      const first = line.split(/[,\t]/)[0].trim().toLowerCase();
+      return !(first.startsWith('registration') || first === 'reg');
+    })
+    .map(line => {
+      const p = line.split(/[,\t]/).map(x => x.trim());
+      const reg = (p[0] || '').toUpperCase();
+      if (!reg) return null;
+      const odo = digits(p[2]) ?? 0;
+      return {
+        registrationNumber: reg,
+        name: p[1] || reg,
+        currentOdometerKm: odo,
+        // Blank means "nothing travelled since the last service", not 0 km on the
+        // clock — otherwise every vehicle would look instantly overdue.
+        lastServiceOdometerKm: digits(p[4]) ?? odo,
+        lastServiceDateMillis: parseServiceDate(p[3]),
+        serviceIntervalKm: SERVICE_INTERVAL_KM,
+        serviceIntervalMonths: 0
+      };
+    })
+    .filter(Boolean);
+}
+
+$('bulkBtn').addEventListener('click', async () => {
+  const parsed = parseVehicleLines($('bulkText').value);
+  if (parsed.length === 0) {
+    showMsg('Nothing to add — check the format and try again.', 'err');
+    return;
+  }
+  const existing = new Set(data.vehicles.map(v => normReg(v.registrationNumber)));
+  const seen = new Set();
+  const toAdd = [];
+  let skipped = 0;
+  parsed.forEach(v => {
+    const key = normReg(v.registrationNumber);
+    if (existing.has(key) || seen.has(key)) { skipped++; return; }
+    seen.add(key);
+    toAdd.push(v);
+  });
+
+  try {
+    for (let i = 0; i < toAdd.length; i += 400) {
+      const batch = writeBatch(db);
+      toAdd.slice(i, i + 400)
+        .forEach(v => batch.set(doc(collection(db, 'vehicles')), v));
+      await batch.commit();
+    }
+    let report = `Added ${toAdd.length} vehicle(s).`;
+    if (skipped) report += ` Skipped ${skipped} already on the list.`;
+    showMsg(report);
+    $('bulkText').value = '';
+    $('csvFile').value = '';
+    await loadAll();
+  } catch (err) { showMsg('Bulk upload failed: ' + err.message, 'err'); }
+});
+
+/* ---------------- logs ---------------- */
+function renderLogs() {
+  $('fuelRows').innerHTML = data.fuelLogs.length === 0
+    ? `<tr><td colspan="6" class="empty">No fuel logs yet.</td></tr>`
+    : data.fuelLogs.map(f => `<tr>
+        <td>${esc(f.employeeName)}</td>
+        <td>${esc(f.date)}</td>
+        <td>R${Number(f.amountSpentRands || 0).toFixed(2)}</td>
+        <td>${f.litres ? esc(f.litres) + ' L' : '—'}</td>
+        <td>${esc(f.odometerKm || 0)} km</td>
+        <td>${f.receiptPhotoUrl
+          ? `<a href="${esc(f.receiptPhotoUrl)}" target="_blank" rel="noopener">View</a>` : '—'}</td>
+      </tr>`).join('');
+
+  $('timeRows').innerHTML = data.recentTimeLogs.length === 0
+    ? `<tr><td colspan="6" class="empty">No work days recorded yet.</td></tr>`
+    : data.recentTimeLogs.map(l => `<tr>
+        <td>${esc(l.employeeName)}</td>
+        <td>${esc(l.date)}</td>
+        <td>${hhmm(l.startTimeMillis)}</td>
+        <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
+        <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
+        <td>${esc(l.mainAreasWorked || '—')}</td>
+      </tr>`).join('');
+}
+</script>
+</body>
+</html>

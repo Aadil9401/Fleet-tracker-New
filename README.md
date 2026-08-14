@@ -9,6 +9,7 @@ reminders, and an admin dashboard with email alerts.
 | Folder | What it is |
 |---|---|
 | `app/` | The Android app (Kotlin + Jetpack Compose) |
+| `web/` | Browser-based admin portal (same Firebase project and data) |
 | `functions/` | Firebase Cloud Functions (creates employee logins, sends email alerts) |
 | `firestore.rules`, `storage.rules` | Security rules so employees can only see/edit their own data |
 | `.github/workflows/build-apk.yml` | Automatically builds the installable APK on GitHub |
