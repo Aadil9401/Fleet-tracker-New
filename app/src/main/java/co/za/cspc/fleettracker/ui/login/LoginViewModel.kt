@@ -7,6 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.repository.FleetRepository
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import kotlinx.coroutines.launch
 
 data class LoginUiState(
@@ -74,8 +77,20 @@ class LoginViewModel(
                     onSuccess(profile)
                 }
             } catch (e: Exception) {
-                uiState = uiState.copy(loading = false, error = "Incorrect email or password.")
+                uiState = uiState.copy(loading = false, error = signInErrorMessage(e))
             }
         }
+    }
+
+    /**
+     * Previously every failure here said "Incorrect email or password", which sent
+     * you hunting for a password problem when the real cause was no signal or a
+     * permissions issue.
+     */
+    private fun signInErrorMessage(e: Exception): String = when (e) {
+        is FirebaseAuthInvalidUserException,
+        is FirebaseAuthInvalidCredentialsException -> "Incorrect email or password."
+        is FirebaseNetworkException -> "No internet connection. Check your signal and try again."
+        else -> e.message ?: "Could not sign in. Please try again."
     }
 }

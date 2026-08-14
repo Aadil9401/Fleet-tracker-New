@@ -25,6 +25,7 @@ data class AdminUiState(
     val employees: List<UserProfile> = emptyList(),
     val vehicles: List<Vehicle> = emptyList(),
     val todaysLogs: List<TimeLog> = emptyList(),
+    val recentTimeLogs: List<TimeLog> = emptyList(),
     val recentFuelLogs: List<FuelLog> = emptyList(),
     val settings: AppSettings = AppSettings(),
     val busy: Boolean = false,
@@ -52,6 +53,7 @@ class AdminViewModel(
                 val employees = repo.listEmployees()
                 val vehicles = repo.listVehicles()
                 val todaysLogs = repo.listTodaysTimeLogs()
+                val recentTimeLogs = repo.listRecentTimeLogs()
                 val fuelLogs = repo.listRecentFuelLogs()
                 val settings = repo.getSettings()
                 uiState = uiState.copy(
@@ -59,6 +61,7 @@ class AdminViewModel(
                     employees = employees,
                     vehicles = vehicles,
                     todaysLogs = todaysLogs,
+                    recentTimeLogs = recentTimeLogs,
                     recentFuelLogs = fuelLogs,
                     settings = settings
                 )
@@ -214,19 +217,37 @@ class AdminViewModel(
      * kilometres alone.
      */
     fun bulkAddVehicles(pastedText: String) {
-        val vehicles = parseVehicleLines(pastedText)
-        if (vehicles.isEmpty()) {
+        val parsed = parseVehicleLines(pastedText)
+        if (parsed.isEmpty()) {
             uiState = uiState.copy(message = "Nothing to add — check the format and try again.")
             return
         }
         uiState = uiState.copy(busy = true, message = null)
         viewModelScope.launch {
             try {
-                val added = repo.addVehicles(vehicles)
+                // Skip registrations already in the fleet, and repeats within the
+                // pasted list, so uploading the same file twice can't create
+                // duplicates — which would also break vehicle auto-assignment.
+                val existing = repo.listVehicles()
+                    .map { normaliseRegistration(it.registrationNumber) }
+                    .toSet()
+                val seen = mutableSetOf<String>()
+                val toAdd = mutableListOf<Vehicle>()
+                var skipped = 0
+                parsed.forEach { vehicle ->
+                    val key = normaliseRegistration(vehicle.registrationNumber)
+                    if (key in existing || !seen.add(key)) skipped++ else toAdd += vehicle
+                }
+
+                val added = repo.addVehicles(toAdd)
+                val report = buildString {
+                    append("Added $added vehicle(s).")
+                    if (skipped > 0) append(" Skipped $skipped already on the list.")
+                }
                 uiState = uiState.copy(
                     busy = false,
                     vehicles = repo.listVehicles(),
-                    message = "Added $added vehicle(s)."
+                    message = report
                 )
             } catch (e: Exception) {
                 uiState = uiState.copy(busy = false, message = "Bulk upload failed: ${e.message}")

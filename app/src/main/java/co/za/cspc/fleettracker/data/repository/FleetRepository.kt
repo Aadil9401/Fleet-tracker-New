@@ -8,6 +8,7 @@ import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
@@ -386,12 +387,16 @@ class FleetRepository(
     }
 
     suspend fun saveSettings(settings: AppSettings) {
+        // merge() matters: the attendance Cloud Function stores lastAttendanceAlertDate
+        // in this same document. A plain set() would wipe it, and the "already alerted
+        // today" guard would break — sending duplicate emails every hour.
         db.collection("config").document("settings").set(
             mapOf(
                 "adminEmail" to settings.adminEmail,
                 "notifyIfNotStartedByHour" to settings.notifyIfNotStartedByHour,
                 "notificationsEnabled" to settings.notificationsEnabled
-            )
+            ),
+            SetOptions.merge()
         ).await()
     }
 }

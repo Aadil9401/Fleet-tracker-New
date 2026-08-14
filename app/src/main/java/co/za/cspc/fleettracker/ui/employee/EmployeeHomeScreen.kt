@@ -90,7 +90,7 @@ fun EmployeeHomeScreen(
                 ) { Text("Log fuel spent") }
             }
 
-            item { Divider() }
+            item { HorizontalDivider() }
 
             item { Text("Service reminders", style = MaterialTheme.typography.titleMedium) }
 

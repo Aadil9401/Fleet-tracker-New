@@ -6,18 +6,26 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.AppSettings
@@ -32,6 +40,9 @@ import java.util.Locale
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.US)
 private val tabs = listOf("Today", "Employees", "Vehicles", "Logs", "Settings")
 
+/** Sentinel for "don't filter by province". */
+private const val ALL_PROVINCES = "All provinces"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminDashboardScreen(
@@ -40,6 +51,10 @@ fun AdminDashboardScreen(
 ) {
     val state = viewModel.uiState
     var selectedTab by remember { mutableStateOf(0) }
+
+    // uiState.message is shared across tabs, so without this a result from one tab
+    // (e.g. "Added 12 vehicles") keeps showing on another, looking like it belongs there.
+    LaunchedEffect(selectedTab) { viewModel.clearMessage() }
 
     Scaffold(
         topBar = {
@@ -88,19 +103,46 @@ fun AdminDashboardScreen(
 @Composable
 private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
     val notStarted = viewModel.notStartedToday()
+    val started = state.todaysLogs.count { it.hasStarted }
+    val activeCount = state.employees.count { it.active }
+    val knockedOff = state.todaysLogs.count { it.hasEnded }
+
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text("${state.todaysLogs.count { it.hasStarted }} of ${state.employees.count { it.active }} started today",
-                style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatTile("Started", "$started/$activeCount", Modifier.weight(1f))
+                StatTile("Knocked off", knockedOff.toString(), Modifier.weight(1f))
+                StatTile("Vehicles", state.vehicles.size.toString(), Modifier.weight(1f))
+            }
         }
         if (notStarted.isNotEmpty()) {
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text("Not started yet:", fontWeight = FontWeight.Bold)
-                        notStarted.forEach { Text("• ${it.fullName}") }
+                    Column(Modifier.padding(14.dp)) {
+                        Text(
+                            "Not started yet (${notStarted.size})",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        notStarted.forEach {
+                            Text(
+                                "• ${it.fullName}",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 }
+            }
+        }
+        if (state.todaysLogs.isNotEmpty()) {
+            item {
+                Text(
+                    "Today's activity",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
         items(state.todaysLogs) { log ->
@@ -128,6 +170,22 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
 private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var credentialToShow by remember { mutableStateOf<NewEmployeeCredentials?>(null) }
+    var query by remember { mutableStateOf("") }
+    var provinceFilter by remember { mutableStateOf(ALL_PROVINCES) }
+
+    val filtered = remember(state.employees, query, provinceFilter) {
+        val trimmed = query.trim()
+        state.employees.filter { employee ->
+            val matchesProvince =
+                provinceFilter == ALL_PROVINCES || employee.province == provinceFilter
+            val matchesQuery = trimmed.isBlank() ||
+                employee.fullName.contains(trimmed, ignoreCase = true) ||
+                employee.employeeNumber.contains(trimmed, ignoreCase = true) ||
+                employee.teamName.contains(trimmed, ignoreCase = true) ||
+                employee.vehicleRegistration.contains(trimmed, ignoreCase = true)
+            matchesProvince && matchesQuery
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = { showAddDialog = true }, modifier = Modifier.fillMaxWidth()) {
@@ -157,59 +215,67 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
             }
         }
         Spacer(Modifier.height(12.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.employees) { emp ->
-                Card {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(emp.fullName, fontWeight = FontWeight.Bold)
-                        if (emp.employeeNumber.isNotBlank()) {
-                            Text("Employee no: ${emp.employeeNumber}", style = MaterialTheme.typography.bodySmall)
-                        }
-                        val teamAndProvince = listOf(emp.teamName, emp.province)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" • ")
-                        if (teamAndProvince.isNotBlank()) {
-                            Text(teamAndProvince, style = MaterialTheme.typography.bodySmall)
-                        }
-                        if (emp.vehicleRegistration.isNotBlank()) {
-                            Text(
-                                "Vehicle: ${emp.vehicleRegistration}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Text("Login: ${emp.email}", style = MaterialTheme.typography.bodySmall)
-                        if (emp.contactEmail.isNotBlank()) {
-                            Text(emp.contactEmail, style = MaterialTheme.typography.bodySmall)
-                        }
-                        Text(if (emp.active) "Active" else "Deactivated")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { viewModel.setEmployeeActive(emp.uid, !emp.active) }) {
-                                Text(if (emp.active) "Deactivate" else "Reactivate")
-                            }
-                            var expanded by remember { mutableStateOf(false) }
-                            Box {
-                                TextButton(onClick = { expanded = true }) {
-                                    Text(
-                                        state.vehicles.find { it.id == emp.assignedVehicleId }?.name
-                                            ?: "Assign vehicle"
-                                    )
-                                }
-                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                    state.vehicles.forEach { v ->
-                                        DropdownMenuItem(
-                                            text = { Text(v.name.ifBlank { v.registrationNumber }) },
-                                            onClick = {
-                                                expanded = false
-                                                viewModel.assignVehicle(emp.uid, v.id)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
+
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text("Search") },
+            placeholder = { Text("Name, employee no, team or registration") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { query = "" }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Clear search")
                     }
                 }
+            },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(8.dp))
+        ProvincePicker(
+            employees = state.employees,
+            selected = provinceFilter,
+            onSelect = { provinceFilter = it }
+        )
+
+        Spacer(Modifier.height(10.dp))
+        Text(
+            if (filtered.size == state.employees.size) {
+                "${state.employees.size} employee(s)"
+            } else {
+                "Showing ${filtered.size} of ${state.employees.size}"
+            },
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.height(8.dp))
+        if (filtered.isEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    if (state.employees.isEmpty()) {
+                        "No employees yet. They can sign up on the app themselves."
+                    } else {
+                        "Nobody matches that search."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(filtered, key = { it.uid }) { emp ->
+                EmployeeCard(
+                    employee = emp,
+                    assignedVehicle = state.vehicles.find { it.id == emp.assignedVehicleId },
+                    vehicles = state.vehicles,
+                    onToggleActive = { viewModel.setEmployeeActive(emp.uid, !emp.active) },
+                    onAssignVehicle = { vehicleId -> viewModel.assignVehicle(emp.uid, vehicleId) }
+                )
             }
         }
     }
@@ -260,6 +326,274 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
             },
             confirmButton = { TextButton(onClick = { credentialToShow = null }) { Text("Done") } }
         )
+    }
+}
+
+/** Headline number with a caption, used for the at-a-glance row on Today. */
+@Composable
+private fun StatTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+        modifier = modifier
+    ) {
+        Column(
+            Modifier.padding(vertical = 14.dp, horizontal = 10.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                value,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+/**
+ * Province filter. Each option carries a live count so you can see where your people
+ * are before choosing — more useful than a plain list of nine names.
+ */
+@Composable
+private fun ProvincePicker(
+    employees: List<UserProfile>,
+    selected: String,
+    onSelect: (String) -> Unit
+) {
+    var open by remember { mutableStateOf(false) }
+    val counts = remember(employees) { employees.groupingBy { it.province }.eachCount() }
+
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { open = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(selected, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("$ALL_PROVINCES (${employees.size})") },
+                onClick = {
+                    onSelect(ALL_PROVINCES)
+                    open = false
+                }
+            )
+            HorizontalDivider()
+            SA_PROVINCES.forEach { province ->
+                val count = counts[province] ?: 0
+                DropdownMenuItem(
+                    text = { Text("$province ($count)") },
+                    onClick = {
+                        onSelect(province)
+                        open = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmployeeCard(
+    employee: UserProfile,
+    assignedVehicle: Vehicle?,
+    vehicles: List<Vehicle>,
+    onToggleActive: () -> Unit,
+    onAssignVehicle: (String) -> Unit
+) {
+    Card(
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                InitialsAvatar(employee.name, employee.surname, dimmed = !employee.active)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        employee.fullName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    val subtitle = listOfNotNull(
+                        employee.employeeNumber.takeIf { it.isNotBlank() }?.let { "No. $it" },
+                        employee.teamName.takeIf { it.isNotBlank() }
+                    ).joinToString(" • ")
+                    if (subtitle.isNotBlank()) {
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                StatusBadge(active = employee.active)
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (employee.province.isNotBlank()) {
+                    InfoChip(employee.province, Icons.Filled.Place)
+                }
+                if (employee.vehicleRegistration.isNotBlank()) {
+                    InfoChip(employee.vehicleRegistration, Icons.Filled.DirectionsCar)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                employee.contactEmail.ifBlank { employee.email },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            Icons.Filled.DirectionsCar,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            assignedVehicle?.let { it.name.ifBlank { it.registrationNumber } }
+                                ?: "Assign vehicle"
+                        )
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (vehicles.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("No vehicles added yet") },
+                                enabled = false,
+                                onClick = { }
+                            )
+                        }
+                        vehicles.forEach { vehicle ->
+                            DropdownMenuItem(
+                                text = { Text(vehicle.name.ifBlank { vehicle.registrationNumber }) },
+                                onClick = {
+                                    menuOpen = false
+                                    onAssignVehicle(vehicle.id)
+                                }
+                            )
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = onToggleActive,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = if (employee.active) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        }
+                    )
+                ) {
+                    Text(if (employee.active) "Deactivate" else "Reactivate")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InitialsAvatar(name: String, surname: String, dimmed: Boolean) {
+    val initials = buildString {
+        name.firstOrNull()?.let { append(it.uppercaseChar()) }
+        surname.firstOrNull()?.let { append(it.uppercaseChar()) }
+    }.ifBlank { "?" }
+
+    Surface(
+        color = if (dimmed) {
+            MaterialTheme.colorScheme.surfaceVariant
+        } else {
+            MaterialTheme.colorScheme.primaryContainer
+        },
+        shape = CircleShape,
+        modifier = Modifier.size(44.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                initials,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (dimmed) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusBadge(active: Boolean) {
+    Surface(
+        color = if (active) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.errorContainer
+        },
+        shape = MaterialTheme.shapes.extraSmall
+    ) {
+        Text(
+            if (active) "Active" else "Inactive",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (active) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onErrorContainer
+            },
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+/** Small pill of supporting detail. Hand-rolled so it stays on stable Material APIs. */
+@Composable
+private fun InfoChip(label: String, icon: ImageVector) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.extraSmall
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -434,12 +768,56 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 Card(colors = CardDefaults.cardColors(
                     containerColor = if (due) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface
                 )) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(v.name.ifBlank { v.registrationNumber }, fontWeight = FontWeight.Bold)
-                        Text("Reg: ${v.registrationNumber}")
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    v.name.ifBlank { v.registrationNumber },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    v.registrationNumber,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (due) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.error,
+                                    shape = MaterialTheme.shapes.extraSmall
+                                ) {
+                                    Text(
+                                        "SERVICE DUE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onError,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
                         Text("Odometer: ${v.currentOdometerKm} km")
-                        Text("Since service: ${v.kmSinceService()} km / ${v.serviceIntervalKm} km limit")
-                        if (due) Text("SERVICE DUE", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${v.kmSinceService()} km since service of ${v.serviceIntervalKm} km",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        // Visual read on how close this vehicle is to its next service.
+                        val progress = if (v.serviceIntervalKm > 0) {
+                            (v.kmSinceService().toFloat() / v.serviceIntervalKm).coerceIn(0f, 1f)
+                        } else 0f
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            color = if (due) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { viewModel.markServiced(v.id, v.currentOdometerKm) }) {
                                 Text("Mark serviced")
@@ -701,7 +1079,7 @@ private fun AddVehicleDialog(
 private fun LogsTab(state: AdminUiState) {
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Recent fuel logs", style = MaterialTheme.typography.titleMedium) }
-        items(state.recentFuelLogs) { f ->
+        items(state.recentFuelLogs, key = { it.id }) { f ->
             Card {
                 Column(Modifier.padding(12.dp)) {
                     Text("${f.employeeName} — R${"%.2f".format(f.amountSpentRands)}", fontWeight = FontWeight.Bold)
@@ -711,7 +1089,35 @@ private fun LogsTab(state: AdminUiState) {
             }
         }
         if (state.recentFuelLogs.isEmpty()) {
-            item { Text("No fuel logs yet.") }
+            item { Text("No fuel logs yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+
+        // Time logs were being fetched but never displayed anywhere — this is the
+        // work history the Logs tab implied it already had.
+        item {
+            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            Text("Recent work days", style = MaterialTheme.typography.titleMedium)
+        }
+        items(state.recentTimeLogs, key = { it.id }) { log ->
+            Card {
+                Column(Modifier.padding(12.dp)) {
+                    Text(log.employeeName, fontWeight = FontWeight.Bold)
+                    val startText = if (log.hasStarted) timeFormat.format(Date(log.startTimeMillis)) else "-"
+                    val endText = if (log.hasEnded) timeFormat.format(Date(log.endTimeMillis)) else "still working"
+                    Text("${log.date}  •  $startText → $endText")
+                    if (log.hasEnded) Text("Distance: ${log.kmTravelled} km")
+                    if (log.mainAreasWorked.isNotBlank()) {
+                        Text(
+                            "Areas: ${log.mainAreasWorked}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+        if (state.recentTimeLogs.isEmpty()) {
+            item { Text("No work days recorded yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
