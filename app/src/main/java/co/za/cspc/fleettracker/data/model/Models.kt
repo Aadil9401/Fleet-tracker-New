@@ -61,7 +61,8 @@ data class Vehicle(
     val currentOdometerKm: Long = 0L,
     val lastServiceOdometerKm: Long = 0L,
     val lastServiceDateMillis: Long = 0L,
-    val serviceIntervalKm: Long = 10000L,
+    val serviceIntervalKm: Long = 15000L,
+    /** Months between services. Zero or less turns the date-based check off. */
     val serviceIntervalMonths: Long = 6L,
     @get:PropertyName("lastReminderNotifiedDate") @set:PropertyName("lastReminderNotifiedDate")
     var lastReminderNotifiedDate: String = ""
@@ -72,6 +73,9 @@ data class Vehicle(
 
     fun isServiceDueByDate(nowMillis: Long): Boolean {
         if (lastServiceDateMillis <= 0L) return false
+        // Zero months means "judge by kilometres only". Without this guard a zero
+        // interval would make every vehicle permanently overdue.
+        if (serviceIntervalMonths <= 0L) return false
         val monthsMillis = serviceIntervalMonths * 30L * 24L * 60L * 60L * 1000L
         return nowMillis - lastServiceDateMillis >= monthsMillis
     }

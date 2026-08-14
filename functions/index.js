@@ -233,11 +233,14 @@ exports.checkServiceReminders = onSchedule(
       if (v.lastReminderNotifiedDate === today) continue;
 
       const kmSinceService = Math.max(0, (v.currentOdometerKm || 0) - (v.lastServiceOdometerKm || 0));
-      const dueByKm = kmSinceService >= (v.serviceIntervalKm || 10000);
+      const dueByKm = kmSinceService >= (v.serviceIntervalKm || 15000);
 
+      // Must mirror Vehicle.isServiceDueByDate on the app side: 0 months means
+      // "kilometres only". Note `|| 6` would wrongly turn an explicit 0 into 6.
+      const months = typeof v.serviceIntervalMonths === "number" ? v.serviceIntervalMonths : 6;
       let dueByDate = false;
-      if (v.lastServiceDateMillis) {
-        const monthsMs = (v.serviceIntervalMonths || 6) * 30 * 24 * 60 * 60 * 1000;
+      if (v.lastServiceDateMillis && months > 0) {
+        const monthsMs = months * 30 * 24 * 60 * 60 * 1000;
         dueByDate = Date.now() - v.lastServiceDateMillis >= monthsMs;
       }
 

@@ -358,6 +358,8 @@ private fun AddEmployeeDialog(
 private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var showBulkDialog by remember { mutableStateOf(false) }
+    var vehicleToDelete by remember { mutableStateOf<Vehicle?>(null) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = { showAddDialog = true }, modifier = Modifier.fillMaxWidth()) {
             Text("+ Add vehicle")
@@ -369,6 +371,18 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Bulk upload vehicles")
+        }
+        if (state.vehicles.isNotEmpty()) {
+            TextButton(
+                onClick = { confirmDeleteAll = true },
+                enabled = !state.busy,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Delete all ${state.vehicles.size} vehicles")
+            }
         }
         // Bulk upload reports its result here — without this the count/error would
         // only be visible on the Settings tab.
@@ -400,8 +414,18 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         Text("Odometer: ${v.currentOdometerKm} km")
                         Text("Since service: ${v.kmSinceService()} km / ${v.serviceIntervalKm} km limit")
                         if (due) Text("SERVICE DUE", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-                        TextButton(onClick = { viewModel.markServiced(v.id, v.currentOdometerKm) }) {
-                            Text("Mark as serviced today")
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(onClick = { viewModel.markServiced(v.id, v.currentOdometerKm) }) {
+                                Text("Mark serviced")
+                            }
+                            TextButton(
+                                onClick = { vehicleToDelete = v },
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                Text("Delete")
+                            }
                         }
                     }
                 }
@@ -428,6 +452,62 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 showBulkDialog = false
             },
             onDismiss = { showBulkDialog = false }
+        )
+    }
+
+    vehicleToDelete?.let { v ->
+        AlertDialog(
+            onDismissRequest = { vehicleToDelete = null },
+            title = { Text("Delete this vehicle?") },
+            text = {
+                Text(
+                    "${v.name.ifBlank { v.registrationNumber }} (${v.registrationNumber}) " +
+                        "will be removed. Fuel and time logs already recorded against it " +
+                        "are kept."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteVehicle(v.id)
+                        vehicleToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vehicleToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (confirmDeleteAll) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteAll = false },
+            title = { Text("Delete all vehicles?") },
+            text = {
+                Text(
+                    "This removes all ${state.vehicles.size} vehicles and cannot be " +
+                        "undone. Use this to clear an incorrect upload before loading " +
+                        "the correct list. Employees, logs and settings are untouched."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteAllVehicles()
+                        confirmDeleteAll = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Delete all") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") }
+            }
         )
     }
 }
@@ -458,16 +538,19 @@ private fun BulkVehicleDialog(
                     shape = MaterialTheme.shapes.small
                 ) {
                     Text(
-                        "registration, name, odometer, service km, service months\n\n" +
-                            "CA123456, Bakkie 1, 85000, 10000, 6\n" +
-                            "ND987654, Hilux, 120000",
+                        "registration, name, current odometer, " +
+                            "last service date, last service odometer\n\n" +
+                            "CA123456, Bakkie 1, 85000, 2026-03-15, 80000\n" +
+                            "ND987654, Hilux, 120000, 20/01/2026, 112000",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(10.dp)
                     )
                 }
                 Text(
-                    "Only the registration is required. Leave the rest off and it uses " +
-                        "0 km, 10 000 km and 6 months. A heading row is ignored.",
+                    "Only the registration is required. Dates can be yyyy-mm-dd or " +
+                        "dd/mm/yyyy. Every vehicle is set to service every " +
+                        "15 000 km. A heading row is ignored, and you can paste " +
+                        "cells straight from Excel.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -507,7 +590,7 @@ private fun AddVehicleDialog(
     var name by remember { mutableStateOf("") }
     var reg by remember { mutableStateOf("") }
     var odo by remember { mutableStateOf("") }
-    var intervalKm by remember { mutableStateOf("10000") }
+    var intervalKm by remember { mutableStateOf(SERVICE_INTERVAL_KM.toString()) }
     var intervalMonths by remember { mutableStateOf("6") }
     AlertDialog(
         onDismissRequest = onDismiss,

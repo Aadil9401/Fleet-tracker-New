@@ -229,6 +229,27 @@ class FleetRepository(
         return vehicles.size
     }
 
+    suspend fun deleteVehicle(vehicleId: String) {
+        db.collection("vehicles").document(vehicleId).delete().await()
+    }
+
+    /**
+     * Deletes every vehicle — for starting over after a bad bulk upload. Chunked
+     * for the 500-write batch cap. Returns how many were removed.
+     *
+     * Employees assigned to a deleted vehicle keep a stale assignedVehicleId; the
+     * app treats that as "no vehicle assigned", so nothing breaks.
+     */
+    suspend fun deleteAllVehicles(): Int {
+        val ids = db.collection("vehicles").get().await().documents.map { it.id }
+        ids.chunked(400).forEach { chunk ->
+            val batch = db.batch()
+            chunk.forEach { batch.delete(db.collection("vehicles").document(it)) }
+            batch.commit().await()
+        }
+        return ids.size
+    }
+
     suspend fun markVehicleServiced(vehicleId: String, odometerKm: Long) {
         db.collection("vehicles").document(vehicleId).update(
             mapOf(

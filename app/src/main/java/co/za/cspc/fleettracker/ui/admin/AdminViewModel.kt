@@ -13,6 +13,12 @@ import co.za.cspc.fleettracker.data.model.Vehicle
 import co.za.cspc.fleettracker.data.repository.FleetRepository
 import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
 import kotlinx.coroutines.launch
+import java.text.ParseException
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+/** Standard service interval for the whole fleet. */
+const val SERVICE_INTERVAL_KM = 15000L
 
 data class AdminUiState(
     val loading: Boolean = true,
@@ -142,11 +148,14 @@ class AdminViewModel(
     }
 
     /**
-     * Bulk-adds vehicles from pasted text — one per line, comma separated:
-     * `registration, name, odometer, service interval km, service interval months`.
-     * Only the registration is required; anything missing falls back to a default.
-     * A header row is detected and skipped, so pasting straight out of a
-     * spreadsheet works.
+     * Bulk-adds vehicles from pasted text — one per line:
+     * `registration, name, current odometer, last service date, last service odometer`.
+     *
+     * Only the registration is required. Separators can be commas OR tabs, so
+     * copying cells straight out of Excel works as well as a saved CSV. A header
+     * row is detected and skipped. Every vehicle gets the standard 15 000 km
+     * service interval, and months is set to 0 so reminders are judged on
+     * kilometres alone.
      */
     fun bulkAddVehicles(pastedText: String) {
         val vehicles = parseVehicleLines(pastedText)
@@ -175,28 +184,82 @@ class AdminViewModel(
             .filter { it.isNotBlank() }
             .filterNot { line ->
                 // Skip a spreadsheet header row like "Registration, Name, Odometer".
-                val first = line.substringBefore(",").trim().lowercase()
-                first == "registration" || first == "reg" || first == "registrationnumber" ||
-                    first == "registration number"
+                val first = line.split(',', '\t').first().trim().lowercase()
+                first.startsWith("registration") || first == "reg"
             }
             .mapNotNull { line ->
-                val parts = line.split(",").map { it.trim() }
+                val parts = line.split(',', '\t').map { it.trim() }
                 val registration = parts.getOrNull(0)?.uppercase().orEmpty()
                 if (registration.isBlank()) return@mapNotNull null
 
-                val odometer = parts.getOrNull(2)?.filter { it.isDigit() }?.toLongOrNull() ?: 0L
+                val odometer = parts.getOrNull(2).digitsToLongOrNull() ?: 0L
+                val lastServiceDate = parseServiceDate(parts.getOrNull(3))
+                // Falling back to the current reading means "no distance travelled
+                // since the last service" rather than a bogus 0 km baseline, which
+                // would otherwise show the vehicle as instantly overdue.
+                val lastServiceOdometer = parts.getOrNull(4).digitsToLongOrNull() ?: odometer
+
                 Vehicle(
                     registrationNumber = registration,
                     name = parts.getOrNull(1).orEmpty().ifBlank { registration },
                     currentOdometerKm = odometer,
-                    // Treat today's reading as the service baseline, same as adding
-                    // a vehicle by hand does.
-                    lastServiceOdometerKm = odometer,
-                    lastServiceDateMillis = System.currentTimeMillis(),
-                    serviceIntervalKm = parts.getOrNull(3)?.filter { it.isDigit() }?.toLongOrNull() ?: 10000L,
-                    serviceIntervalMonths = parts.getOrNull(4)?.filter { it.isDigit() }?.toLongOrNull() ?: 6L
+                    lastServiceOdometerKm = lastServiceOdometer,
+                    lastServiceDateMillis = lastServiceDate,
+                    serviceIntervalKm = SERVICE_INTERVAL_KM,
+                    // 0 = judge by kilometres only, as agreed.
+                    serviceIntervalMonths = 0L
                 )
             }
+
+    private fun String?.digitsToLongOrNull(): Long? =
+        this?.filter { it.isDigit() }?.takeIf { it.isNotEmpty() }?.toLongOrNull()
+
+    /** Accepts `yyyy-MM-dd` or `dd/MM/yyyy`. Returns 0 if blank or unrecognised. */
+    private fun parseServiceDate(value: String?): Long {
+        val raw = value?.trim().orEmpty()
+        if (raw.isBlank()) return 0L
+        for (pattern in listOf("yyyy-MM-dd", "dd/MM/yyyy", "yyyy/MM/dd", "dd-MM-yyyy")) {
+            try {
+                val format = SimpleDateFormat(pattern, Locale.US).apply { isLenient = false }
+                return format.parse(raw)?.time ?: continue
+            } catch (e: ParseException) {
+                // Try the next pattern.
+            }
+        }
+        return 0L
+    }
+
+    fun deleteVehicle(vehicleId: String) {
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                repo.deleteVehicle(vehicleId)
+                uiState = uiState.copy(
+                    busy = false,
+                    vehicles = repo.listVehicles(),
+                    message = "Vehicle deleted."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not delete: ${e.message}")
+            }
+        }
+    }
+
+    fun deleteAllVehicles() {
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                val removed = repo.deleteAllVehicles()
+                uiState = uiState.copy(
+                    busy = false,
+                    vehicles = repo.listVehicles(),
+                    message = "Deleted $removed vehicle(s)."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not delete: ${e.message}")
+            }
+        }
+    }
 
     fun markServiced(vehicleId: String, odometerKm: Long) {
         viewModelScope.launch {
