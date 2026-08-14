@@ -135,6 +135,7 @@ fun EmployeeHomeScreen(
             confirmLabel = "Clock in",
             initialValue = state.vehicle?.currentOdometerKm ?: 0L,
             initialAreas = "",
+            areasLabel = "Areas going to work today",
             onConfirm = { km, areas ->
                 showClockInDialog = false
                 viewModel.clockIn(km, areas)
@@ -151,6 +152,7 @@ fun EmployeeHomeScreen(
             // Pre-filled with what was typed at start, so they can amend rather
             // than retype the day's areas.
             initialAreas = state.todaysLog?.mainAreasWorked ?: "",
+            areasLabel = "Areas worked today",
             onConfirm = { km, areas ->
                 showClockOutDialog = false
                 viewModel.clockOut(km, areas)
@@ -203,6 +205,7 @@ private fun OdometerDialog(
     confirmLabel: String,
     initialValue: Long,
     initialAreas: String,
+    areasLabel: String,
     onConfirm: (odometerKm: Long, mainAreasWorked: String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -227,7 +230,7 @@ private fun OdometerDialog(
                 OutlinedTextField(
                     value = areas,
                     onValueChange = { areas = it },
-                    label = { Text("Main areas worked") },
+                    label = { Text(areasLabel) },
                     supportingText = { Text("e.g. Umhlanga, Ballito, Verulam") },
                     minLines = 2,
                     maxLines = 4,
