@@ -136,6 +136,7 @@ fun EmployeeHomeScreen(
             initialValue = state.vehicle?.currentOdometerKm ?: 0L,
             initialAreas = "",
             areasLabel = "Areas going to work today",
+            minimumKm = null,
             onConfirm = { km, areas ->
                 showClockInDialog = false
                 viewModel.clockIn(km, areas)
@@ -153,6 +154,7 @@ fun EmployeeHomeScreen(
             // than retype the day's areas.
             initialAreas = state.todaysLog?.mainAreasWorked ?: "",
             areasLabel = "Areas worked today",
+            minimumKm = state.todaysLog?.startOdometerKm,
             onConfirm = { km, areas ->
                 showClockOutDialog = false
                 viewModel.clockOut(km, areas)
@@ -206,11 +208,18 @@ private fun OdometerDialog(
     initialValue: Long,
     initialAreas: String,
     areasLabel: String,
+    minimumKm: Long?,
     onConfirm: (odometerKm: Long, mainAreasWorked: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var text by remember { mutableStateOf(if (initialValue > 0) initialValue.toString() else "") }
     var areas by remember { mutableStateOf(initialAreas) }
+
+    // Catches the classic slip of dropping a digit at knock off, which would
+    // otherwise record a day of 0 km.
+    val entered = text.toLongOrNull()
+    val tooLow = entered != null && minimumKm != null && entered < minimumKm
+    val canConfirm = entered != null && !tooLow
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -224,6 +233,12 @@ private fun OdometerDialog(
                     value = text,
                     onValueChange = { text = it.filter { c -> c.isDigit() } },
                     label = { Text("Odometer (km)") },
+                    isError = tooLow,
+                    supportingText = {
+                        if (tooLow) {
+                            Text("Must be at least $minimumKm km — you started the day on that reading.")
+                        }
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -240,8 +255,8 @@ private fun OdometerDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(text.toLongOrNull() ?: 0L, areas) },
-                enabled = text.toLongOrNull() != null
+                onClick = { onConfirm(entered ?: 0L, areas) },
+                enabled = canConfirm
             ) { Text(confirmLabel) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
@@ -298,15 +313,21 @@ private fun FuelDialog(
             TextButton(
                 onClick = {
                     onConfirm(
-                        amount.toDoubleOrNull() ?: 0.0,
-                        litres.toDoubleOrNull() ?: 0.0,
+                        amount.toAmountOrNull() ?: 0.0,
+                        litres.toAmountOrNull() ?: 0.0,
                         odometer.toLongOrNull() ?: 0L,
                         photoBytes
                     )
                 },
-                enabled = amount.toDoubleOrNull() != null
+                enabled = amount.toAmountOrNull() != null
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
+
+/**
+ * Accepts "150.50" and "150,50". South African keyboards commonly produce the comma,
+ * which plain toDoubleOrNull() rejects — leaving Save greyed out with no explanation.
+ */
+private fun String.toAmountOrNull(): Double? = trim().replace(',', '.').toDoubleOrNull()

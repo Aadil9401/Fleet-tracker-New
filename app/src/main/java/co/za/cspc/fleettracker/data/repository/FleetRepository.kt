@@ -15,6 +15,7 @@ import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Result of creating an employee: the generated login details, plus whether they
@@ -39,7 +40,14 @@ class FleetRepository(
     private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
 ) {
     companion object {
-        private val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        // Pinned to SAST rather than the phone's timezone. The date forms part of the
+        // time-log document id, and the attendance Cloud Function works in
+        // Africa/Johannesburg — a phone set to another zone would write a log the
+        // server then looks for under a different date.
+        private val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("Africa/Johannesburg")
+        }
+
         fun todayString(): String = dayFormat.format(Date())
     }
 
@@ -277,10 +285,21 @@ class FleetRepository(
         ).await()
     }
 
+    /**
+     * Moves a vehicle's odometer FORWARD only.
+     *
+     * Previously this wrote whatever was typed. A slip like 8500 instead of 85000
+     * would permanently lower the reading, and because service is measured as
+     * (current - lastService), that silently reset the vehicle's service countdown
+     * — the reminder would just never fire.
+     */
     private suspend fun updateVehicleOdometer(vehicleId: String, odometerKm: Long) {
         if (vehicleId.isBlank()) return
-        db.collection("vehicles").document(vehicleId)
-            .update("currentOdometerKm", odometerKm).await()
+        val ref = db.collection("vehicles").document(vehicleId)
+        val current = ref.get().await().getLong("currentOdometerKm") ?: 0L
+        if (odometerKm > current) {
+            ref.update("currentOdometerKm", odometerKm).await()
+        }
     }
 
     // ---------- Time logs ----------
