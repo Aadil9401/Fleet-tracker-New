@@ -163,7 +163,9 @@ fun EmployeeHomeScreen(
             initialValue = state.vehicle?.currentOdometerKm ?: 0L,
             initialAreas = "",
             areasLabel = "Areas going to work today",
-            minimumKm = null,
+            // The vehicle's stored reading is where it was left at the last knock off,
+            // so today can't start below it.
+            minimumKm = state.vehicle?.currentOdometerKm,
             onConfirm = { km, areas ->
                 showClockInDialog = false
                 viewModel.clockIn(km, areas)
@@ -290,7 +292,7 @@ private fun OdometerDialog(
                     isError = tooLow,
                     supportingText = {
                         if (tooLow) {
-                            Text("Must be at least $minimumKm km — you started the day on that reading.")
+                            Text("Can't be less than $minimumKm km — the last reading recorded for this vehicle.")
                         }
                     },
                     singleLine = true,
