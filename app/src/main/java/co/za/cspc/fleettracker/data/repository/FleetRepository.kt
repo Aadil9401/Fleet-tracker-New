@@ -181,6 +181,58 @@ class FleetRepository(
         )
     }
 
+    /**
+     * Admin correction of the details someone entered when they signed up.
+     * Deliberately excludes role, login email and password: role is a security
+     * boundary, and the other two live in Firebase Auth rather than this document.
+     */
+    suspend fun updateEmployeeDetails(
+        uid: String,
+        name: String,
+        surname: String,
+        employeeNumber: String,
+        province: String,
+        teamName: String,
+        vehicleRegistration: String,
+        contactEmail: String
+    ) {
+        db.collection("users").document(uid).update(
+            mapOf(
+                "name" to name.trim(),
+                "surname" to surname.trim(),
+                "employeeNumber" to employeeNumber.trim(),
+                "province" to province.trim(),
+                "teamName" to teamName.trim(),
+                "vehicleRegistration" to vehicleRegistration.trim().uppercase(),
+                "contactEmail" to contactEmail.trim()
+            )
+        ).await()
+    }
+
+    /**
+     * Admin correction of a vehicle. This is the only route that can lower an
+     * odometer — clock-in/out deliberately can't, so a mistyped reading would
+     * otherwise be stuck permanently high.
+     */
+    suspend fun updateVehicle(
+        vehicleId: String,
+        name: String,
+        registrationNumber: String,
+        currentOdometerKm: Long,
+        lastServiceOdometerKm: Long,
+        serviceIntervalKm: Long
+    ) {
+        db.collection("vehicles").document(vehicleId).update(
+            mapOf(
+                "name" to name.trim(),
+                "registrationNumber" to registrationNumber.trim().uppercase(),
+                "currentOdometerKm" to currentOdometerKm,
+                "lastServiceOdometerKm" to lastServiceOdometerKm,
+                "serviceIntervalKm" to serviceIntervalKm
+            )
+        ).await()
+    }
+
     suspend fun setEmployeeActive(uid: String, active: Boolean) {
         db.collection("users").document(uid).update("active", active).await()
     }
@@ -308,6 +360,35 @@ class FleetRepository(
         val docId = "${uid}_${todayString()}"
         val snap = db.collection("timeLogs").document(docId).get().await()
         return if (snap.exists()) snap.toObject(TimeLog::class.java) else null
+    }
+
+    /**
+     * Marks today as a non-working day. Writes the same per-day document a clock-in
+     * would, which is also what keeps this person out of the "hasn't started yet"
+     * attendance alert.
+     */
+    suspend fun markNotWorking(uid: String, employeeName: String) {
+        val docId = "${uid}_${todayString()}"
+        db.collection("timeLogs").document(docId).set(
+            mapOf(
+                "uid" to uid,
+                "employeeName" to employeeName,
+                "date" to todayString(),
+                "notWorking" to true,
+                "startTimeMillis" to 0L,
+                "startOdometerKm" to 0L,
+                "endTimeMillis" to 0L,
+                "endOdometerKm" to 0L,
+                "vehicleId" to "",
+                "mainAreasWorked" to ""
+            )
+        ).await()
+    }
+
+    /** Undo of [markNotWorking], for when it's tapped by mistake. */
+    suspend fun clearNotWorking(uid: String) {
+        val docId = "${uid}_${todayString()}"
+        db.collection("timeLogs").document(docId).update("notWorking", false).await()
     }
 
     suspend fun clockIn(

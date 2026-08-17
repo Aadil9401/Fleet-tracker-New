@@ -74,10 +74,23 @@ class AdminViewModel(
         }
     }
 
-    /** Who has NOT started work yet today, among active employees. */
+    /**
+     * Who is unaccounted for today: active employees who have neither clocked in nor
+     * marked themselves as not working. Someone who is off is accounted for, so they
+     * don't belong on a chase-up list.
+     */
     fun notStartedToday(): List<UserProfile> {
-        val startedUids = uiState.todaysLogs.filter { it.hasStarted }.map { it.uid }.toSet()
-        return uiState.employees.filter { it.active && it.uid !in startedUids }
+        val accountedFor = uiState.todaysLogs
+            .filter { it.hasStarted || it.notWorking }
+            .map { it.uid }
+            .toSet()
+        return uiState.employees.filter { it.active && it.uid !in accountedFor }
+    }
+
+    /** Active employees who marked themselves absent today. */
+    fun notWorkingToday(): List<UserProfile> {
+        val absentUids = uiState.todaysLogs.filter { it.notWorking }.map { it.uid }.toSet()
+        return uiState.employees.filter { it.uid in absentUids }
     }
 
     fun addEmployee(
@@ -109,6 +122,70 @@ class AdminViewModel(
                 onDone(credentials)
             } catch (e: Exception) {
                 uiState = uiState.copy(busy = false, message = "Could not create employee: ${e.message}")
+            }
+        }
+    }
+
+    fun saveEmployeeDetails(
+        uid: String,
+        name: String,
+        surname: String,
+        employeeNumber: String,
+        province: String,
+        teamName: String,
+        vehicleRegistration: String,
+        contactEmail: String
+    ) {
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                repo.updateEmployeeDetails(
+                    uid = uid,
+                    name = name,
+                    surname = surname,
+                    employeeNumber = employeeNumber,
+                    province = province,
+                    teamName = teamName,
+                    vehicleRegistration = vehicleRegistration,
+                    contactEmail = contactEmail
+                )
+                uiState = uiState.copy(
+                    busy = false,
+                    employees = repo.listEmployees(),
+                    message = "Employee details updated."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not save: ${e.message}")
+            }
+        }
+    }
+
+    fun saveVehicleDetails(
+        vehicleId: String,
+        name: String,
+        registration: String,
+        currentOdometerKm: Long,
+        lastServiceOdometerKm: Long,
+        serviceIntervalKm: Long
+    ) {
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                repo.updateVehicle(
+                    vehicleId = vehicleId,
+                    name = name,
+                    registrationNumber = registration,
+                    currentOdometerKm = currentOdometerKm,
+                    lastServiceOdometerKm = lastServiceOdometerKm,
+                    serviceIntervalKm = serviceIntervalKm
+                )
+                uiState = uiState.copy(
+                    busy = false,
+                    vehicles = repo.listVehicles(),
+                    message = "Vehicle updated."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not save: ${e.message}")
             }
         }
     }

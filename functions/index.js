@@ -203,9 +203,16 @@ exports.checkAttendance = onSchedule(
     if (employees.length === 0) return;
 
     const logsSnap = await db.collection("timeLogs").where("date", "==", today).get();
-    const startedUids = new Set(logsSnap.docs.map((d) => d.data().uid).filter(Boolean));
+    // Someone who marked themselves "not working today" is accounted for, so they
+    // must not appear on the chase-up list.
+    const accountedFor = new Set(
+      logsSnap.docs
+        .filter((d) => (d.data().startTimeMillis || 0) > 0 || d.data().notWorking === true)
+        .map((d) => d.data().uid)
+        .filter(Boolean)
+    );
 
-    const notStarted = employees.filter((e) => !startedUids.has(e.uid));
+    const notStarted = employees.filter((e) => !accountedFor.has(e.uid));
     if (notStarted.length === 0) return;
 
     const listHtml = notStarted.map((e) => `<li>${e.name} ${e.surname}</li>`).join("");

@@ -69,6 +69,24 @@ data class Vehicle(
 ) {
     fun kmSinceService(): Long = (currentOdometerKm - lastServiceOdometerKm).coerceAtLeast(0)
 
+    /**
+     * The odometer reading the next service falls due at — worked out automatically
+     * by stepping the interval on from the last recorded service. With a 15 000 km
+     * interval and a last service at 80 000, that's 95 000, then 110 000, and so on.
+     */
+    fun nextServiceAtKm(): Long =
+        if (serviceIntervalKm <= 0) 0 else lastServiceOdometerKm + serviceIntervalKm
+
+    /** Positive: km still to run. Negative: how far past due it already is. */
+    fun kmUntilService(): Long = nextServiceAtKm() - currentOdometerKm
+
+    /**
+     * How many whole service intervals have gone by without one being recorded.
+     * 2 or more means a service was missed entirely, not just left a bit late.
+     */
+    fun intervalsOverdue(): Int =
+        if (serviceIntervalKm <= 0) 0 else (kmSinceService() / serviceIntervalKm).toInt()
+
     fun isServiceDueByKm(): Boolean = kmSinceService() >= serviceIntervalKm
 
     fun isServiceDueByDate(nowMillis: Long): Boolean {
@@ -95,7 +113,9 @@ data class TimeLog(
     val endOdometerKm: Long = 0L,
     val vehicleId: String = "",
     /** Free text: the main areas this person worked in that day. */
-    val mainAreasWorked: String = ""
+    val mainAreasWorked: String = "",
+    /** Marked absent for the day — no clocking in or out, and no attendance alert. */
+    val notWorking: Boolean = false
 ) {
     val hasStarted: Boolean get() = startTimeMillis > 0L
     val hasEnded: Boolean get() = endTimeMillis > 0L

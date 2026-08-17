@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
@@ -103,6 +104,7 @@ fun AdminDashboardScreen(
 @Composable
 private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
     val notStarted = viewModel.notStartedToday()
+    val notWorking = viewModel.notWorkingToday()
     val started = state.todaysLogs.count { it.hasStarted }
     val activeCount = state.employees.count { it.active }
     val knockedOff = state.todaysLogs.count { it.hasEnded }
@@ -112,7 +114,32 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatTile("Started", "$started/$activeCount", Modifier.weight(1f))
                 StatTile("Knocked off", knockedOff.toString(), Modifier.weight(1f))
-                StatTile("Vehicles", state.vehicles.size.toString(), Modifier.weight(1f))
+                StatTile("Not working", notWorking.size.toString(), Modifier.weight(1f))
+            }
+        }
+        if (notWorking.isNotEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(
+                            "Not working today (${notWorking.size})",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        notWorking.forEach {
+                            Text(
+                                "• ${it.fullName}",
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
             }
         }
         if (notStarted.isNotEmpty()) {
@@ -149,6 +176,14 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
             Card {
                 Column(Modifier.padding(12.dp)) {
                     Text(log.employeeName, fontWeight = FontWeight.Bold)
+                    if (log.notWorking) {
+                        Text(
+                            "Not working today",
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        return@Column
+                    }
                     val started = if (log.hasStarted) timeFormat.format(Date(log.startTimeMillis)) else "-"
                     val ended = if (log.hasEnded) timeFormat.format(Date(log.endTimeMillis)) else "still working"
                     Text("Start: $started   Knock off: $ended")
@@ -172,6 +207,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var credentialToShow by remember { mutableStateOf<NewEmployeeCredentials?>(null) }
     var query by remember { mutableStateOf("") }
     var provinceFilter by remember { mutableStateOf(ALL_PROVINCES) }
+    var employeeToEdit by remember { mutableStateOf<UserProfile?>(null) }
 
     val filtered = remember(state.employees, query, provinceFilter) {
         val trimmed = query.trim()
@@ -274,7 +310,8 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                     assignedVehicle = state.vehicles.find { it.id == emp.assignedVehicleId },
                     vehicles = state.vehicles,
                     onToggleActive = { viewModel.setEmployeeActive(emp.uid, !emp.active) },
-                    onAssignVehicle = { vehicleId -> viewModel.assignVehicle(emp.uid, vehicleId) }
+                    onAssignVehicle = { vehicleId -> viewModel.assignVehicle(emp.uid, vehicleId) },
+                    onEdit = { employeeToEdit = emp }
                 )
             }
         }
@@ -295,6 +332,27 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
+        )
+    }
+
+    employeeToEdit?.let { employee ->
+        EditEmployeeDialog(
+            employee = employee,
+            busy = state.busy,
+            onSave = { name, surname, empNo, province, team, registration, email ->
+                viewModel.saveEmployeeDetails(
+                    uid = employee.uid,
+                    name = name,
+                    surname = surname,
+                    employeeNumber = empNo,
+                    province = province,
+                    teamName = team,
+                    vehicleRegistration = registration,
+                    contactEmail = email
+                )
+                employeeToEdit = null
+            },
+            onDismiss = { employeeToEdit = null }
         )
     }
 
@@ -327,6 +385,223 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
             confirmButton = { TextButton(onClick = { credentialToShow = null }) { Text("Done") } }
         )
     }
+}
+
+@Composable
+private fun EditEmployeeDialog(
+    employee: UserProfile,
+    busy: Boolean,
+    onSave: (
+        name: String, surname: String, employeeNumber: String, province: String,
+        teamName: String, vehicleRegistration: String, contactEmail: String
+    ) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(employee.name) }
+    var surname by remember { mutableStateOf(employee.surname) }
+    var employeeNumber by remember { mutableStateOf(employee.employeeNumber) }
+    var province by remember { mutableStateOf(employee.province) }
+    var teamName by remember { mutableStateOf(employee.teamName) }
+    var registration by remember { mutableStateOf(employee.vehicleRegistration) }
+    var contactEmail by remember { mutableStateOf(employee.contactEmail) }
+    var provinceMenuOpen by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit ${employee.fullName}") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = surname,
+                    onValueChange = { surname = it },
+                    label = { Text("Surname") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = employeeNumber,
+                    onValueChange = { employeeNumber = it },
+                    label = { Text("Employee number") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Box(Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = province,
+                        onValueChange = { },
+                        readOnly = true,
+                        label = { Text("Province") },
+                        singleLine = true,
+                        trailingIcon = {
+                            IconButton(onClick = { provinceMenuOpen = true }) {
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose province")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    DropdownMenu(
+                        expanded = provinceMenuOpen,
+                        onDismissRequest = { provinceMenuOpen = false }
+                    ) {
+                        SA_PROVINCES.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = {
+                                    province = option
+                                    provinceMenuOpen = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = teamName,
+                    onValueChange = { teamName = it },
+                    label = { Text("Team name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = registration,
+                    onValueChange = { registration = it },
+                    label = { Text("Vehicle registration") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = contactEmail,
+                    onValueChange = { contactEmail = it },
+                    label = { Text("Email address") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Their sign-in email and password can't be changed here — they " +
+                        "can reset the password themselves from the login screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && name.isNotBlank() && surname.isNotBlank(),
+                onClick = {
+                    onSave(name, surname, employeeNumber, province, teamName, registration, contactEmail)
+                }
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun EditVehicleDialog(
+    vehicle: Vehicle,
+    busy: Boolean,
+    onSave: (
+        name: String, registration: String, odometer: Long,
+        lastServiceOdometer: Long, intervalKm: Long
+    ) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(vehicle.name) }
+    var registration by remember { mutableStateOf(vehicle.registrationNumber) }
+    var odometer by remember { mutableStateOf(vehicle.currentOdometerKm.toString()) }
+    var lastService by remember { mutableStateOf(vehicle.lastServiceOdometerKm.toString()) }
+    var interval by remember { mutableStateOf(vehicle.serviceIntervalKm.toString()) }
+
+    val odoValue = odometer.toLongOrNull()
+    val lastValue = lastService.toLongOrNull()
+    val intervalValue = interval.toLongOrNull()
+    val lastAboveCurrent = odoValue != null && lastValue != null && lastValue > odoValue
+    val canSave = !busy && registration.isNotBlank() &&
+        odoValue != null && lastValue != null && intervalValue != null &&
+        intervalValue > 0 && !lastAboveCurrent
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit vehicle") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = registration,
+                    onValueChange = { registration = it },
+                    label = { Text("Registration") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Vehicle name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = odometer,
+                    onValueChange = { odometer = it.filter { c -> c.isDigit() } },
+                    label = { Text("Current odometer (km)") },
+                    supportingText = {
+                        Text("Correct a mistyped reading here — clock-in can only move it up.")
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = lastService,
+                    onValueChange = { lastService = it.filter { c -> c.isDigit() } },
+                    label = { Text("Odometer at last service (km)") },
+                    isError = lastAboveCurrent,
+                    supportingText = {
+                        if (lastAboveCurrent) Text("Can't be higher than the current reading.")
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = interval,
+                    onValueChange = { interval = it.filter { c -> c.isDigit() } },
+                    label = { Text("Service every (km)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (odoValue != null && lastValue != null && intervalValue != null && intervalValue > 0) {
+                    val nextAt = lastValue + intervalValue
+                    Text(
+                        "Next service would fall due at $nextAt km.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = canSave,
+                onClick = {
+                    onSave(name, registration, odoValue ?: 0L, lastValue ?: 0L, intervalValue ?: SERVICE_INTERVAL_KM)
+                }
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 /** Headline number with a caption, used for the at-a-glance row on Today. */
@@ -410,7 +685,8 @@ private fun EmployeeCard(
     assignedVehicle: Vehicle?,
     vehicles: List<Vehicle>,
     onToggleActive: () -> Unit,
-    onAssignVehicle: (String) -> Unit
+    onAssignVehicle: (String) -> Unit,
+    onEdit: () -> Unit
 ) {
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -439,6 +715,9 @@ private fun EmployeeCard(
                     }
                 }
                 StatusBadge(active = employee.active)
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Edit details")
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -719,6 +998,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var showBulkDialog by remember { mutableStateOf(false) }
     var vehicleToDelete by remember { mutableStateOf<Vehicle?>(null) }
+    var vehicleToEdit by remember { mutableStateOf<Vehicle?>(null) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = { showAddDialog = true }, modifier = Modifier.fillMaxWidth()) {
@@ -799,11 +1079,28 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         }
                         Spacer(Modifier.height(10.dp))
                         Text("Odometer: ${v.currentOdometerKm} km")
+                        // Next milestone is worked out from the last service plus the
+                        // interval, so nobody has to track the schedule by hand.
+                        val remaining = v.kmUntilService()
                         Text(
-                            "${v.kmSinceService()} km since service of ${v.serviceIntervalKm} km",
+                            "Next service at ${v.nextServiceAtKm()} km — " +
+                                if (remaining >= 0) "$remaining km to go"
+                                else "overdue by ${-remaining} km",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (remaining >= 0) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
                         )
+                        if (v.intervalsOverdue() > 1) {
+                            Text(
+                                "${v.intervalsOverdue()} services missed",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                         Spacer(Modifier.height(6.dp))
                         // Visual read on how close this vehicle is to its next service.
                         val progress = if (v.serviceIntervalKm > 0) {
@@ -821,6 +1118,9 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { viewModel.markServiced(v.id, v.currentOdometerKm) }) {
                                 Text("Mark serviced")
+                            }
+                            TextButton(onClick = { vehicleToEdit = v }) {
+                                Text("Edit")
                             }
                             TextButton(
                                 onClick = { vehicleToDelete = v },
@@ -856,6 +1156,25 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 showBulkDialog = false
             },
             onDismiss = { showBulkDialog = false }
+        )
+    }
+
+    vehicleToEdit?.let { v ->
+        EditVehicleDialog(
+            vehicle = v,
+            busy = state.busy,
+            onSave = { name, reg, odo, lastService, intervalKm ->
+                viewModel.saveVehicleDetails(
+                    vehicleId = v.id,
+                    name = name,
+                    registration = reg,
+                    currentOdometerKm = odo,
+                    lastServiceOdometerKm = lastService,
+                    serviceIntervalKm = intervalKm
+                )
+                vehicleToEdit = null
+            },
+            onDismiss = { vehicleToEdit = null }
         )
     }
 

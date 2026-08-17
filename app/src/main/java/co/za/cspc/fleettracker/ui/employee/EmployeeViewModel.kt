@@ -47,6 +47,40 @@ class EmployeeViewModel(
         }
     }
 
+    fun markNotWorking() {
+        val profile = uiState.profile ?: return
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                repo.markNotWorking(profile.uid, profile.fullName)
+                uiState = uiState.copy(
+                    busy = false,
+                    todaysLog = repo.todaysTimeLog(profile.uid),
+                    message = "Marked as not working today."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not save: ${e.message}")
+            }
+        }
+    }
+
+    fun undoNotWorking() {
+        val profile = uiState.profile ?: return
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                repo.clearNotWorking(profile.uid)
+                uiState = uiState.copy(
+                    busy = false,
+                    todaysLog = repo.todaysTimeLog(profile.uid),
+                    message = "You can clock in again."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not undo: ${e.message}")
+            }
+        }
+    }
+
     fun clockIn(odometerKm: Long, mainAreasWorked: String) {
         val profile = uiState.profile ?: return
         uiState = uiState.copy(busy = true, message = null)

@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.UserProfile
@@ -33,6 +34,7 @@ fun EmployeeHomeScreen(
     var showClockInDialog by remember { mutableStateOf(false) }
     var showClockOutDialog by remember { mutableStateOf(false) }
     var showFuelDialog by remember { mutableStateOf(false) }
+    var showNotWorkingConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(profile.uid) { viewModel.load(profile) }
 
@@ -66,26 +68,51 @@ fun EmployeeHomeScreen(
         ) {
             item { StatusCard(state) }
 
+            val absent = state.todaysLog?.notWorking == true
+
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
                         onClick = { showClockInDialog = true },
-                        enabled = !state.busy && state.todaysLog?.hasStarted != true,
+                        enabled = !state.busy && !absent && state.todaysLog?.hasStarted != true,
                         modifier = Modifier.weight(1f)
                     ) { Text("Start time") }
 
                     Button(
                         onClick = { showClockOutDialog = true },
-                        enabled = !state.busy && state.todaysLog?.hasStarted == true && state.todaysLog?.hasEnded != true,
+                        enabled = !state.busy && !absent &&
+                            state.todaysLog?.hasStarted == true &&
+                            state.todaysLog?.hasEnded != true,
                         modifier = Modifier.weight(1f)
                     ) { Text("Knock off") }
                 }
             }
 
             item {
+                if (absent) {
+                    OutlinedButton(
+                        onClick = { viewModel.undoNotWorking() },
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("I am working after all") }
+                } else {
+                    OutlinedButton(
+                        onClick = { showNotWorkingConfirm = true },
+                        // Only offered before the day starts; once you've clocked in
+                        // the day has clearly happened.
+                        enabled = !state.busy && state.todaysLog?.hasStarted != true,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.secondary
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Not working today") }
+                }
+            }
+
+            item {
                 OutlinedButton(
                     onClick = { showFuelDialog = true },
-                    enabled = !state.busy,
+                    enabled = !state.busy && !absent,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Log fuel spent") }
             }
@@ -163,6 +190,28 @@ fun EmployeeHomeScreen(
         )
     }
 
+    if (showNotWorkingConfirm) {
+        AlertDialog(
+            onDismissRequest = { showNotWorkingConfirm = false },
+            title = { Text("Not working today?") },
+            text = {
+                Text(
+                    "You'll be recorded as absent for today and won't be able to clock " +
+                        "in or out. You can undo this if you change your mind."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showNotWorkingConfirm = false
+                    viewModel.markNotWorking()
+                }) { Text("Yes, I'm not working") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotWorkingConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     if (showFuelDialog) {
         FuelDialog(
             defaultOdometer = state.vehicle?.currentOdometerKm ?: 0L,
@@ -182,6 +231,11 @@ private fun StatusCard(state: EmployeeUiState) {
         Column(Modifier.padding(16.dp)) {
             Text("Today", style = MaterialTheme.typography.titleMedium)
             when {
+                log?.notWorking == true -> Text(
+                    "Marked as not working today.",
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Bold
+                )
                 log == null || !log.hasStarted -> Text("You haven't started yet.")
                 log.hasStarted && !log.hasEnded -> Text("Started at ${timeFormat.format(Date(log.startTimeMillis))}")
                 else -> Text(
