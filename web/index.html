@@ -5,41 +5,48 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>My Daily Work Info — Admin</title>
 <style>
+  /* Pastel sage/blush palette, matching the phone app. Pastels sit in the
+     container and surface roles; --primary stays deeper because buttons carry
+     white text on it. */
   :root {
-    --primary: #00695C;
+    --primary: #44786B;
     --on-primary: #ffffff;
-    --primary-container: #B2DFDB;
-    --on-primary-container: #00251E;
-    --secondary: #EF6C00;
-    --bg: #F5F8F7;
+    --primary-container: #CFE8DF;
+    --on-primary-container: #14342C;
+    --secondary: #B06E4E;
+    --secondary-container: #F9E0CE;
+    --on-secondary-container: #44230F;
+    --bg: #F7FAF8;
     --surface: #ffffff;
-    --on-surface: #191C1B;
-    --muted: #5A6461;
-    --surface-variant: #DDE5E2;
-    --outline: #C4CFCB;
-    --error: #B3261E;
-    --error-container: #F9DEDC;
-    --on-error-container: #410E0B;
+    --on-surface: #1E2A26;
+    --muted: #54605B;
+    --surface-variant: #E8EFEB;
+    --outline: #B7C5BF;
+    --error: #B0564B;
+    --error-container: #FADED9;
+    --on-error-container: #44150F;
     --radius: 16px;
-    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.06);
+    --shadow: 0 1px 2px rgba(30,42,38,.05), 0 6px 20px rgba(30,42,38,.06);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --primary: #4DB6AC;
-      --on-primary: #00382F;
-      --primary-container: #004D43;
-      --on-primary-container: #B2DFDB;
-      --secondary: #FFB74D;
-      --bg: #141918;
-      --surface: #1E2422;
-      --on-surface: #E1E3E1;
-      --muted: #AEB9B5;
-      --surface-variant: #2C3331;
+      --primary: #A9D6C8;
+      --on-primary: #10332A;
+      --primary-container: #2F5349;
+      --on-primary-container: #C6EADE;
+      --secondary: #F0BC9A;
+      --secondary-container: #6A4429;
+      --on-secondary-container: #FBDDC7;
+      --bg: #141A18;
+      --surface: #1C2321;
+      --on-surface: #E3E9E6;
+      --muted: #BAC7C1;
+      --surface-variant: #2F3936;
       --outline: #3F4946;
-      --error: #F2B8B5;
-      --error-container: #8C1D18;
-      --on-error-container: #F9DEDC;
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+      --error: #F0B3AA;
+      --error-container: #78332B;
+      --on-error-container: #FADED9;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.3);
     }
   }
   * { box-sizing: border-box; }
@@ -119,8 +126,8 @@
 
   /* ---- Shell ---- */
   header.bar {
-    background: var(--primary);
-    color: var(--on-primary);
+    background: var(--primary-container);
+    color: var(--on-primary-container);
     padding: 14px 20px;
     display: flex;
     align-items: center;
@@ -128,10 +135,10 @@
     flex-wrap: wrap;
   }
   header.bar h1 { font-size: 1.1rem; margin: 0; flex: 1; font-weight: 600; }
-  header.bar .who { font-size: .85rem; opacity: .9; }
+  header.bar .who { font-size: .85rem; opacity: .8; }
   header.bar button {
-    background: rgba(255,255,255,.16);
-    color: var(--on-primary);
+    background: rgba(0,0,0,.07);
+    color: var(--on-primary-container);
     padding: 7px 12px;
     font-size: .9rem;
   }

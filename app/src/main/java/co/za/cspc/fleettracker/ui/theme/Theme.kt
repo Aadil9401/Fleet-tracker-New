@@ -10,70 +10,74 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-// Deep teal-green carries the app (work / fleet), amber marks the primary actions,
-// and blue is kept for neutral information. Every "container" pair is filled in so
-// cards and chips pick up sensible colours instead of falling back to grey.
+// A soft pastel scheme: sage green leads, with blush and lavender as accents.
+//
+// The pastels live in the *container* and surface roles — cards, chips, tiles and
+// badges. The `primary`/`secondary` roles stay a few shades deeper than the pastel
+// they pair with, because those carry white text on buttons; a genuinely pastel
+// button would leave its label barely readable in daylight, which is the usual way
+// this kind of palette goes wrong.
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF00695C),
+    primary = Color(0xFF44786B),          // muted sage — deep enough for white text
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFB2DFDB),
-    onPrimaryContainer = Color(0xFF00251E),
+    primaryContainer = Color(0xFFCFE8DF),  // soft mint
+    onPrimaryContainer = Color(0xFF14342C),
 
-    secondary = Color(0xFFEF6C00),
+    secondary = Color(0xFFB06E4E),         // warm terracotta
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFFFE0B2),
-    onSecondaryContainer = Color(0xFF3E2200),
+    secondaryContainer = Color(0xFFF9E0CE), // blush peach
+    onSecondaryContainer = Color(0xFF44230F),
 
-    tertiary = Color(0xFF1565C0),
+    tertiary = Color(0xFF6C6193),          // dusty lavender
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFBBDEFB),
-    onTertiaryContainer = Color(0xFF00306B),
+    tertiaryContainer = Color(0xFFE6E0F6),
+    onTertiaryContainer = Color(0xFF241C42),
 
-    background = Color(0xFFF5F8F7),
-    onBackground = Color(0xFF191C1B),
+    background = Color(0xFFF7FAF8),        // barely-there mint wash
+    onBackground = Color(0xFF1E2A26),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF191C1B),
-    surfaceVariant = Color(0xFFDDE5E2),
-    onSurfaceVariant = Color(0xFF3F4946),
-    outline = Color(0xFF6F7975),
-    outlineVariant = Color(0xFFBFC9C5),
+    onSurface = Color(0xFF1E2A26),         // soft charcoal, never pure black
+    surfaceVariant = Color(0xFFE8EFEB),
+    onSurfaceVariant = Color(0xFF54605B),
+    outline = Color(0xFFB7C5BF),
+    outlineVariant = Color(0xFFDCE5E1),
 
-    error = Color(0xFFB3261E),
+    error = Color(0xFFB0564B),             // muted clay rather than a harsh red
     onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFF9DEDC),
-    onErrorContainer = Color(0xFF410E0B)
+    errorContainer = Color(0xFFFADED9),
+    onErrorContainer = Color(0xFF44150F)
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF4DB6AC),
-    onPrimary = Color(0xFF00382F),
-    primaryContainer = Color(0xFF004D43),
-    onPrimaryContainer = Color(0xFFB2DFDB),
+    primary = Color(0xFFA9D6C8),
+    onPrimary = Color(0xFF10332A),
+    primaryContainer = Color(0xFF2F5349),
+    onPrimaryContainer = Color(0xFFC6EADE),
 
-    secondary = Color(0xFFFFB74D),
-    onSecondary = Color(0xFF442B00),
-    secondaryContainer = Color(0xFF6A3F00),
-    onSecondaryContainer = Color(0xFFFFE0B2),
+    secondary = Color(0xFFF0BC9A),
+    onSecondary = Color(0xFF44230F),
+    secondaryContainer = Color(0xFF6A4429),
+    onSecondaryContainer = Color(0xFFFBDDC7),
 
-    tertiary = Color(0xFF90CAF9),
-    onTertiary = Color(0xFF003258),
-    tertiaryContainer = Color(0xFF00497D),
-    onTertiaryContainer = Color(0xFFBBDEFB),
+    tertiary = Color(0xFFC5B9E9),
+    onTertiary = Color(0xFF2A2150),
+    tertiaryContainer = Color(0xFF493F72),
+    onTertiaryContainer = Color(0xFFE6E0F6),
 
-    background = Color(0xFF141918),
-    onBackground = Color(0xFFE1E3E1),
-    surface = Color(0xFF1E2422),
-    onSurface = Color(0xFFE1E3E1),
-    surfaceVariant = Color(0xFF3F4946),
-    onSurfaceVariant = Color(0xFFBEC9C5),
-    outline = Color(0xFF899390),
-    outlineVariant = Color(0xFF3F4946),
+    background = Color(0xFF141A18),
+    onBackground = Color(0xFFE3E9E6),
+    surface = Color(0xFF1C2321),
+    onSurface = Color(0xFFE3E9E6),
+    surfaceVariant = Color(0xFF2F3936),
+    onSurfaceVariant = Color(0xFFBAC7C1),
+    outline = Color(0xFF7E8C87),
+    outlineVariant = Color(0xFF2F3936),
 
-    error = Color(0xFFF2B8B5),
-    onError = Color(0xFF601410),
-    errorContainer = Color(0xFF8C1D18),
-    onErrorContainer = Color(0xFFF9DEDC)
+    error = Color(0xFFF0B3AA),
+    onError = Color(0xFF57201A),
+    errorContainer = Color(0xFF78332B),
+    onErrorContainer = Color(0xFFFADED9)
 )
 
 // Generously rounded corners throughout — the single cheapest thing that makes a
