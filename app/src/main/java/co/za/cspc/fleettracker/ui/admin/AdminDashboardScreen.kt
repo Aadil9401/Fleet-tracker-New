@@ -35,6 +35,7 @@ import co.za.cspc.fleettracker.data.model.SA_PROVINCES
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
 import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
+import co.za.cspc.fleettracker.ui.asCaptured
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -142,7 +143,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                                 ?.notWorkingReason
                                 .orEmpty()
                             Text(
-                                "• ${person.fullName}" + if (reason.isNotBlank()) " — $reason" else "",
+                                ("• ${person.fullName}" + if (reason.isNotBlank()) " — $reason" else "").asCaptured(),
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -163,7 +164,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                         Spacer(Modifier.height(4.dp))
                         notStarted.forEach {
                             Text(
-                                "• ${it.fullName}",
+                                "• ${it.fullName}".asCaptured(),
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -192,7 +193,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                         person?.province?.takeIf { it.isNotBlank() },
                         person?.teamName?.takeIf { it.isNotBlank() }
                     ).joinToString(", ")
-                    Text(heading, fontWeight = FontWeight.Bold)
+                    Text(heading.asCaptured(), fontWeight = FontWeight.Bold)
                     if (log.notWorking) {
                         Text(
                             "Not working today",
@@ -201,7 +202,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                         )
                         if (log.notWorkingReason.isNotBlank()) {
                             Text(
-                                log.notWorkingReason,
+                                log.notWorkingReason.asCaptured(),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -221,7 +222,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                     if (log.hasEnded) Text("Distance: ${log.kmTravelled} km")
                     if (log.mainAreasWorked.isNotBlank()) {
                         Text(
-                            "Areas: ${log.mainAreasWorked}",
+                            "Areas: ${log.mainAreasWorked}".asCaptured(),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -307,7 +308,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                admin.fullName.ifBlank { admin.email },
+                                admin.fullName.ifBlank { admin.email }.asCaptured(),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer,
                                 modifier = Modifier.weight(1f)
@@ -828,7 +829,7 @@ private fun EmployeeCard(
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        employee.fullName,
+                        employee.fullName.asCaptured(),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -838,7 +839,7 @@ private fun EmployeeCard(
                     ).joinToString(" • ")
                     if (subtitle.isNotBlank()) {
                         Text(
-                            subtitle,
+                            subtitle.asCaptured(),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -880,10 +881,10 @@ private fun EmployeeCard(
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (employee.province.isNotBlank()) {
-                    InfoChip(employee.province, Icons.Filled.Place)
+                    InfoChip(employee.province.asCaptured(), Icons.Filled.Place)
                 }
                 if (employee.vehicleRegistration.isNotBlank()) {
-                    InfoChip(employee.vehicleRegistration, Icons.Filled.DirectionsCar)
+                    InfoChip(employee.vehicleRegistration.asCaptured(), Icons.Filled.DirectionsCar)
                 }
             }
             if (possibleDuplicate) {
@@ -1223,12 +1224,12 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    v.name.ifBlank { v.registrationNumber },
+                                    v.name.ifBlank { v.registrationNumber }.asCaptured(),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    v.registrationNumber,
+                                    v.registrationNumber.asCaptured(),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1572,7 +1573,10 @@ private fun LogsTab(state: AdminUiState) {
         items(state.recentFuelLogs, key = { it.id }) { f ->
             Card {
                 Column(Modifier.padding(12.dp)) {
-                    Text("${f.employeeName} — R${"%.2f".format(f.amountSpentRands)}", fontWeight = FontWeight.Bold)
+                    Text(
+                        "${f.employeeName.asCaptured()} — R${"%.2f".format(f.amountSpentRands)}",
+                        fontWeight = FontWeight.Bold
+                    )
                     Text("${f.date}  •  ${f.odometerKm} km" + if (f.litres > 0) "  •  ${f.litres} L" else "")
                     if (f.receiptPhotoUrl.isNotBlank()) Text("Receipt photo attached", style = MaterialTheme.typography.bodySmall)
                 }
@@ -1606,7 +1610,7 @@ private fun LogsTab(state: AdminUiState) {
                     if (log.hasEnded) Text("Distance: ${log.kmTravelled} km")
                     if (log.mainAreasWorked.isNotBlank()) {
                         Text(
-                            "Areas: ${log.mainAreasWorked}",
+                            "Areas: ${log.mainAreasWorked}".asCaptured(),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

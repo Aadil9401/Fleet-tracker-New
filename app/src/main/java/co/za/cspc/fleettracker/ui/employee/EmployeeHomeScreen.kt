@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.UserProfile
+import co.za.cspc.fleettracker.ui.asCaptured
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,7 +49,7 @@ fun EmployeeHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Hi, ${profile.name}") },
+                title = { Text("Hi, ${profile.name.asCaptured()}") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -138,7 +139,7 @@ fun EmployeeHomeScreen(
                         containerColor = if (due) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant
                     )) {
                         Column(Modifier.padding(12.dp)) {
-                            Text(vehicle.name.ifBlank { vehicle.registrationNumber })
+                            Text(vehicle.name.ifBlank { vehicle.registrationNumber }.asCaptured())
                             Text("Odometer: ${vehicle.currentOdometerKm} km")
                             Text("Since last service: ${vehicle.kmSinceService()} km (limit ${vehicle.serviceIntervalKm} km)")
                             if (due) {
@@ -264,7 +265,7 @@ private fun StatusCard(state: EmployeeUiState) {
                     )
                     if (log.notWorkingReason.isNotBlank()) {
                         Text(
-                            "Reason: ${log.notWorkingReason}",
+                            "Reason: ${log.notWorkingReason}".asCaptured(),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -287,7 +288,7 @@ private fun StatusCard(state: EmployeeUiState) {
             if (log != null && log.mainAreasWorked.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Areas: ${log.mainAreasWorked}",
+                    "Areas: ${log.mainAreasWorked}".asCaptured(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

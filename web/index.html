@@ -199,6 +199,12 @@
   }
   .avatar.dim { background: var(--surface-variant); color: var(--muted); }
   .person { display: flex; align-items: center; gap: 10px; }
+  /* Captured details are shown in capitals so rows line up regardless of how each
+     person typed them. Email keeps its original casing — an uppercased address is
+     hard to read back to someone. */
+  table td, .person .nm, .person .meta, .chip { text-transform: uppercase; }
+  .email, a { text-transform: none; }
+
   .person .nm { font-weight: 600; }
   .person .meta { font-size: .8rem; color: var(--muted); }
 
@@ -697,7 +703,7 @@ function renderEmployees() {
               <div class="nm">${esc(fullName(e))}</div>
               <div class="meta">${esc([e.employeeNumber && 'No. ' + e.employeeNumber, e.teamName]
                 .filter(Boolean).join(' • '))}</div>
-              <div class="meta">${esc(e.contactEmail || e.email || '')}</div>
+              <div class="meta email">${esc(e.contactEmail || e.email || '')}</div>
               ${isDuplicate(e)
                 ? '<div class="chip" style="background:var(--secondary-container);color:var(--on-secondary-container)">possible duplicate</div>'
                 : ''}
@@ -788,7 +794,7 @@ function renderAdmins() {
       <tbody>
         ${data.admins.map(a => `<tr>
           <td>${esc(fullName(a) || '—')}</td>
-          <td>${esc(a.contactEmail || a.email || '')}</td>
+          <td class="email">${esc(a.contactEmail || a.email || '')}</td>
           <td>${a.id === currentUid
             ? '<span class="chip">you</span>'
             : `<button class="ghost danger" data-demote="${esc(a.id)}">Remove admin</button>`}</td>
