@@ -335,6 +335,7 @@
           <div><label for="repFrom">From</label><input id="repFrom" type="date"></div>
           <div><label for="repTo">To</label><input id="repTo" type="date"></div>
           <button id="repRun">Run report</button>
+          <button id="repToday" class="outline">Today</button>
           <button id="repWeek" class="outline">Last 7 days</button>
           <button id="repMonth" class="outline">Last 30 days</button>
         </div>
@@ -701,9 +702,9 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
       $('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
     $('globalMsg').innerHTML = '';
 
-    // Open the Reports tab on last-7-days rather than two empty date boxes.
+    // Open the Reports tab on today rather than two empty date boxes.
     if (btn.dataset.tab === 'reports' && !$('repFrom').value) {
-      $('repFrom').value = shiftDate(todayString(), -6);
+      $('repFrom').value = todayString();
       $('repTo').value = todayString();
       runReport();
     }
@@ -1307,6 +1308,11 @@ $('bulkBtn').addEventListener('click', async () => {
 });
 
 /* ---------------- reports ---------------- */
+$('repToday').addEventListener('click', () => {
+  $('repFrom').value = todayString();
+  $('repTo').value = todayString();
+  runReport();
+});
 $('repWeek').addEventListener('click', () => {
   $('repFrom').value = shiftDate(todayString(), -6);
   $('repTo').value = todayString();
