@@ -141,7 +141,7 @@ fun EmployeeHomeScreen(
                         Column(Modifier.padding(12.dp)) {
                             Text(vehicle.name.ifBlank { vehicle.registrationNumber }.asCaptured())
                             Text("Odometer: ${vehicle.currentOdometerKm} km")
-                            Text("Since last service: ${vehicle.kmSinceService()} km (limit ${vehicle.serviceIntervalKm} km)")
+                            Text("Next service at ${vehicle.nextServiceAtKm()} km (${vehicle.kmUntilService()} km to go)")
                             if (due) {
                                 Text(
                                     "Service is due — please tell your admin",

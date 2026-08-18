@@ -70,24 +70,31 @@ data class Vehicle(
     fun kmSinceService(): Long = (currentOdometerKm - lastServiceOdometerKm).coerceAtLeast(0)
 
     /**
-     * The odometer reading the next service falls due at — worked out automatically
-     * by stepping the interval on from the last recorded service. With a 15 000 km
-     * interval and a last service at 80 000, that's 95 000, then 110 000, and so on.
+     * Services fall on absolute odometer milestones — every 15 000 km on the clock,
+     * so 15 000 / 30 000 / … / 150 000. This is the next milestone ABOVE the current
+     * reading: 149 000 gives 150 000, and a vehicle sitting exactly on 150 000 (just
+     * serviced) gives 165 000.
      */
     fun nextServiceAtKm(): Long =
-        if (serviceIntervalKm <= 0) 0 else lastServiceOdometerKm + serviceIntervalKm
+        if (serviceIntervalKm <= 0) 0
+        else ((currentOdometerKm / serviceIntervalKm) + 1) * serviceIntervalKm
 
-    /** Positive: km still to run. Negative: how far past due it already is. */
+    /** How far still to run before the next milestone. */
     fun kmUntilService(): Long = nextServiceAtKm() - currentOdometerKm
 
     /**
-     * How many whole service intervals have gone by without one being recorded.
-     * 2 or more means a service was missed entirely, not just left a bit late.
+     * Milestones the vehicle has driven past without a service being recorded.
+     * At 151 000 with the last service logged at 135 000, the 150 000 service was
+     * missed, so this is 1. Zero means nothing is outstanding.
      */
-    fun intervalsOverdue(): Int =
-        if (serviceIntervalKm <= 0) 0 else (kmSinceService() / serviceIntervalKm).toInt()
+    fun milestonesMissed(): Int {
+        if (serviceIntervalKm <= 0) return 0
+        val reached = currentOdometerKm / serviceIntervalKm
+        val servicedUpTo = lastServiceOdometerKm / serviceIntervalKm
+        return (reached - servicedUpTo).coerceAtLeast(0L).toInt()
+    }
 
-    fun isServiceDueByKm(): Boolean = kmSinceService() >= serviceIntervalKm
+    fun isServiceDueByKm(): Boolean = milestonesMissed() > 0
 
     fun isServiceDueByDate(nowMillis: Long): Boolean {
         if (lastServiceDateMillis <= 0L) return false

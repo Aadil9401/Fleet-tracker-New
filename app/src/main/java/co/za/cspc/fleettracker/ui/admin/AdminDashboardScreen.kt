@@ -1366,32 +1366,29 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         }
                         Spacer(Modifier.height(10.dp))
                         Text("Odometer: ${v.currentOdometerKm} km")
-                        // Next milestone is worked out from the last service plus the
-                        // interval, so nobody has to track the schedule by hand.
-                        val remaining = v.kmUntilService()
+                        // Milestones are absolute: every 15 000 km on the clock.
                         Text(
                             "Next service at ${v.nextServiceAtKm()} km — " +
-                                if (remaining >= 0) "$remaining km to go"
-                                else "overdue by ${-remaining} km",
+                                "${v.kmUntilService()} km to go",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (remaining >= 0) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            }
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (v.intervalsOverdue() > 1) {
+                        if (v.milestonesMissed() > 0) {
                             Text(
-                                "${v.intervalsOverdue()} services missed",
+                                if (v.milestonesMissed() == 1) {
+                                    "Service at ${v.lastServiceOdometerKm / v.serviceIntervalKm * v.serviceIntervalKm + v.serviceIntervalKm} km not logged"
+                                } else {
+                                    "${v.milestonesMissed()} services not logged"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.error
                             )
                         }
                         Spacer(Modifier.height(6.dp))
-                        // Visual read on how close this vehicle is to its next service.
+                        // How far through the current 15 000 km window the vehicle is.
                         val progress = if (v.serviceIntervalKm > 0) {
-                            (v.kmSinceService().toFloat() / v.serviceIntervalKm).coerceIn(0f, 1f)
+                            1f - (v.kmUntilService().toFloat() / v.serviceIntervalKm).coerceIn(0f, 1f)
                         } else 0f
                         LinearProgressIndicator(
                             progress = { progress },

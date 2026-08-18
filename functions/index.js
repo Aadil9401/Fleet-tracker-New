@@ -264,8 +264,16 @@ exports.checkServiceReminders = onSchedule(
       const v = doc.data();
       if (v.lastReminderNotifiedDate === today) continue;
 
-      const kmSinceService = Math.max(0, (v.currentOdometerKm || 0) - (v.lastServiceOdometerKm || 0));
-      const dueByKm = kmSinceService >= (v.serviceIntervalKm || 15000);
+      // Must mirror Vehicle.milestonesMissed() in the app: services fall on absolute
+      // odometer milestones (every 15 000 km on the clock), and one is outstanding
+      // when the vehicle has driven past a milestone without a service being logged.
+      const interval = v.serviceIntervalKm || 15000;
+      const current = v.currentOdometerKm || 0;
+      const lastServiced = v.lastServiceOdometerKm || 0;
+      const missed = Math.max(0,
+        Math.floor(current / interval) - Math.floor(lastServiced / interval));
+      const nextServiceAtKm = (Math.floor(current / interval) + 1) * interval;
+      const dueByKm = missed > 0;
 
       // Must mirror Vehicle.isServiceDueByDate on the app side: 0 months means
       // "kilometres only". Note `|| 6` would wrongly turn an explicit 0 into 6.
@@ -277,14 +285,15 @@ exports.checkServiceReminders = onSchedule(
       }
 
       if (dueByKm || dueByDate) {
-        dueVehicles.push({ id: doc.id, ...v, kmSinceService });
+        dueVehicles.push({ id: doc.id, ...v, missed, nextServiceAtKm, current });
       }
     }
 
     if (dueVehicles.length === 0) return;
 
     const listHtml = dueVehicles
-      .map((v) => `<li>${v.name || v.registrationNumber} — ${v.kmSinceService} km since last service</li>`)
+      .map((v) => `<li>${v.name || v.registrationNumber} — on ${v.current} km, ` +
+        `${v.missed} service(s) not logged (last logged at ${v.lastServiceOdometerKm || 0} km)</li>`)
       .join("");
 
     await sendAdminEmail(
