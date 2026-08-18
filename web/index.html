@@ -241,6 +241,15 @@
     padding: 22px; width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto;
   }
   .modal h2.section { color: var(--primary); }
+
+  .daynav { display: flex; align-items: center; gap: 12px; }
+  .group-head {
+    display: flex; align-items: center; gap: 10px;
+    margin: 16px 0 6px; color: var(--primary); font-weight: 700;
+    text-transform: uppercase; font-size: .85rem; letter-spacing: .03em;
+  }
+  .group-head .tally { margin-left: auto; color: var(--muted); font-weight: 600; }
+  .hrs { font-weight: 700; color: var(--primary); }
   .row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
   details.help { margin-top: 10px; font-size: .88rem; color: var(--muted); }
   code { background: var(--surface-variant); padding: 1px 5px; border-radius: 5px; font-size: .85em; }
@@ -288,7 +297,8 @@
   </header>
 
   <nav class="tabs">
-    <button data-tab="today" class="active">Today</button>
+    <button data-tab="today" class="active">Day view</button>
+    <button data-tab="reports">Reports</button>
     <button data-tab="employees">Employees</button>
     <button data-tab="vehicles">Vehicles</button>
     <button data-tab="logs">Logs</button>
@@ -297,15 +307,51 @@
   <main>
     <div id="globalMsg"></div>
 
-    <!-- TODAY -->
+    <!-- DAY VIEW -->
     <section id="tab-today">
+      <div class="card daynav">
+        <button id="dayPrev" class="outline">◀</button>
+        <div class="grow" style="text-align:center">
+          <div id="dayLabel" style="font-weight:700"></div>
+          <button id="dayToday" class="ghost hidden">Back to today</button>
+        </div>
+        <button id="dayNext" class="outline">▶</button>
+      </div>
       <div class="tiles" id="todayTiles"></div>
       <div id="notStartedCard"></div>
       <div class="card">
-        <h2 class="section">Today's activity</h2>
+        <div class="toolbar">
+          <h2 class="section grow" style="margin:0">Activity</h2>
+          <button id="exportDay" class="outline">Export CSV</button>
+        </div>
+        <div id="dayGroups"></div>
+      </div>
+    </section>
+
+    <!-- REPORTS -->
+    <section id="tab-reports" class="hidden">
+      <div class="card">
+        <div class="toolbar">
+          <div><label for="repFrom">From</label><input id="repFrom" type="date"></div>
+          <div><label for="repTo">To</label><input id="repTo" type="date"></div>
+          <button id="repRun">Run report</button>
+          <button id="repWeek" class="outline">Last 7 days</button>
+          <button id="repMonth" class="outline">Last 30 days</button>
+        </div>
+        <div class="count" id="repRange"></div>
+      </div>
+      <div class="tiles" id="repTiles"></div>
+      <div class="card">
+        <div class="toolbar">
+          <h2 class="section grow" style="margin:0">Per employee</h2>
+          <button id="exportSummary" class="outline">Export CSV</button>
+        </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th>Start</th><th>Knock off</th><th>Distance</th><th>Areas</th></tr></thead>
-          <tbody id="todayRows"></tbody>
+          <thead><tr>
+            <th>Employee</th><th>Province</th><th>Team</th>
+            <th>Days</th><th>Absent</th><th>Hours</th><th>Distance</th><th>Fuel</th>
+          </tr></thead>
+          <tbody id="repRows"></tbody>
         </table></div>
       </div>
     </section>
@@ -403,16 +449,29 @@
     <!-- LOGS -->
     <section id="tab-logs" class="hidden">
       <div class="card">
+        <div class="toolbar">
+          <div class="grow">
+            <label for="logSearch">Filter by employee</label>
+            <input id="logSearch" type="search" placeholder="Name">
+          </div>
+          <button id="exportLogs" class="outline">Export work days</button>
+          <button id="exportFuel" class="outline">Export fuel</button>
+        </div>
+        <p class="sub" style="font-size:.82rem;margin:0">
+          Showing the 50 most recent entries. For a date range, use the Reports tab.
+        </p>
+      </div>
+      <div class="card">
         <h2 class="section">Recent fuel logs</h2>
         <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th>Date</th><th>Amount</th><th>Litres</th><th>Odometer</th><th>Receipt</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Date</th><th>Amount</th><th>Litres</th><th>R/litre</th><th>Odometer</th><th>Receipt</th></tr></thead>
           <tbody id="fuelRows"></tbody>
         </table></div>
       </div>
       <div class="card">
         <h2 class="section">Recent work days</h2>
         <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th>Date</th><th>Start</th><th>Knock off</th><th>Distance</th><th>Areas</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Date</th><th>Start</th><th>Knock off</th><th>Hours</th><th>Distance</th><th>Areas</th></tr></thead>
           <tbody id="timeRows"></tbody>
         </table></div>
       </div>
@@ -451,6 +510,10 @@ const db = getFirestore(app);
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], recentTimeLogs: [], fuelLogs: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
+/** The day shown on the Day view tab — not necessarily today. */
+let selectedDate = todayString();
+/** Rows behind the current report, kept so Export CSV matches what's on screen. */
+let reportRows = [];
 
 /* ---------------- helpers ---------------- */
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -465,6 +528,48 @@ const todayString = () => {
 const hhmm = (millis) => millis
   ? new Date(millis).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
   : '—';
+
+/** Minutes between clocking in and knocking off; 0 while the day is still open. */
+function minutesWorked(log) {
+  if (!log.startTimeMillis || !log.endTimeMillis) return 0;
+  return Math.max(0, Math.floor((log.endTimeMillis - log.startTimeMillis) / 60000));
+}
+const hoursLabel = (mins) => mins > 0 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : '—';
+const kmOf = (log) => Math.max(0, (log.endOdometerKm || 0) - (log.startOdometerKm || 0));
+
+/** Shifts a yyyy-MM-dd string by whole days without tripping over month ends. */
+function shiftDate(date, days) {
+  const [y, m, d] = date.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+}
+
+function prettyDate(date) {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-ZA',
+    { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/**
+ * Builds a CSV and hands it to the browser as a download. Quotes every field and
+ * doubles inner quotes, so a comma in an area name can't shift the columns.
+ */
+function downloadCsv(filename, rows) {
+  const csv = rows
+    .map(r => r.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\r\n');
+  // BOM so Excel opens UTF-8 correctly rather than mangling accents.
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 const normReg = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
@@ -548,7 +653,7 @@ async function loadAll() {
       getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
       getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
       getDocs(collection(db, 'vehicles')),
-      getDocs(query(collection(db, 'timeLogs'), where('date', '==', todayString()))),
+      getDocs(query(collection(db, 'timeLogs'), where('date', '==', selectedDate))),
       getDocs(query(collection(db, 'timeLogs'), orderBy('startTimeMillis', 'desc'), limit(50))),
       getDocs(query(collection(db, 'fuelLogs'), orderBy('timestampMillis', 'desc'), limit(50)))
     ]);
@@ -572,7 +677,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['today','employees','vehicles','logs'].forEach(t =>
+    ['today','reports','employees','vehicles','logs'].forEach(t =>
       $('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
     $('globalMsg').innerHTML = '';
   });
@@ -593,11 +698,21 @@ function renderToday() {
   const knockedOff = data.todaysLogs.filter(l => l.endTimeMillis > 0).length;
   const notStarted = activeEmployees.filter(e => !startedUids.has(e.id));
 
+  const isToday = selectedDate === todayString();
+  $('dayLabel').textContent = prettyDate(selectedDate) + (isToday ? ' (today)' : '');
+  $('dayToday').classList.toggle('hidden', isToday);
+  $('dayNext').disabled = isToday;
+
+  const totalMins = data.todaysLogs.reduce((sum, l) => sum + minutesWorked(l), 0);
+  const totalKm = data.todaysLogs.reduce((sum, l) => sum + kmOf(l), 0);
+  const servicesDue = data.vehicles.filter(isServiceDue).length;
+
   $('todayTiles').innerHTML = [
     ['Started', `${started.length}/${activeEmployees.length}`],
     ['Knocked off', knockedOff],
-    ['Vehicles', data.vehicles.length],
-    ['Employees', data.employees.length]
+    ['Hours', hoursLabel(totalMins)],
+    ['Distance', `${totalKm} km`],
+    ['Service due', servicesDue]
   ].map(([cap, big]) =>
     `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
@@ -607,32 +722,89 @@ function renderToday() {
   $('notStartedCard').innerHTML = `
     ${notStarted.length === 0 ? '' : `
       <div class="card" style="background:var(--error-container);color:var(--on-error-container)">
-        <h2 class="section">Not started yet (${notStarted.length})</h2>
+        <h2 class="section">No entry ${isToday ? 'yet' : 'that day'} (${notStarted.length})</h2>
         ${notStarted.map(e => `<div>• ${esc(fullName(e))}</div>`).join('')}
       </div>`}
     ${absent.length === 0 ? '' : `
       <div class="card" style="background:var(--secondary-container);color:var(--on-secondary-container)">
-        <h2 class="section">Not working today (${absent.length})</h2>
+        <h2 class="section">Not working (${absent.length})</h2>
         ${absent.map(l => `<div>• ${esc(l.employeeName)}${
           l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</div>`).join('')}
       </div>`}`;
 
-  $('todayRows').innerHTML = data.todaysLogs.length === 0
-    ? `<tr><td colspan="5" class="empty">Nobody has clocked in yet today.</td></tr>`
-    : data.todaysLogs.map(l => l.notWorking
-        ? `<tr>
-            <td>${personCell(l)}</td>
-            <td colspan="4"><em>Not working${
-              l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
-          </tr>`
-        : `<tr>
-            <td>${personCell(l)}</td>
-            <td>${hhmm(l.startTimeMillis)}</td>
-            <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
-            <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
-            <td>${esc(l.mainAreasWorked || '—')}</td>
-          </tr>`).join('');
+  // Grouped by province, so a large team reads as regional crews.
+  const groups = {};
+  data.todaysLogs.forEach(l => {
+    const person = data.employees.find(e => e.id === l.uid);
+    const key = person?.province || 'No province set';
+    (groups[key] = groups[key] || []).push(l);
+  });
+
+  $('dayGroups').innerHTML = data.todaysLogs.length === 0
+    ? `<div class="empty">No entries for this day.</div>`
+    : Object.keys(groups).sort().map(province => {
+        const logs = groups[province];
+        const mins = logs.reduce((s, l) => s + minutesWorked(l), 0);
+        return `
+          <div class="group-head">
+            <span>${esc(province)}</span>
+            <span class="tally">${logs.length} · ${hoursLabel(mins)}</span>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th>Employee</th><th>Start</th><th>Knock off</th>
+              <th>Hours</th><th>Distance</th><th>Areas</th>
+            </tr></thead>
+            <tbody>
+              ${logs.map(l => l.notWorking
+                ? `<tr>
+                    <td>${personCell(l)}</td>
+                    <td colspan="5"><em>Not working${
+                      l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
+                  </tr>`
+                : `<tr>
+                    <td>${personCell(l)}</td>
+                    <td>${hhmm(l.startTimeMillis)}</td>
+                    <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
+                    <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
+                    <td>${l.endTimeMillis ? esc(kmOf(l)) + ' km' : '—'}</td>
+                    <td>${esc(l.mainAreasWorked || '—')}</td>
+                  </tr>`).join('')}
+            </tbody>
+          </table></div>`;
+      }).join('');
 }
+
+/* ---------------- day navigation ---------------- */
+async function goToDate(date) {
+  if (date > todayString()) return;
+  selectedDate = date;
+  await loadAll();
+}
+$('dayPrev').addEventListener('click', () => goToDate(shiftDate(selectedDate, -1)));
+$('dayNext').addEventListener('click', () => goToDate(shiftDate(selectedDate, 1)));
+$('dayToday').addEventListener('click', () => goToDate(todayString()));
+
+$('exportDay').addEventListener('click', () => {
+  const rows = [['Date', 'Employee', 'Province', 'Team', 'Start', 'Knock off',
+    'Hours', 'Minutes', 'Distance km', 'Areas', 'Not working', 'Reason']];
+  data.todaysLogs.forEach(l => {
+    const p = data.employees.find(e => e.id === l.uid);
+    rows.push([
+      selectedDate,
+      l.employeeName || (p ? fullName(p) : ''),
+      p?.province || '', p?.teamName || '',
+      l.startTimeMillis ? hhmm(l.startTimeMillis) : '',
+      l.endTimeMillis ? hhmm(l.endTimeMillis) : '',
+      hoursLabel(minutesWorked(l)), minutesWorked(l),
+      l.endTimeMillis ? kmOf(l) : '',
+      l.mainAreasWorked || '',
+      l.notWorking ? 'Yes' : 'No',
+      l.notWorkingReason || ''
+    ]);
+  });
+  downloadCsv(`work-info-${selectedDate}.csv`, rows);
+});
 
 const fullName = (e) => `${e.name || ''} ${e.surname || ''}`.trim();
 
@@ -1103,27 +1275,152 @@ $('bulkBtn').addEventListener('click', async () => {
   } catch (err) { showMsg('Bulk upload failed: ' + err.message, 'err'); }
 });
 
-/* ---------------- logs ---------------- */
-function renderLogs() {
-  $('fuelRows').innerHTML = data.fuelLogs.length === 0
-    ? `<tr><td colspan="6" class="empty">No fuel logs yet.</td></tr>`
-    : data.fuelLogs.map(f => `<tr>
-        <td>${esc(f.employeeName)}</td>
-        <td>${esc(f.date)}</td>
-        <td>R${Number(f.amountSpentRands || 0).toFixed(2)}</td>
-        <td>${f.litres ? esc(f.litres) + ' L' : '—'}</td>
-        <td>${esc(f.odometerKm || 0)} km</td>
-        <td>${f.receiptPhotoUrl
-          ? `<a href="${esc(f.receiptPhotoUrl)}" target="_blank" rel="noopener">View</a>` : '—'}</td>
-      </tr>`).join('');
+/* ---------------- reports ---------------- */
+$('repWeek').addEventListener('click', () => {
+  $('repFrom').value = shiftDate(todayString(), -6);
+  $('repTo').value = todayString();
+  runReport();
+});
+$('repMonth').addEventListener('click', () => {
+  $('repFrom').value = shiftDate(todayString(), -29);
+  $('repTo').value = todayString();
+  runReport();
+});
+$('repRun').addEventListener('click', runReport);
 
-  $('timeRows').innerHTML = data.recentTimeLogs.length === 0
-    ? `<tr><td colspan="6" class="empty">No work days recorded yet.</td></tr>`
-    : data.recentTimeLogs.map(l => l.notWorking
+async function runReport() {
+  const from = $('repFrom').value;
+  const to = $('repTo').value;
+  if (!from || !to) { showMsg('Choose both dates first.', 'err'); return; }
+  if (from > to) { showMsg('"From" must be on or before "To".', 'err'); return; }
+
+  $('repRange').textContent = `Loading ${prettyDate(from)} → ${prettyDate(to)}…`;
+  try {
+    // Range on a single field, so no composite index is needed.
+    const [timeSnap, fuelSnap] = await Promise.all([
+      getDocs(query(collection(db, 'timeLogs'),
+        where('date', '>=', from), where('date', '<=', to))),
+      getDocs(query(collection(db, 'fuelLogs'),
+        where('date', '>=', from), where('date', '<=', to)))
+    ]);
+    const timeLogs = timeSnap.docs.map(d => d.data());
+    const fuelLogs = fuelSnap.docs.map(d => d.data());
+
+    // Keyed by uid, so someone renamed mid-period still aggregates as one person.
+    const byUid = {};
+    const bucket = (uid, name) => {
+      if (!byUid[uid]) {
+        const p = data.employees.find(e => e.id === uid);
+        byUid[uid] = {
+          name: p ? fullName(p) : (name || 'Unknown'),
+          province: p?.province || '',
+          team: p?.teamName || '',
+          days: 0, absent: 0, minutes: 0, km: 0, fuel: 0
+        };
+      }
+      return byUid[uid];
+    };
+
+    timeLogs.forEach(l => {
+      const b = bucket(l.uid, l.employeeName);
+      if (l.notWorking) b.absent += 1;
+      else if (l.startTimeMillis) {
+        b.days += 1;
+        b.minutes += minutesWorked(l);
+        b.km += kmOf(l);
+      }
+    });
+    fuelLogs.forEach(f => { bucket(f.uid, f.employeeName).fuel += Number(f.amountSpentRands || 0); });
+
+    reportRows = Object.values(byUid).sort((a, b) => a.name.localeCompare(b.name));
+
+    const totals = reportRows.reduce((t, r) => ({
+      days: t.days + r.days, minutes: t.minutes + r.minutes,
+      km: t.km + r.km, fuel: t.fuel + r.fuel, absent: t.absent + r.absent
+    }), { days: 0, minutes: 0, km: 0, fuel: 0, absent: 0 });
+
+    $('repRange').textContent =
+      `${prettyDate(from)} → ${prettyDate(to)} · ${reportRows.length} employee(s)`;
+
+    $('repTiles').innerHTML = [
+      ['Days worked', totals.days],
+      ['Absences', totals.absent],
+      ['Hours', hoursLabel(totals.minutes)],
+      ['Distance', `${totals.km} km`],
+      ['Fuel', 'R' + totals.fuel.toFixed(2)]
+    ].map(([cap, big]) =>
+      `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+    ).join('');
+
+    $('repRows').innerHTML = reportRows.length === 0
+      ? `<tr><td colspan="8" class="empty">Nothing recorded in that period.</td></tr>`
+      : reportRows.map(r => `<tr>
+          <td>${esc(r.name)}</td>
+          <td>${esc(r.province || '—')}</td>
+          <td>${esc(r.team || '—')}</td>
+          <td>${r.days}</td>
+          <td>${r.absent}</td>
+          <td class="hrs">${hoursLabel(r.minutes)}</td>
+          <td>${r.km} km</td>
+          <td>R${r.fuel.toFixed(2)}</td>
+        </tr>`).join('');
+  } catch (err) {
+    $('repRange').textContent = '';
+    showMsg('Could not build the report: ' + err.message, 'err');
+  }
+}
+
+$('exportSummary').addEventListener('click', () => {
+  if (reportRows.length === 0) { showMsg('Run a report first.', 'err'); return; }
+  const rows = [['Employee', 'Province', 'Team', 'Days worked', 'Absences',
+    'Hours', 'Minutes', 'Distance km', 'Fuel R']];
+  reportRows.forEach(r => rows.push([
+    r.name, r.province, r.team, r.days, r.absent,
+    hoursLabel(r.minutes), r.minutes, r.km, r.fuel.toFixed(2)
+  ]));
+  downloadCsv(`summary-${$('repFrom').value}-to-${$('repTo').value}.csv`, rows);
+});
+
+/* ---------------- logs ---------------- */
+let logFilter = '';
+$('logSearch').addEventListener('input', (e) => {
+  logFilter = e.target.value.trim().toLowerCase();
+  renderLogs();
+});
+
+const matchesLogFilter = (row) =>
+  !logFilter || String(row.employeeName || '').toLowerCase().includes(logFilter);
+
+function renderLogs() {
+  const fuel = data.fuelLogs.filter(matchesLogFilter);
+  const times = data.recentTimeLogs.filter(matchesLogFilter);
+
+  $('fuelRows').innerHTML = fuel.length === 0
+    ? `<tr><td colspan="7" class="empty">No fuel logs${logFilter ? ' for that name' : ' yet'}.</td></tr>`
+    : fuel.map(f => {
+        const amount = Number(f.amountSpentRands || 0);
+        const litres = Number(f.litres || 0);
+        // Rand per litre is a useful sanity check on what was actually filled.
+        const perLitre = litres > 0 ? 'R' + (amount / litres).toFixed(2) : '—';
+        return `<tr>
+          <td>${esc(f.employeeName)}</td>
+          <td>${esc(f.date)}</td>
+          <td>R${amount.toFixed(2)}</td>
+          <td>${litres > 0 ? esc(litres) + ' L' : '—'}</td>
+          <td>${perLitre}</td>
+          <td>${esc(f.odometerKm || 0)} km</td>
+          <td>${f.receiptPhotoUrl
+            ? `<a href="${esc(f.receiptPhotoUrl)}" target="_blank" rel="noopener">View</a>` : '—'}</td>
+        </tr>`;
+      }).join('');
+
+  $('timeRows').innerHTML = times.length === 0
+    ? `<tr><td colspan="7" class="empty">No work days${logFilter ? ' for that name' : ' recorded yet'}.</td></tr>`
+    : times.map(l => l.notWorking
         ? `<tr>
             <td>${personCell(l)}</td>
             <td>${esc(l.date)}</td>
-            <td colspan="4"><em>Not working${
+            <td colspan="5"><em>Not working${
               l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
           </tr>`
         : `<tr>
@@ -1131,10 +1428,39 @@ function renderLogs() {
             <td>${esc(l.date)}</td>
             <td>${hhmm(l.startTimeMillis)}</td>
             <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
-            <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
+            <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
+            <td>${l.endTimeMillis ? esc(kmOf(l)) + ' km' : '—'}</td>
             <td>${esc(l.mainAreasWorked || '—')}</td>
           </tr>`).join('');
 }
+
+$('exportLogs').addEventListener('click', () => {
+  const rows = [['Date', 'Employee', 'Start', 'Knock off', 'Hours', 'Minutes',
+    'Distance km', 'Areas', 'Not working', 'Reason']];
+  data.recentTimeLogs.filter(matchesLogFilter).forEach(l => rows.push([
+    l.date, l.employeeName,
+    l.startTimeMillis ? hhmm(l.startTimeMillis) : '',
+    l.endTimeMillis ? hhmm(l.endTimeMillis) : '',
+    hoursLabel(minutesWorked(l)), minutesWorked(l),
+    l.endTimeMillis ? kmOf(l) : '',
+    l.mainAreasWorked || '', l.notWorking ? 'Yes' : 'No', l.notWorkingReason || ''
+  ]));
+  downloadCsv('work-days.csv', rows);
+});
+
+$('exportFuel').addEventListener('click', () => {
+  const rows = [['Date', 'Employee', 'Amount R', 'Litres', 'R per litre', 'Odometer km', 'Receipt']];
+  data.fuelLogs.filter(matchesLogFilter).forEach(f => {
+    const amount = Number(f.amountSpentRands || 0);
+    const litres = Number(f.litres || 0);
+    rows.push([
+      f.date, f.employeeName, amount.toFixed(2), litres || '',
+      litres > 0 ? (amount / litres).toFixed(2) : '',
+      f.odometerKm || 0, f.receiptPhotoUrl || ''
+    ]);
+  });
+  downloadCsv('fuel-logs.csv', rows);
+});
 </script>
 </body>
 </html>
