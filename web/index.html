@@ -341,6 +341,23 @@
         </div>
         <div class="count" id="repRange"></div>
       </div>
+      <div class="card">
+        <div class="toolbar">
+          <div class="grow">
+            <label for="repSearch">Search</label>
+            <input id="repSearch" type="search" placeholder="Employee, province or team">
+          </div>
+          <div>
+            <label for="repProvince">Province</label>
+            <select id="repProvince"></select>
+          </div>
+          <div>
+            <label for="repTeam">Team</label>
+            <select id="repTeam"></select>
+          </div>
+        </div>
+        <div class="count" id="repShowing"></div>
+      </div>
       <div class="tiles" id="repTiles"></div>
       <div class="card">
         <div class="toolbar">
@@ -520,6 +537,9 @@ let currentUid = null;
 let selectedDate;
 /** Rows behind the current report, kept so Export CSV matches what's on screen. */
 let reportRows = [];
+/** The dates the current report covers, used for wording and the export filename. */
+let reportRange = { from: '', to: '' };
+let reportFilters = { query: '', province: '', team: '' };
 
 /* ---------------- helpers ---------------- */
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -1376,65 +1396,113 @@ async function runReport() {
     fuelLogs.forEach(f => { bucket(f.uid, f.employeeName).fuel += Number(f.amountSpentRands || 0); });
 
     reportRows = Object.values(byUid).sort((a, b) => a.name.localeCompare(b.name));
-
-    const totals = reportRows.reduce((t, r) => ({
-      days: t.days + r.days, minutes: t.minutes + r.minutes, open: t.open + r.open,
-      km: t.km + r.km, fuel: t.fuel + r.fuel, absent: t.absent + r.absent
-    }), { days: 0, minutes: 0, open: 0, km: 0, fuel: 0, absent: 0 });
-
-    $('repRange').innerHTML =
-      `${prettyDate(from)} → ${prettyDate(to)} · ${reportRows.length} employee(s)` +
-      (totals.open > 0
-        ? `<br><span style="color:var(--error)">${totals.open} day(s) have no knock off, `
-          + `so hours and distance below exclude them.</span>`
-        : '');
-
-    // Over a single day the "days" total is really a headcount, so the wording
-    // changes rather than reading as a count of days.
-    const singleDay = from === to;
-    $('repDaysHead').textContent = singleDay ? 'Worked' : 'Days';
-
-    $('repTiles').innerHTML = [
-      [singleDay ? 'Number of employees' : 'Days worked', totals.days],
-      [singleDay ? 'Absent' : 'Absences', totals.absent],
-      ['No knock off', totals.open],
-      ['Hours', hoursLabel(totals.minutes)],
-      ['Distance', `${totals.km} km`],
-      ['Fuel', 'R' + totals.fuel.toFixed(2)]
-    ].map(([cap, big]) =>
-      `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
-    ).join('');
-
-    $('repRows').innerHTML = reportRows.length === 0
-      ? `<tr><td colspan="9" class="empty">Nothing recorded in that period.</td></tr>`
-      : reportRows.map(r => `<tr>
-          <td>${esc(r.name)}</td>
-          <td>${esc(r.province || '—')}</td>
-          <td>${esc(r.team || '—')}</td>
-          <td>${r.days}</td>
-          <td>${r.absent}</td>
-          <td${r.open > 0 ? ' style="color:var(--error);font-weight:700"' : ''}>${r.open}</td>
-          <td class="hrs">${hoursLabel(r.minutes)}</td>
-          <td>${r.km} km</td>
-          <td>R${r.fuel.toFixed(2)}</td>
-        </tr>`).join('');
+    reportRange = { from, to };
+    renderReport();
   } catch (err) {
     $('repRange').textContent = '';
     showMsg('Could not build the report: ' + err.message, 'err');
   }
 }
 
+/** Rows currently visible, after the search and dropdowns. */
+function visibleReportRows() {
+  const q = reportFilters.query.trim().toLowerCase();
+  return reportRows.filter(r => {
+    if (reportFilters.province && r.province !== reportFilters.province) return false;
+    if (reportFilters.team && r.team !== reportFilters.team) return false;
+    if (!q) return true;
+    return [r.name, r.province, r.team]
+      .some(v => String(v ?? '').toLowerCase().includes(q));
+  });
+}
+
+function renderReport() {
+  const { from, to } = reportRange;
+  const singleDay = from === to;
+
+  // Dropdowns list only what's actually in this period, with counts.
+  const provinces = [...new Set(reportRows.map(r => r.province).filter(Boolean))].sort();
+  const teams = [...new Set(reportRows.map(r => r.team).filter(Boolean))].sort();
+  $('repProvince').innerHTML = [`<option value="">All provinces</option>`,
+    ...provinces.map(p => `<option value="${esc(p)}" ${p === reportFilters.province ? 'selected' : ''}>${esc(p)}</option>`)].join('');
+  $('repTeam').innerHTML = [`<option value="">All teams</option>`,
+    ...teams.map(t => `<option value="${esc(t)}" ${t === reportFilters.team ? 'selected' : ''}>${esc(t)}</option>`)].join('');
+
+  const rows = visibleReportRows();
+
+  // Totals come from the filtered rows, so the headline figures always agree with
+  // the table underneath them.
+  const totals = rows.reduce((t, r) => ({
+    days: t.days + r.days, minutes: t.minutes + r.minutes, open: t.open + r.open,
+    km: t.km + r.km, fuel: t.fuel + r.fuel, absent: t.absent + r.absent
+  }), { days: 0, minutes: 0, open: 0, km: 0, fuel: 0, absent: 0 });
+
+  $('repRange').innerHTML =
+    `${prettyDate(from)} → ${prettyDate(to)}` +
+    (totals.open > 0
+      ? `<br><span style="color:var(--error)">${totals.open} employee(s) have not `
+        + `knocked off, so hours and distance below exclude them.</span>`
+      : '');
+
+  $('repShowing').textContent = rows.length === reportRows.length
+    ? `${reportRows.length} employee(s)`
+    : `Showing ${rows.length} of ${reportRows.length}`;
+
+  $('repDaysHead').textContent = singleDay ? 'Worked' : 'Days';
+
+  $('repTiles').innerHTML = [
+    [singleDay ? 'Number of employees' : 'Days worked', totals.days],
+    [singleDay ? 'Absent' : 'Absences', totals.absent],
+    ['Not knocked off', totals.open],
+    ['Hours', hoursLabel(totals.minutes)],
+    ['Distance', `${totals.km} km`],
+    ['Fuel', 'R' + totals.fuel.toFixed(2)]
+  ].map(([cap, big]) =>
+    `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+  ).join('');
+
+  $('repRows').innerHTML = rows.length === 0
+    ? `<tr><td colspan="9" class="empty">${reportRows.length === 0
+        ? 'Nothing recorded in that period.'
+        : 'Nobody matches that filter.'}</td></tr>`
+    : rows.map(r => `<tr>
+        <td>${esc(r.name)}</td>
+        <td>${esc(r.province || '—')}</td>
+        <td>${esc(r.team || '—')}</td>
+        <td>${r.days}</td>
+        <td>${r.absent}</td>
+        <td${r.open > 0 ? ' style="color:var(--error);font-weight:700"' : ''}>${r.open}</td>
+        <td class="hrs">${hoursLabel(r.minutes)}</td>
+        <td>${r.km} km</td>
+        <td>R${r.fuel.toFixed(2)}</td>
+      </tr>`).join('');
+}
+
+$('repSearch').addEventListener('input', (e) => {
+  reportFilters.query = e.target.value;
+  renderReport();
+});
+$('repProvince').addEventListener('change', (e) => {
+  reportFilters.province = e.target.value;
+  renderReport();
+});
+$('repTeam').addEventListener('change', (e) => {
+  reportFilters.team = e.target.value;
+  renderReport();
+});
+
 $('exportSummary').addEventListener('click', () => {
   if (reportRows.length === 0) { showMsg('Run a report first.', 'err'); return; }
-  const singleDay = $('repFrom').value === $('repTo').value;
+  const singleDay = reportRange.from === reportRange.to;
   const rows = [['Employee', 'Province', 'Team',
     singleDay ? 'Worked' : 'Days worked', 'Absences',
-    'Days without knock off', 'Hours', 'Minutes', 'Distance km', 'Fuel R']];
-  reportRows.forEach(r => rows.push([
+    'Not knocked off', 'Hours', 'Minutes', 'Distance km', 'Fuel R']];
+  // Exports what's on screen, filters included.
+  visibleReportRows().forEach(r => rows.push([
     r.name, r.province, r.team, r.days, r.absent, r.open,
     hoursLabel(r.minutes), r.minutes, r.km, r.fuel.toFixed(2)
   ]));
-  downloadCsv(`summary-${$('repFrom').value}-to-${$('repTo').value}.csv`, rows);
+  downloadCsv(`summary-${reportRange.from}-to-${reportRange.to}.csv`, rows);
 });
 
 /* ---------------- logs ---------------- */
