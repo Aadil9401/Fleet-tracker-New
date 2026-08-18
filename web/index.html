@@ -225,6 +225,16 @@
   .bar-fill.due { background: var(--error); }
 
   .empty { color: var(--muted); text-align: center; padding: 28px 12px; }
+
+  .overlay {
+    position: fixed; inset: 0; background: rgba(30,42,38,.45);
+    display: grid; place-items: center; padding: 20px; z-index: 50;
+  }
+  .modal {
+    background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 22px; width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto;
+  }
+  .modal h2.section { color: var(--primary); }
   .row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
   details.help { margin-top: 10px; font-size: .88rem; color: var(--muted); }
   code { background: var(--surface-variant); padding: 1px 5px; border-radius: 5px; font-size: .85em; }
@@ -314,7 +324,31 @@
           <tbody id="empRows"></tbody>
         </table></div>
       </div>
+
+      <div class="card" id="adminsCard"></div>
     </section>
+
+    <!-- EDIT EMPLOYEE MODAL -->
+    <div id="editOverlay" class="overlay hidden">
+      <div class="modal">
+        <h2 class="section" id="editTitle">Edit employee</h2>
+        <div class="field"><label for="eName">Name</label><input id="eName"></div>
+        <div class="field"><label for="eSurname">Surname</label><input id="eSurname"></div>
+        <div class="field"><label for="eNumber">Employee number</label><input id="eNumber"></div>
+        <div class="field"><label for="eProvince">Province</label><select id="eProvince"></select></div>
+        <div class="field"><label for="eTeam">Team name</label><input id="eTeam"></div>
+        <div class="field"><label for="eReg">Vehicle registration</label><input id="eReg"></div>
+        <div class="field"><label for="eEmail">Email address</label><input id="eEmail" type="email"></div>
+        <p class="sub" style="font-size:.82rem">
+          Their sign-in email and password can't be changed here — they can reset the
+          password themselves from the app's login screen.
+        </p>
+        <div class="row-actions" style="justify-content:flex-end">
+          <button id="editCancel" class="outline">Cancel</button>
+          <button id="editSave">Save changes</button>
+        </div>
+      </div>
+    </div>
 
     <!-- VEHICLES -->
     <section id="tab-vehicles" class="hidden">
@@ -408,8 +442,9 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 // Everything loaded for the signed-in admin.
-let data = { employees: [], vehicles: [], todaysLogs: [], recentTimeLogs: [], fuelLogs: [] };
+let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], recentTimeLogs: [], fuelLogs: [] };
 let filters = { query: '', province: ALL_PROVINCES };
+let currentUid = null;
 
 /* ---------------- helpers ---------------- */
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
@@ -493,6 +528,7 @@ onAuthStateChanged(auth, async (user) => {
       '<div class="msg err">This portal is for admins only. Staff should use the phone app.</div>';
     return;
   }
+  currentUid = user.uid;
   $('whoami').textContent = profile.email || user.email;
   $('loginView').classList.add('hidden');
   $('appView').classList.remove('hidden');
@@ -502,8 +538,9 @@ onAuthStateChanged(auth, async (user) => {
 /* ---------------- loading ---------------- */
 async function loadAll() {
   try {
-    const [employees, vehicles, todaysLogs, recentTimeLogs, fuelLogs] = await Promise.all([
+    const [employees, admins, vehicles, todaysLogs, recentTimeLogs, fuelLogs] = await Promise.all([
       getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
+      getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
       getDocs(collection(db, 'vehicles')),
       getDocs(query(collection(db, 'timeLogs'), where('date', '==', todayString()))),
       getDocs(query(collection(db, 'timeLogs'), orderBy('startTimeMillis', 'desc'), limit(50))),
@@ -512,6 +549,7 @@ async function loadAll() {
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
     data = {
       employees: rows(employees),
+      admins: rows(admins),
       vehicles: rows(vehicles),
       todaysLogs: rows(todaysLogs),
       recentTimeLogs: rows(recentTimeLogs),
@@ -626,10 +664,33 @@ function renderEmployees() {
           <td>${esc(e.vehicleRegistration || '—')}</td>
           <td><select data-assign="${esc(e.id)}">${vehicleOptions(e.assignedVehicleId)}</select></td>
           <td><span class="badge ${active ? '' : 'off'}">${active ? 'Active' : 'Inactive'}</span></td>
-          <td><button class="ghost ${active ? 'danger' : ''}" data-toggle="${esc(e.id)}"
-              data-active="${active}">${active ? 'Deactivate' : 'Reactivate'}</button></td>
+          <td class="row-actions">
+            <button class="ghost" data-edit="${esc(e.id)}">Edit</button>
+            <button class="ghost" data-promote="${esc(e.id)}">Make admin</button>
+            <button class="ghost ${active ? 'danger' : ''}" data-toggle="${esc(e.id)}"
+              data-active="${active}">${active ? 'Deactivate' : 'Reactivate'}</button>
+          </td>
         </tr>`;
       }).join('');
+
+  $('empRows').querySelectorAll('[data-edit]').forEach(btn => {
+    btn.addEventListener('click', () => openEditModal(btn.dataset.edit));
+  });
+  $('empRows').querySelectorAll('[data-promote]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const emp = data.employees.find(x => x.id === btn.dataset.promote);
+      if (!emp) return;
+      if (!confirm(`Make ${fullName(emp)} an admin? They'll get the full dashboard `
+        + `instead of the employee screen. You can undo this from the Admins list.`)) return;
+      try {
+        await updateDoc(doc(db, 'users', emp.id), { role: 'admin' });
+        showMsg(`${fullName(emp)} is now an admin.`);
+        await loadAll();
+      } catch (err) { showMsg('Could not change role: ' + err.message, 'err'); }
+    });
+  });
+
+  renderAdmins();
 
   $('empRows').querySelectorAll('[data-assign]').forEach(sel => {
     sel.addEventListener('change', async () => {
@@ -650,6 +711,89 @@ function renderEmployees() {
     });
   });
 }
+
+function renderAdmins() {
+  $('adminsCard').innerHTML = `
+    <h2 class="section">Admins (${data.admins.length})</h2>
+    <p class="sub" style="font-size:.85rem;margin:0 0 10px">
+      Admins don't appear in the list above. To add one, have the person sign up in
+      the app as normal, then press "Make admin" on their row.
+    </p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Name</th><th>Email</th><th></th></tr></thead>
+      <tbody>
+        ${data.admins.map(a => `<tr>
+          <td>${esc(fullName(a) || '—')}</td>
+          <td>${esc(a.contactEmail || a.email || '')}</td>
+          <td>${a.id === currentUid
+            ? '<span class="chip">you</span>'
+            : `<button class="ghost danger" data-demote="${esc(a.id)}">Remove admin</button>`}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+
+  $('adminsCard').querySelectorAll('[data-demote]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remove admin access? They become a normal employee again.')) return;
+      try {
+        await updateDoc(doc(db, 'users', btn.dataset.demote), { role: 'employee' });
+        showMsg('Admin access removed.');
+        await loadAll();
+      } catch (err) { showMsg('Could not change role: ' + err.message, 'err'); }
+    });
+  });
+}
+
+/* ---------------- edit employee ---------------- */
+let editingUid = null;
+
+function openEditModal(uid) {
+  const e = data.employees.find(x => x.id === uid);
+  if (!e) return;
+  editingUid = uid;
+  $('editTitle').textContent = `Edit ${fullName(e)}`;
+  $('eName').value = e.name || '';
+  $('eSurname').value = e.surname || '';
+  $('eNumber').value = e.employeeNumber || '';
+  $('eTeam').value = e.teamName || '';
+  $('eReg').value = e.vehicleRegistration || '';
+  $('eEmail').value = e.contactEmail || '';
+  $('eProvince').innerHTML = [
+    '<option value="">— none —</option>',
+    ...SA_PROVINCES.map(p =>
+      `<option value="${esc(p)}" ${p === e.province ? 'selected' : ''}>${esc(p)}</option>`)
+  ].join('');
+  $('editOverlay').classList.remove('hidden');
+}
+
+$('editCancel').addEventListener('click', () => {
+  $('editOverlay').classList.add('hidden');
+  editingUid = null;
+});
+
+$('editSave').addEventListener('click', async () => {
+  if (!editingUid) return;
+  $('editSave').disabled = true;
+  try {
+    await updateDoc(doc(db, 'users', editingUid), {
+      name: $('eName').value.trim(),
+      surname: $('eSurname').value.trim(),
+      employeeNumber: $('eNumber').value.trim(),
+      province: $('eProvince').value,
+      teamName: $('eTeam').value.trim(),
+      vehicleRegistration: $('eReg').value.trim().toUpperCase(),
+      contactEmail: $('eEmail').value.trim()
+    });
+    $('editOverlay').classList.add('hidden');
+    editingUid = null;
+    showMsg('Employee details updated.');
+    await loadAll();
+  } catch (err) {
+    showMsg('Could not save: ' + err.message, 'err');
+  } finally {
+    $('editSave').disabled = false;
+  }
+});
 
 $('empSearch').addEventListener('input', (e) => {
   filters.query = e.target.value;

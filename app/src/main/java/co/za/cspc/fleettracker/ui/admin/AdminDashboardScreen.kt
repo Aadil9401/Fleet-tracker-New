@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -208,6 +209,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var query by remember { mutableStateOf("") }
     var provinceFilter by remember { mutableStateOf(ALL_PROVINCES) }
     var employeeToEdit by remember { mutableStateOf<UserProfile?>(null) }
+    var employeeToPromote by remember { mutableStateOf<UserProfile?>(null) }
 
     val filtered = remember(state.employees, query, provinceFilter) {
         val trimmed = query.trim()
@@ -251,6 +253,43 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
             }
         }
         Spacer(Modifier.height(12.dp))
+
+        // Admins don't appear in the employee list below (that query filters on
+        // role == employee), so they get their own summary here.
+        if (state.admins.isNotEmpty()) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Admins (${state.admins.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    state.admins.forEach { admin ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                admin.fullName.ifBlank { admin.email },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { viewModel.removeAdmin(admin.uid) }) {
+                                Text("Remove")
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
 
         OutlinedTextField(
             value = query,
@@ -311,7 +350,8 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                     vehicles = state.vehicles,
                     onToggleActive = { viewModel.setEmployeeActive(emp.uid, !emp.active) },
                     onAssignVehicle = { vehicleId -> viewModel.assignVehicle(emp.uid, vehicleId) },
-                    onEdit = { employeeToEdit = emp }
+                    onEdit = { employeeToEdit = emp },
+                    onMakeAdmin = { employeeToPromote = emp }
                 )
             }
         }
@@ -332,6 +372,30 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
+        )
+    }
+
+    employeeToPromote?.let { employee ->
+        AlertDialog(
+            onDismissRequest = { employeeToPromote = null },
+            title = { Text("Make ${employee.fullName} an admin?") },
+            text = {
+                Text(
+                    "They'll get the full admin dashboard — all employees, all logs, " +
+                        "vehicles and settings — instead of the employee screen. They " +
+                        "will also be able to edit and deactivate other staff. You can " +
+                        "undo this from the Admins list."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.makeAdmin(employee.uid)
+                    employeeToPromote = null
+                }) { Text("Make admin") }
+            },
+            dismissButton = {
+                TextButton(onClick = { employeeToPromote = null }) { Text("Cancel") }
+            }
         )
     }
 
@@ -686,7 +750,8 @@ private fun EmployeeCard(
     vehicles: List<Vehicle>,
     onToggleActive: () -> Unit,
     onAssignVehicle: (String) -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onMakeAdmin: () -> Unit
 ) {
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -717,6 +782,24 @@ private fun EmployeeCard(
                 StatusBadge(active = employee.active)
                 IconButton(onClick = onEdit) {
                     Icon(Icons.Filled.Edit, contentDescription = "Edit details")
+                }
+                var overflowOpen by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { overflowOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                    }
+                    DropdownMenu(
+                        expanded = overflowOpen,
+                        onDismissRequest = { overflowOpen = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Make admin") },
+                            onClick = {
+                                overflowOpen = false
+                                onMakeAdmin()
+                            }
+                        )
+                    }
                 }
             }
 

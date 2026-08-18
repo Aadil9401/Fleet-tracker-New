@@ -233,6 +233,22 @@ class FleetRepository(
         ).await()
     }
 
+    suspend fun listAdmins(): List<UserProfile> {
+        val snap = db.collection("users")
+            .whereEqualTo("role", Role.ADMIN)
+            .get().await()
+        return snap.toObjects(UserProfile::class.java)
+    }
+
+    /**
+     * Promotes or demotes an account. This is how a second admin gets made: the
+     * person signs up normally, then an existing admin promotes them — no Cloud
+     * Function, so it works on the free plan.
+     */
+    suspend fun setUserRole(uid: String, role: String) {
+        db.collection("users").document(uid).update("role", role).await()
+    }
+
     suspend fun setEmployeeActive(uid: String, active: Boolean) {
         db.collection("users").document(uid).update("active", active).await()
     }

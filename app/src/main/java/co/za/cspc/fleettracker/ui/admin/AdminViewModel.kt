@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import co.za.cspc.fleettracker.data.model.AppSettings
 import co.za.cspc.fleettracker.data.model.FuelLog
+import co.za.cspc.fleettracker.data.model.Role
 import co.za.cspc.fleettracker.data.model.TimeLog
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
@@ -23,6 +24,7 @@ const val SERVICE_INTERVAL_KM = 15000L
 data class AdminUiState(
     val loading: Boolean = true,
     val employees: List<UserProfile> = emptyList(),
+    val admins: List<UserProfile> = emptyList(),
     val vehicles: List<Vehicle> = emptyList(),
     val todaysLogs: List<TimeLog> = emptyList(),
     val recentTimeLogs: List<TimeLog> = emptyList(),
@@ -51,6 +53,7 @@ class AdminViewModel(
             // here would crash the dashboard rather than show a message.
             try {
                 val employees = repo.listEmployees()
+                val admins = repo.listAdmins()
                 val vehicles = repo.listVehicles()
                 val todaysLogs = repo.listTodaysTimeLogs()
                 val recentTimeLogs = repo.listRecentTimeLogs()
@@ -59,6 +62,7 @@ class AdminViewModel(
                 uiState = uiState.copy(
                     loading = false,
                     employees = employees,
+                    admins = admins,
                     vehicles = vehicles,
                     todaysLogs = todaysLogs,
                     recentTimeLogs = recentTimeLogs,
@@ -186,6 +190,39 @@ class AdminViewModel(
                 )
             } catch (e: Exception) {
                 uiState = uiState.copy(busy = false, message = "Could not save: ${e.message}")
+            }
+        }
+    }
+
+    fun makeAdmin(uid: String) = changeRole(uid, Role.ADMIN)
+
+    fun removeAdmin(uid: String) {
+        // Without this you could demote yourself and lose access to the very screen
+        // you'd need to undo it — recoverable only via the Firebase console.
+        if (uid == repo.currentUid) {
+            uiState = uiState.copy(message = "You can't remove your own admin access.")
+            return
+        }
+        changeRole(uid, Role.EMPLOYEE)
+    }
+
+    private fun changeRole(uid: String, role: String) {
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                repo.setUserRole(uid, role)
+                uiState = uiState.copy(
+                    busy = false,
+                    employees = repo.listEmployees(),
+                    admins = repo.listAdmins(),
+                    message = if (role == Role.ADMIN) {
+                        "Now an admin. They'll see the dashboard next time they sign in."
+                    } else {
+                        "Admin access removed."
+                    }
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not change role: ${e.message}")
             }
         }
     }
