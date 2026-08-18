@@ -1376,7 +1376,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         if (v.milestonesMissed() > 0) {
                             Text(
                                 if (v.milestonesMissed() == 1) {
-                                    "Service at ${v.lastServiceOdometerKm / v.serviceIntervalKm * v.serviceIntervalKm + v.serviceIntervalKm} km not logged"
+                                    "Service at ${v.firstUnloggedServiceKm()} km not logged"
                                 } else {
                                     "${v.milestonesMissed()} services not logged"
                                 },

@@ -67,7 +67,10 @@ data class Vehicle(
     @get:PropertyName("lastReminderNotifiedDate") @set:PropertyName("lastReminderNotifiedDate")
     var lastReminderNotifiedDate: String = ""
 ) {
-    fun kmSinceService(): Long = (currentOdometerKm - lastServiceOdometerKm).coerceAtLeast(0)
+    /** The earliest milestone with no service logged against it. */
+    fun firstUnloggedServiceKm(): Long =
+        if (serviceIntervalKm <= 0) 0
+        else ((lastServiceOdometerKm / serviceIntervalKm) + 1) * serviceIntervalKm
 
     /**
      * Services fall on absolute odometer milestones — every 15 000 km on the clock,
