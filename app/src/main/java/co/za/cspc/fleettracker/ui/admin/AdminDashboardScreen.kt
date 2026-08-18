@@ -38,8 +38,12 @@ import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.US)
+private val dayLabelFormat = SimpleDateFormat("EEE d MMM yyyy", Locale.US).apply {
+    timeZone = TimeZone.getTimeZone("Africa/Johannesburg")
+}
 private val tabs = listOf("Today", "Employees", "Vehicles", "Logs", "Settings")
 
 /** Sentinel for "don't filter by province". */
@@ -198,6 +202,13 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                     }
                     val started = if (log.hasStarted) timeFormat.format(Date(log.startTimeMillis)) else "-"
                     val ended = if (log.hasEnded) timeFormat.format(Date(log.endTimeMillis)) else "still working"
+                    if (log.hasStarted) {
+                        Text(
+                            dayLabelFormat.format(Date(log.startTimeMillis)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Text("Start: $started   Knock off: $ended")
                     if (log.hasEnded) Text("Distance: ${log.kmTravelled} km")
                     if (log.mainAreasWorked.isNotBlank()) {

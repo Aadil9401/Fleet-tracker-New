@@ -20,8 +20,15 @@ import co.za.cspc.fleettracker.data.model.UserProfile
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.US)
+
+// SAST-pinned like the rest of the app, so the date shown always matches the date
+// the day was actually recorded against.
+private val dayLabelFormat = SimpleDateFormat("EEE d MMM yyyy", Locale.US).apply {
+    timeZone = TimeZone.getTimeZone("Africa/Johannesburg")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -264,11 +271,18 @@ private fun StatusCard(state: EmployeeUiState) {
                     }
                 }
                 log == null || !log.hasStarted -> Text("You haven't started yet.")
-                log.hasStarted && !log.hasEnded -> Text("Started at ${timeFormat.format(Date(log.startTimeMillis))}")
-                else -> Text(
-                    "Started ${timeFormat.format(Date(log.startTimeMillis))}  →  Knocked off ${timeFormat.format(Date(log.endTimeMillis))}\n" +
-                        "Distance travelled: ${log.kmTravelled} km"
-                )
+                log.hasStarted && !log.hasEnded -> Column {
+                    Text(dayLabelFormat.format(Date(log.startTimeMillis)), fontWeight = FontWeight.Bold)
+                    Text("Started at ${timeFormat.format(Date(log.startTimeMillis))}")
+                }
+                else -> Column {
+                    Text(dayLabelFormat.format(Date(log.startTimeMillis)), fontWeight = FontWeight.Bold)
+                    Text(
+                        "Started ${timeFormat.format(Date(log.startTimeMillis))}  →  " +
+                            "Knocked off ${timeFormat.format(Date(log.endTimeMillis))}"
+                    )
+                    Text("Distance travelled: ${log.kmTravelled} km")
+                }
             }
             if (log != null && log.mainAreasWorked.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))

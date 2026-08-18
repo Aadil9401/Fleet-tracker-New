@@ -5,6 +5,19 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        // Firebase defaults these to max-age=3600, so a deploy could take an hour
+        // to reach anyone who had already opened the portal. The whole app is two
+        // small files, so there's nothing to gain from caching them.
+        // "**" rather than "**/*.html" so the bare "/" root is covered too — that
+        // glob misses it, which is exactly how a stale page kept being served.
+        "source": "**",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      }
     ]
   },
   "firestore": {
