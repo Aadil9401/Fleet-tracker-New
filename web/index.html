@@ -655,6 +655,17 @@ function renderEmployees() {
   ].join('');
   $('provinceFilter').value = current;
 
+  // Same-name or same-employee-number sign-ups, flagged so duplicates are easy to spot.
+  const dupKeys = {};
+  data.employees.forEach(e => {
+    [fullName(e).toLowerCase(), (e.employeeNumber || '').trim().toLowerCase()]
+      .filter(Boolean)
+      .forEach(k => { dupKeys[k] = (dupKeys[k] || 0) + 1; });
+  });
+  const isDuplicate = (e) =>
+    dupKeys[fullName(e).toLowerCase()] > 1 ||
+    dupKeys[(e.employeeNumber || '').trim().toLowerCase()] > 1;
+
   const q = filters.query.trim().toLowerCase();
   const filtered = data.employees.filter(e => {
     const okProvince = filters.province === ALL_PROVINCES || e.province === filters.province;
@@ -687,6 +698,9 @@ function renderEmployees() {
               <div class="meta">${esc([e.employeeNumber && 'No. ' + e.employeeNumber, e.teamName]
                 .filter(Boolean).join(' • '))}</div>
               <div class="meta">${esc(e.contactEmail || e.email || '')}</div>
+              ${isDuplicate(e)
+                ? '<div class="chip" style="background:var(--secondary-container);color:var(--on-secondary-container)">possible duplicate</div>'
+                : ''}
             </div>
           </div></td>
           <td>${e.province ? `<span class="chip">${esc(e.province)}</span>` : '—'}</td>
@@ -698,9 +712,25 @@ function renderEmployees() {
             <button class="ghost" data-promote="${esc(e.id)}">Make admin</button>
             <button class="ghost ${active ? 'danger' : ''}" data-toggle="${esc(e.id)}"
               data-active="${active}">${active ? 'Deactivate' : 'Reactivate'}</button>
+            <button class="ghost danger" data-remove="${esc(e.id)}">Delete</button>
           </td>
         </tr>`;
       }).join('');
+
+  $('empRows').querySelectorAll('[data-remove]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const emp = data.employees.find(x => x.id === btn.dataset.remove);
+      if (!emp) return;
+      if (!confirm(`Remove ${fullName(emp)}?\n\nTheir record is deleted and they can no `
+        + `longer sign in. Logged hours and fuel are kept.\n\nIf this is a real person `
+        + `rather than a duplicate, use Deactivate instead — that's reversible.`)) return;
+      try {
+        await deleteDoc(doc(db, 'users', emp.id));
+        showMsg('Employee removed.');
+        await loadAll();
+      } catch (err) { showMsg('Could not remove: ' + err.message, 'err'); }
+    });
+  });
 
   $('empRows').querySelectorAll('[data-edit]').forEach(btn => {
     btn.addEventListener('click', () => openEditModal(btn.dataset.edit));

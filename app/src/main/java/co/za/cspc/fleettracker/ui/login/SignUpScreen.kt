@@ -84,6 +84,7 @@ fun SignUpScreen(
                     value = state.employeeNumber,
                     onValueChange = viewModel::onEmployeeNumberChange,
                     label = { Text("Employee number") },
+                    supportingText = { Text("Required — each number can only be registered once") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

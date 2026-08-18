@@ -37,6 +37,8 @@ data class SignUpUiState(
 
     val canSubmit: Boolean
         get() = !loading && name.isNotBlank() && surname.isNotBlank() &&
+            // Required because it's what stops the same person registering twice.
+            employeeNumber.isNotBlank() &&
             emailLooksValid && passwordLongEnough && passwordsMatch
 }
 

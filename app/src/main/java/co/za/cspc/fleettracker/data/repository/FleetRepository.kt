@@ -49,6 +49,14 @@ class FleetRepository(
         }
 
         fun todayString(): String = dayFormat.format(Date())
+
+        /**
+         * Employee number reduced to a safe, comparable document id: letters and
+         * digits only, uppercased. Keeps "emp-001", "EMP 001" and "EMP001" as one
+         * number, and avoids the "/" characters Firestore won't accept in an id.
+         */
+        fun employeeNumberKey(employeeNumber: String): String =
+            employeeNumber.uppercase().filter { it.isLetterOrDigit() }
     }
 
     val currentUid: String? get() = auth.currentUser?.uid
@@ -86,6 +94,11 @@ class FleetRepository(
         password: String
     ): UserProfile {
         val cleanEmail = email.trim()
+        val numberKey = employeeNumberKey(employeeNumber)
+        if (numberKey.isBlank()) {
+            throw IllegalArgumentException("Please enter your employee number.")
+        }
+
         val result = auth.createUserWithEmailAndPassword(cleanEmail, password).await()
         val uid = result.user?.uid ?: throw IllegalStateException("Sign up did not return a user.")
 
@@ -106,6 +119,18 @@ class FleetRepository(
         )
 
         try {
+            // Claim the employee number first. This write is rejected if someone has
+            // already registered it, so it doubles as the duplicate check.
+            try {
+                db.collection("employeeNumbers").document(numberKey)
+                    .set(mapOf("uid" to uid)).await()
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "Employee number ${employeeNumber.trim()} is already registered. " +
+                        "If that's you, sign in instead — or ask your admin for help."
+                )
+            }
+
             db.collection("users").document(uid).set(
                 mapOf(
                     "name" to profile.name,
@@ -231,6 +256,22 @@ class FleetRepository(
                 "serviceIntervalKm" to serviceIntervalKm
             )
         ).await()
+    }
+
+    /**
+     * Deletes an employee's profile — for clearing duplicate sign-ups.
+     *
+     * Their Firebase Auth login is not removed (that needs the Admin SDK), but it
+     * becomes unusable: login checks for a profile and refuses without one. Their
+     * existing time and fuel logs are left intact.
+     */
+    suspend fun deleteEmployee(uid: String, employeeNumber: String) {
+        db.collection("users").document(uid).delete().await()
+        // Release the number so the right person can register it later.
+        val key = employeeNumberKey(employeeNumber)
+        if (key.isNotBlank()) {
+            runCatching { db.collection("employeeNumbers").document(key).delete().await() }
+        }
     }
 
     suspend fun listAdmins(): List<UserProfile> {

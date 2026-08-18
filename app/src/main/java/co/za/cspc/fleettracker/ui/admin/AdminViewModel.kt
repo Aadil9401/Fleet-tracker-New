@@ -194,6 +194,45 @@ class AdminViewModel(
         }
     }
 
+    fun deleteEmployee(uid: String, employeeNumber: String) {
+        if (uid == repo.currentUid) {
+            uiState = uiState.copy(message = "You can't delete your own account.")
+            return
+        }
+        uiState = uiState.copy(busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                repo.deleteEmployee(uid, employeeNumber)
+                uiState = uiState.copy(
+                    busy = false,
+                    employees = repo.listEmployees(),
+                    message = "Employee removed."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not remove: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Employees who look like duplicates of someone else — same employee number, or
+     * the same full name. Returns the set of uids so the list can flag them.
+     */
+    fun duplicateUids(): Set<String> {
+        val employees = uiState.employees
+        val byNumber = employees
+            .filter { it.employeeNumber.isNotBlank() }
+            .groupBy { it.employeeNumber.trim().lowercase() }
+        val byName = employees
+            .filter { it.fullName.isNotBlank() }
+            .groupBy { it.fullName.trim().lowercase() }
+        return (byNumber.values + byName.values)
+            .filter { it.size > 1 }
+            .flatten()
+            .map { it.uid }
+            .toSet()
+    }
+
     fun makeAdmin(uid: String) = changeRole(uid, Role.ADMIN)
 
     fun removeAdmin(uid: String) {

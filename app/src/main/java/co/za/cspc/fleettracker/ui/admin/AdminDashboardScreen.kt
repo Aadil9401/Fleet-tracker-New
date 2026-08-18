@@ -240,6 +240,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var provinceFilter by remember { mutableStateOf(ALL_PROVINCES) }
     var employeeToEdit by remember { mutableStateOf<UserProfile?>(null) }
     var employeeToPromote by remember { mutableStateOf<UserProfile?>(null) }
+    var employeeToDelete by remember { mutableStateOf<UserProfile?>(null) }
 
     val filtered = remember(state.employees, query, provinceFilter) {
         val trimmed = query.trim()
@@ -372,6 +373,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
             }
         }
 
+        val duplicates = viewModel.duplicateUids()
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(filtered, key = { it.uid }) { emp ->
                 EmployeeCard(
@@ -381,7 +383,9 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                     onToggleActive = { viewModel.setEmployeeActive(emp.uid, !emp.active) },
                     onAssignVehicle = { vehicleId -> viewModel.assignVehicle(emp.uid, vehicleId) },
                     onEdit = { employeeToEdit = emp },
-                    onMakeAdmin = { employeeToPromote = emp }
+                    onMakeAdmin = { employeeToPromote = emp },
+                    onDelete = { employeeToDelete = emp },
+                    possibleDuplicate = emp.uid in duplicates
                 )
             }
         }
@@ -402,6 +406,35 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
+        )
+    }
+
+    employeeToDelete?.let { employee ->
+        AlertDialog(
+            onDismissRequest = { employeeToDelete = null },
+            title = { Text("Remove ${employee.fullName}?") },
+            text = {
+                Text(
+                    "Their record is deleted and they can no longer sign in. Any hours " +
+                        "and fuel they already logged are kept.\n\n" +
+                        "If this is a real person rather than a duplicate, use " +
+                        "Deactivate instead — that's reversible."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteEmployee(employee.uid, employee.employeeNumber)
+                        employeeToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { employeeToDelete = null }) { Text("Cancel") }
+            }
         )
     }
 
@@ -781,7 +814,9 @@ private fun EmployeeCard(
     onToggleActive: () -> Unit,
     onAssignVehicle: (String) -> Unit,
     onEdit: () -> Unit,
-    onMakeAdmin: () -> Unit
+    onMakeAdmin: () -> Unit,
+    onDelete: () -> Unit,
+    possibleDuplicate: Boolean
 ) {
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -829,6 +864,15 @@ private fun EmployeeCard(
                                 onMakeAdmin()
                             }
                         )
+                        DropdownMenuItem(
+                            text = {
+                                Text("Delete", color = MaterialTheme.colorScheme.error)
+                            },
+                            onClick = {
+                                overflowOpen = false
+                                onDelete()
+                            }
+                        )
                     }
                 }
             }
@@ -840,6 +884,20 @@ private fun EmployeeCard(
                 }
                 if (employee.vehicleRegistration.isNotBlank()) {
                     InfoChip(employee.vehicleRegistration, Icons.Filled.DirectionsCar)
+                }
+            }
+            if (possibleDuplicate) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.extraSmall
+                ) {
+                    Text(
+                        "Possible duplicate — same name or employee number as someone else",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
                 }
             }
 

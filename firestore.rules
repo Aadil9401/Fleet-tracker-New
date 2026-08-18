@@ -28,7 +28,24 @@ service cloud.firestore {
         && request.resource.data.active == true
         && request.resource.data.assignedVehicleId == '';
       allow update: if isAdmin();
-      allow delete: if false;
+      // Admins can delete a profile — needed to clear duplicate sign-ups. This only
+      // removes the Firestore record; the person's Firebase Auth login still exists
+      // but becomes unusable, since the app refuses a login with no profile.
+      allow delete: if isAdmin();
+    }
+
+    // Reserves an employee number so two people can't sign up with the same one.
+    //
+    // A signing-up user cannot read the users collection (that would leak staff
+    // details), so uniqueness can't be checked with a query. Instead they claim a
+    // document named after the number. "create" only succeeds when the document
+    // doesn't exist, and update is forbidden, so a second claim fails outright —
+    // which also makes it race-proof, unlike a read-then-write check.
+    match /employeeNumbers/{employeeNumber} {
+      allow get: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAdmin();
     }
 
     // Vehicles: everyone signed in can see fleet info, only admin edits it.
