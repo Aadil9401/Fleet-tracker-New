@@ -308,6 +308,12 @@
   .modal h2.section { color: var(--primary); }
 
   .daynav { display: flex; align-items: center; gap: 12px; }
+  .checkline {
+    display: flex; align-items: center; gap: var(--s2);
+    font-size: .9rem; color: var(--on-surface); white-space: nowrap;
+    padding-bottom: var(--s1); cursor: pointer;
+  }
+  .checkline input { width: auto; }
   .group-head {
     display: flex; align-items: center; gap: 10px;
     margin: 16px 0 6px; color: var(--primary); font-weight: 700;
@@ -381,6 +387,32 @@
           <button id="dayToday" class="ghost hidden">Back to today</button>
         </div>
         <button id="dayNext" class="outline">▶</button>
+      </div>
+      <div class="card">
+        <div class="toolbar">
+          <div>
+            <label for="dayDate">Jump to date</label>
+            <input id="dayDate" type="date">
+          </div>
+          <div class="grow">
+            <label for="daySearch">Search</label>
+            <input id="daySearch" type="search" placeholder="Employee, province or team">
+          </div>
+          <div>
+            <label for="dayStatus">Show</label>
+            <select id="dayStatus">
+              <option value="all">Everyone with an entry</option>
+              <option value="working">Still working</option>
+              <option value="done">Knocked off</option>
+              <option value="absent">Not working</option>
+            </select>
+          </div>
+          <label class="checkline">
+            <input id="dayGroup" type="checkbox" checked>
+            <span>Group by province</span>
+          </label>
+        </div>
+        <div class="count" id="dayShowing"></div>
       </div>
       <div class="tiles" id="todayTiles"></div>
       <div id="notStartedCard"></div>
@@ -872,48 +904,86 @@ function renderToday() {
           l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</div>`).join('')}
       </div>`}`;
 
-  // Grouped by province, so a large team reads as regional crews.
-  const groups = {};
-  data.todaysLogs.forEach(l => {
-    const person = data.employees.find(e => e.id === l.uid);
-    const key = person?.province || 'No province set';
-    (groups[key] = groups[key] || []).push(l);
-  });
+  $('dayDate').value = selectedDate;
+  $('dayDate').max = todayString();
 
-  $('dayGroups').innerHTML = data.todaysLogs.length === 0
-    ? `<div class="empty">No entries for this day.</div>`
-    : Object.keys(groups).sort().map(province => {
-        const logs = groups[province];
-        const mins = logs.reduce((s, l) => s + minutesWorked(l), 0);
-        return `
-          <div class="group-head">
-            <span>${esc(province)}</span>
-            <span class="tally">${logs.length} · ${hoursLabel(mins)}</span>
-          </div>
-          <div class="table-wrap"><table>
-            <thead><tr>
-              <th>Employee</th><th>Start</th><th>Knock off</th>
-              <th>Hours</th><th>Distance</th><th>Areas</th>
-            </tr></thead>
-            <tbody>
-              ${logs.map(l => l.notWorking
-                ? `<tr>
-                    <td>${personCell(l)}</td>
-                    <td colspan="5"><em>Not working${
-                      l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
-                  </tr>`
-                : `<tr>
-                    <td>${personCell(l)}</td>
-                    <td>${hhmm(l.startTimeMillis)}</td>
-                    <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
-                    <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
-                    <td>${l.endTimeMillis ? km(kmOf(l)) : '—'}</td>
-                    <td>${esc(l.mainAreasWorked || '—')}</td>
-                  </tr>`).join('')}
-            </tbody>
-          </table></div>`;
-      }).join('');
+  const visible = visibleDayLogs();
+  $('dayShowing').textContent = visible.length === data.todaysLogs.length
+    ? `${data.todaysLogs.length} entr${data.todaysLogs.length === 1 ? 'y' : 'ies'}`
+    : `Showing ${visible.length} of ${data.todaysLogs.length}`;
+
+  const dayTable = (logs) => `
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>Employee</th><th>Start</th><th>Knock off</th>
+        <th>Hours</th><th>Distance</th><th>Areas</th>
+      </tr></thead>
+      <tbody>
+        ${logs.map(l => l.notWorking
+          ? `<tr>
+              <td>${personCell(l)}</td>
+              <td colspan="5"><em>Not working${
+                l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
+            </tr>`
+          : `<tr>
+              <td>${personCell(l)}</td>
+              <td>${hhmm(l.startTimeMillis)}</td>
+              <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
+              <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
+              <td>${l.endTimeMillis ? km(kmOf(l)) : '—'}</td>
+              <td>${esc(l.mainAreasWorked || '—')}</td>
+            </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+
+  if (visible.length === 0) {
+    $('dayGroups').innerHTML = `<div class="empty">${data.todaysLogs.length === 0
+      ? 'No entries for this day.'
+      : 'Nothing matches those filters.'}</div>`;
+  } else if (!$('dayGroup').checked) {
+    $('dayGroups').innerHTML = dayTable(visible);
+  } else {
+    // Grouped by province, so a large team reads as regional crews.
+    const groups = {};
+    visible.forEach(l => {
+      const person = data.employees.find(e => e.id === l.uid);
+      const key = person?.province || 'No province set';
+      (groups[key] = groups[key] || []).push(l);
+    });
+    $('dayGroups').innerHTML = Object.keys(groups).sort().map(province => {
+      const logs = groups[province];
+      const mins = logs.reduce((s, l) => s + minutesWorked(l), 0);
+      return `
+        <div class="group-head">
+          <span>${esc(province)}</span>
+          <span class="tally">${logs.length} · ${hoursLabel(mins)}</span>
+        </div>
+        ${dayTable(logs)}`;
+    }).join('');
+  }
 }
+
+/** Day-view rows after the search box and the status dropdown. */
+function visibleDayLogs() {
+  const q = $('daySearch').value.trim().toLowerCase();
+  const status = $('dayStatus').value;
+  return data.todaysLogs.filter(l => {
+    if (status === 'absent' && !l.notWorking) return false;
+    if (status === 'working' && (l.notWorking || !l.startTimeMillis || l.endTimeMillis)) return false;
+    if (status === 'done' && (l.notWorking || !l.endTimeMillis)) return false;
+    if (!q) return true;
+    const person = data.employees.find(e => e.id === l.uid);
+    return [l.employeeName, person && fullName(person), person?.province, person?.teamName]
+      .some(v => String(v ?? '').toLowerCase().includes(q));
+  });
+}
+
+$('daySearch').addEventListener('input', renderToday);
+$('dayStatus').addEventListener('change', renderToday);
+$('dayGroup').addEventListener('change', renderToday);
+$('dayDate').addEventListener('change', (e) => {
+  if (e.target.value) goToDate(e.target.value);
+});
 
 /* ---------------- day navigation ---------------- */
 async function goToDate(date) {
@@ -928,7 +998,8 @@ $('dayToday').addEventListener('click', () => goToDate(todayString()));
 $('exportDay').addEventListener('click', () => {
   const rows = [['Date', 'Employee', 'Province', 'Team', 'Start', 'Knock off',
     'Hours', 'Minutes', 'Distance km', 'Areas', 'Not working', 'Reason']];
-  data.todaysLogs.forEach(l => {
+  // Exports what's on screen, filters included.
+  visibleDayLogs().forEach(l => {
     const p = data.employees.find(e => e.id === l.uid);
     rows.push([
       selectedDate,
