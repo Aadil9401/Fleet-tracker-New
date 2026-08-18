@@ -501,11 +501,32 @@
         <button id="bulkBtn">Upload vehicles</button>
         <details class="help">
           <summary>Format</summary>
-          <pre>registration, name, current odometer, last service date, last service odometer</pre>
+          <pre>registration, name, current odometer, last service date, last service odometer, service km</pre>
           Only the registration is required. Dates accept <code>yyyy-mm-dd</code> or
-          <code>dd/mm/yyyy</code>. Every vehicle is set to service every 15 000 km.
+          <code>dd/mm/yyyy</code>. Leave the last column blank for the standard
+          15 000 km, or set it per vehicle (e.g. <code>10000</code> for a Magnite).
           A heading row is ignored, and duplicates already on the list are skipped.
         </details>
+      </div>
+
+      <div class="card">
+        <h2 class="section">Set service interval</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          Most vehicles run 15 000 km. Use this to put a model on a different
+          schedule — type part of its name or registration, e.g. "magnite".
+        </p>
+        <div class="toolbar">
+          <div class="grow">
+            <label for="svcMatch">Vehicle name or registration contains</label>
+            <input id="svcMatch" placeholder="magnite">
+          </div>
+          <div>
+            <label for="svcInterval">Service every (km)</label>
+            <input id="svcInterval" type="number" min="1000" step="1000" value="10000">
+          </div>
+          <button id="svcApply">Apply</button>
+        </div>
+        <div class="count" id="svcPreview"></div>
       </div>
 
       <div class="card">
@@ -1288,6 +1309,50 @@ $('deleteAllBtn').addEventListener('click', async () => {
   } catch (err) { showMsg('Could not delete: ' + err.message, 'err'); }
 });
 
+/* ---------------- bulk service interval ---------------- */
+/** Vehicles whose name or registration contains the match text. */
+function vehiclesMatchingInterval() {
+  const q = $('svcMatch').value.trim().toLowerCase();
+  if (!q) return [];
+  return data.vehicles.filter(v =>
+    String(v.name || '').toLowerCase().includes(q) ||
+    String(v.registrationNumber || '').toLowerCase().includes(q));
+}
+
+function previewIntervalMatches() {
+  const matches = vehiclesMatchingInterval();
+  const interval = Number($('svcInterval').value || 0);
+  $('svcPreview').textContent = !$('svcMatch').value.trim()
+    ? ''
+    : matches.length === 0
+      ? 'No vehicles match that.'
+      : `${matches.length} vehicle(s) would move to ${num(interval)} km: `
+        + matches.slice(0, 6).map(v => v.name || v.registrationNumber).join(', ')
+        + (matches.length > 6 ? ` and ${matches.length - 6} more` : '');
+}
+$('svcMatch').addEventListener('input', previewIntervalMatches);
+$('svcInterval').addEventListener('input', previewIntervalMatches);
+
+$('svcApply').addEventListener('click', async () => {
+  const matches = vehiclesMatchingInterval();
+  const interval = Number($('svcInterval').value || 0);
+  if (matches.length === 0) { showMsg('Nothing matches that text.', 'err'); return; }
+  if (!interval || interval < 1000) { showMsg('Enter a sensible interval in km.', 'err'); return; }
+  if (!confirm(`Set ${matches.length} vehicle(s) to a ${num(interval)} km service interval?`)) return;
+  try {
+    for (let i = 0; i < matches.length; i += 400) {
+      const batch = writeBatch(db);
+      matches.slice(i, i + 400).forEach(v =>
+        batch.update(doc(db, 'vehicles', v.id), { serviceIntervalKm: interval }));
+      await batch.commit();
+    }
+    showMsg(`${matches.length} vehicle(s) now service every ${num(interval)} km.`);
+    $('svcMatch').value = '';
+    $('svcPreview').textContent = '';
+    await loadAll();
+  } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
+});
+
 $('addVehicleBtn').addEventListener('click', async () => {
   const reg = $('vReg').value.trim().toUpperCase();
   if (!reg) { showMsg('Registration is required.', 'err'); return; }
@@ -1363,7 +1428,9 @@ function parseVehicleLines(text) {
         // clock — otherwise every vehicle would look instantly overdue.
         lastServiceOdometerKm: digits(p[4]) ?? odo,
         lastServiceDateMillis: parseServiceDate(p[3]),
-        serviceIntervalKm: SERVICE_INTERVAL_KM,
+        // Optional 6th column, for models on a different schedule (Magnites run
+        // 10 000 km). Blank falls back to the fleet standard.
+        serviceIntervalKm: digits(p[5]) ?? SERVICE_INTERVAL_KM,
         serviceIntervalMonths: 0
       };
     })

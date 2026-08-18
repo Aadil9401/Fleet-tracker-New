@@ -461,7 +461,9 @@ class AdminViewModel(
                     currentOdometerKm = odometer,
                     lastServiceOdometerKm = lastServiceOdometer,
                     lastServiceDateMillis = lastServiceDate,
-                    serviceIntervalKm = SERVICE_INTERVAL_KM,
+                    // Optional 6th column for models on a different schedule
+                    // (Magnites run 10 000 km); blank uses the fleet standard.
+                    serviceIntervalKm = parts.getOrNull(5).digitsToLongOrNull() ?: SERVICE_INTERVAL_KM,
                     // 0 = judge by kilometres only, as agreed.
                     serviceIntervalMonths = 0L
                 )

@@ -1596,18 +1596,18 @@ private fun BulkVehicleDialog(
                 ) {
                     Text(
                         "registration, name, current odometer, " +
-                            "last service date, last service odometer\n\n" +
+                            "last service date, last service odometer, service km\n\n" +
                             "CA123456, Bakkie 1, 85000, 2026-03-15, 80000\n" +
-                            "ND987654, Hilux, 120000, 20/01/2026, 112000",
+                            "ND987654, Magnite, 120000, 20/01/2026, 112000, 10000",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(10.dp)
                     )
                 }
                 Text(
                     "Only the registration is required. Dates can be yyyy-mm-dd or " +
-                        "dd/mm/yyyy. Every vehicle is set to service every " +
-                        "15 000 km. A heading row is ignored, and you can paste " +
-                        "cells straight from Excel.",
+                        "dd/mm/yyyy. Leave the last column blank for the standard " +
+                        "15 000 km, or set it per vehicle. A heading row is ignored, " +
+                        "and you can paste cells straight from Excel.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
