@@ -18,3 +18,6 @@ functions/lib/
 
 # Local Claude Code settings, not project files
 .claude/
+
+# Firebase CLI local deploy cache
+.firebase/
