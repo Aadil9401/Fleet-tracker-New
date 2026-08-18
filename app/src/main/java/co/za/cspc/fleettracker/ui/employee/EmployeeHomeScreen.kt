@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.ui.asCaptured
+import co.za.cspc.fleettracker.ui.km
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -140,8 +141,8 @@ fun EmployeeHomeScreen(
                     )) {
                         Column(Modifier.padding(12.dp)) {
                             Text(vehicle.name.ifBlank { vehicle.registrationNumber }.asCaptured())
-                            Text("Odometer: ${vehicle.currentOdometerKm} km")
-                            Text("Next service at ${vehicle.nextServiceAtKm()} km (${vehicle.kmUntilService()} km to go)")
+                            Text("Odometer: ${vehicle.currentOdometerKm.km()}")
+                            Text("Next service at ${vehicle.nextServiceAtKm().km()} (${vehicle.kmUntilService().km()} to go)")
                             if (due) {
                                 Text(
                                     "Service is due — please tell your admin",
@@ -282,7 +283,7 @@ private fun StatusCard(state: EmployeeUiState) {
                         "Started ${timeFormat.format(Date(log.startTimeMillis))}  →  " +
                             "Knocked off ${timeFormat.format(Date(log.endTimeMillis))}"
                     )
-                    Text("Distance travelled: ${log.kmTravelled} km")
+                    Text("Distance travelled: ${log.kmTravelled.km()}")
                 }
             }
             if (log != null && log.mainAreasWorked.isNotBlank()) {

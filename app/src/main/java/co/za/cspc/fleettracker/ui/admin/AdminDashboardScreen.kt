@@ -38,6 +38,7 @@ import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
 import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
 import co.za.cspc.fleettracker.ui.asCaptured
+import co.za.cspc.fleettracker.ui.km
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -145,7 +146,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                     if (totalMinutes > 0) "${totalMinutes / 60}h ${totalMinutes % 60}m" else "—",
                     Modifier.weight(1f)
                 )
-                StatTile("Distance", "$totalKm km", Modifier.weight(1f))
+                StatTile("Distance", totalKm.km(), Modifier.weight(1f))
                 StatTile("Service due", servicesDue.toString(), Modifier.weight(1f))
             }
         }
@@ -271,7 +272,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                     Text("Start: $started   Knock off: $ended")
                     if (log.hasEnded) {
                         Text(
-                            "${log.durationLabel}  •  ${log.kmTravelled} km",
+                            "${log.durationLabel}  •  ${log.kmTravelled.km()}",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -1365,18 +1366,18 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                             }
                         }
                         Spacer(Modifier.height(10.dp))
-                        Text("Odometer: ${v.currentOdometerKm} km")
+                        Text("Odometer: ${v.currentOdometerKm.km()}")
                         // Milestones are absolute: every 15 000 km on the clock.
                         Text(
-                            "Next service at ${v.nextServiceAtKm()} km — " +
-                                "${v.kmUntilService()} km to go",
+                            "Next service at ${v.nextServiceAtKm().km()} — " +
+                                "${v.kmUntilService().km()} to go",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         if (v.milestonesMissed() > 0) {
                             Text(
                                 if (v.milestonesMissed() == 1) {
-                                    "Service at ${v.firstUnloggedServiceKm()} km not logged"
+                                    "Service at ${v.firstUnloggedServiceKm().km()} not logged"
                                 } else {
                                     "${v.milestonesMissed()} services not logged"
                                 },
@@ -1689,7 +1690,7 @@ private fun LogsTab(state: AdminUiState) {
                         "${f.employeeName.asCaptured()} — R${"%.2f".format(f.amountSpentRands)}",
                         fontWeight = FontWeight.Bold
                     )
-                    Text("${f.date}  •  ${f.odometerKm} km" + if (f.litres > 0) "  •  ${f.litres} L" else "")
+                    Text("${f.date}  •  ${f.odometerKm.km()}" + if (f.litres > 0) "  •  ${f.litres} L" else "")
                     if (f.receiptPhotoUrl.isNotBlank()) Text("Receipt photo attached", style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -1721,7 +1722,7 @@ private fun LogsTab(state: AdminUiState) {
                     Text("${log.date}  •  $startText → $endText")
                     if (log.hasEnded) {
                         Text(
-                            "${log.durationLabel}  •  ${log.kmTravelled} km",
+                            "${log.durationLabel}  •  ${log.kmTravelled.km()}",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )

@@ -27,6 +27,11 @@
     --on-error-container: #44150F;
     --radius: 16px;
     --shadow: 0 1px 2px rgba(30,42,38,.05), 0 6px 20px rgba(30,42,38,.06);
+    --shadow-lift: 0 2px 4px rgba(30,42,38,.06), 0 12px 32px rgba(30,42,38,.10);
+    --ring: rgba(68,120,107,.28);
+    /* One spacing rhythm, so nothing is 13px because it looked about right. */
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+    --ease: cubic-bezier(.4, 0, .2, 1);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -47,6 +52,8 @@
       --error-container: #78332B;
       --on-error-container: #FADED9;
       --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.3);
+      --shadow-lift: 0 2px 6px rgba(0,0,0,.5), 0 14px 36px rgba(0,0,0,.4);
+      --ring: rgba(169,214,200,.35);
     }
   }
   * { box-sizing: border-box; }
@@ -55,8 +62,14 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     background: var(--bg);
     color: var(--on-surface);
-    line-height: 1.5;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+  /* Tabular figures throughout, so columns of numbers line up digit-for-digit
+     instead of shuffling as values change. This is most of what makes a data
+     table look professionally set. */
+  table, .tile .big, .hrs, input, .count, .tally { font-variant-numeric: tabular-nums; }
   .hidden { display: none !important; }
 
   /* ---- Login ---- */
@@ -88,9 +101,12 @@
     font-size: 1rem;
     font-family: inherit;
   }
+  input, select, textarea { transition: border-color .16s var(--ease), box-shadow .16s var(--ease); }
+  input:hover, select:hover, textarea:hover { border-color: var(--muted); }
   input:focus, select:focus, textarea:focus {
-    outline: 2px solid var(--primary);
-    outline-offset: -1px;
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--ring);
   }
   .field { margin-bottom: 14px; }
 
@@ -103,8 +119,18 @@
     background: var(--primary);
     color: var(--on-primary);
     font-weight: 600;
+    letter-spacing: .01em;
+    transition: filter .16s var(--ease), background-color .16s var(--ease),
+                box-shadow .16s var(--ease), transform .12s var(--ease);
   }
-  button:disabled { opacity: .55; cursor: default; }
+  button:hover:not(:disabled) { filter: brightness(1.07); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: default; }
+  /* Visible only for keyboard users, so mouse clicks don't leave a ring behind. */
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring);
+  }
   button.outline {
     background: transparent;
     color: var(--primary);
@@ -170,26 +196,61 @@
     background: var(--surface);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
-    padding: 16px;
-    margin-bottom: 14px;
+    padding: var(--s4);
+    margin-bottom: var(--s3);
+  }
+  h2.section {
+    font-size: .95rem; font-weight: 700; letter-spacing: -.01em;
+    margin: 0 0 var(--s3);
+  }
+  main { animation: rise .22s var(--ease) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
   }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: var(--s3); margin-bottom: var(--s4);
+  }
   .tile {
     background: var(--primary-container);
     color: var(--on-primary-container);
     border-radius: var(--radius);
-    padding: 18px;
+    padding: var(--s4) var(--s3);
     text-align: center;
+    transition: transform .16s var(--ease), box-shadow .16s var(--ease);
   }
-  .tile .big { font-size: 1.9rem; font-weight: 700; line-height: 1.1; }
-  .tile .cap { font-size: .8rem; opacity: .85; }
+  .tile:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+  .tile .big {
+    font-size: 1.75rem; font-weight: 700; line-height: 1.15;
+    letter-spacing: -.02em;
+  }
+  .tile .cap {
+    font-size: .7rem; opacity: .8; text-transform: uppercase;
+    letter-spacing: .07em; font-weight: 600; margin-top: 2px;
+  }
 
   table { width: 100%; border-collapse: collapse; font-size: .93rem; }
-  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--surface-variant); vertical-align: middle; }
-  th { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+  th, td {
+    text-align: left; padding: 11px 10px; vertical-align: middle;
+    border-bottom: 1px solid var(--outline-faint, var(--surface-variant));
+  }
+  th {
+    color: var(--muted); font-size: .72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em;
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+    border-bottom-width: 2px; white-space: nowrap;
+  }
+  /* Numeric columns read right-aligned; the first column stays the anchor. */
+  td:not(:first-child), th:not(:first-child) { text-align: right; }
+  td:first-child, th:first-child { text-align: left; }
+  tbody tr { transition: background-color .14s var(--ease); }
+  tbody tr:hover { background: color-mix(in srgb, var(--primary) 5%, transparent); }
   tr:last-child td { border-bottom: none; }
-  .table-wrap { overflow-x: auto; }
+  .table-wrap { overflow-x: auto; max-height: 70vh; }
+  /* Action cells shouldn't be squeezed or right-aligned into a huddle. */
+  td.row-actions { text-align: right; white-space: nowrap; }
 
   .avatar {
     width: 38px; height: 38px; border-radius: 50%;
@@ -227,8 +288,12 @@
   .count { color: var(--muted); font-size: .85rem; margin-bottom: 10px; }
 
   .bar-track { height: 7px; background: var(--surface-variant); border-radius: 99px; overflow: hidden; min-width: 90px; }
-  .bar-fill { height: 100%; background: var(--primary); }
+  .bar-fill { height: 100%; background: var(--primary); border-radius: 99px; transition: width .4s var(--ease); }
   .bar-fill.due { background: var(--error); }
+  .progress-cell { display: flex; align-items: center; gap: var(--s2); justify-content: flex-end; }
+  .progress-cell .bar-track { flex: 0 0 90px; }
+  .pct { font-weight: 700; font-size: .85rem; min-width: 3.2em; text-align: right; }
+  .pct.due { color: var(--error); }
 
   .empty { color: var(--muted); text-align: center; padding: 28px 12px; }
 
@@ -565,6 +630,12 @@ function minutesWorked(log) {
 const hoursLabel = (mins) => mins > 0 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : '—';
 const kmOf = (log) => Math.max(0, (log.endOdometerKm || 0) - (log.startOdometerKm || 0));
 
+/** Grouped thousands — 85000 reads as "85 000", which is far easier to scan. */
+const num = (n) => Number(n || 0).toLocaleString('en-ZA').replace(/,/g, ' ');
+const km = (n) => `${num(n)} km`;
+const rand = (n) => 'R' + Number(n || 0).toLocaleString('en-ZA',
+  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 /** Shifts a yyyy-MM-dd string by whole days without tripping over month ends. */
 function shiftDate(date, days) {
   const [y, m, d] = date.split('-').map(Number);
@@ -759,7 +830,7 @@ function renderToday() {
     ['Started', `${started.length}/${activeEmployees.length}`],
     ['Knocked off', knockedOff],
     ['Hours', hoursLabel(totalMins)],
-    ['Distance', `${totalKm} km`],
+    ['Distance', km(totalKm)],
     ['Service due', servicesDue]
   ].map(([cap, big]) =>
     `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
@@ -815,7 +886,7 @@ function renderToday() {
                     <td>${hhmm(l.startTimeMillis)}</td>
                     <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
                     <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
-                    <td>${l.endTimeMillis ? esc(kmOf(l)) + ' km' : '—'}</td>
+                    <td>${l.endTimeMillis ? km(kmOf(l)) : '—'}</td>
                     <td>${esc(l.mainAreasWorked || '—')}</td>
                   </tr>`).join('')}
             </tbody>
@@ -1161,9 +1232,14 @@ function renderVehicles() {
               ${missed > 0
                 ? `<span class="badge due">${missed} SERVICE${missed > 1 ? 'S' : ''} NOT LOGGED</span>`
                 : (due ? '<span class="badge due">SERVICE DUE</span>' : '')}</td>
-          <td>${esc(v.currentOdometerKm || 0)} km</td>
-          <td>Next at ${esc(nextServiceAtKm(v))} km<div class="meta">${esc(kmUntilService(v))} km to go</div></td>
-          <td><div class="bar-track"><div class="bar-fill ${due ? 'due' : ''}" style="width:${pct}%"></div></div></td>
+          <td>${km(v.currentOdometerKm || 0)}</td>
+          <td>Next at ${km(nextServiceAtKm(v))}<div class="meta">${km(kmUntilService(v))} to go</div></td>
+          <td>
+            <div class="progress-cell">
+              <span class="pct ${due ? 'due' : ''}">${pct}%</span>
+              <div class="bar-track"><div class="bar-fill ${due ? 'due' : ''}" style="width:${pct}%"></div></div>
+            </div>
+          </td>
           <td class="row-actions">
             <button class="ghost" data-serviced="${esc(v.id)}" data-odo="${esc(v.currentOdometerKm || 0)}">Mark serviced</button>
             <button class="ghost danger" data-del="${esc(v.id)}">Delete</button>
@@ -1455,8 +1531,8 @@ function renderReport() {
     [singleDay ? 'Absent' : 'Absences', totals.absent],
     ['Not knocked off', totals.open],
     ['Hours', hoursLabel(totals.minutes)],
-    ['Distance', `${totals.km} km`],
-    ['Fuel', 'R' + totals.fuel.toFixed(2)]
+    ['Distance', km(totals.km)],
+    ['Fuel', rand(totals.fuel)]
   ].map(([cap, big]) =>
     `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
@@ -1473,8 +1549,8 @@ function renderReport() {
         <td>${r.absent}</td>
         <td${r.open > 0 ? ' style="color:var(--error);font-weight:700"' : ''}>${r.open}</td>
         <td class="hrs">${hoursLabel(r.minutes)}</td>
-        <td>${r.km} km</td>
-        <td>R${r.fuel.toFixed(2)}</td>
+        <td>${km(r.km)}</td>
+        <td>${rand(r.fuel)}</td>
       </tr>`).join('');
 }
 
@@ -1525,14 +1601,14 @@ function renderLogs() {
         const amount = Number(f.amountSpentRands || 0);
         const litres = Number(f.litres || 0);
         // Rand per litre is a useful sanity check on what was actually filled.
-        const perLitre = litres > 0 ? 'R' + (amount / litres).toFixed(2) : '—';
+        const perLitre = litres > 0 ? rand(amount / litres) : '—';
         return `<tr>
           <td>${esc(f.employeeName)}</td>
           <td>${esc(f.date)}</td>
-          <td>R${amount.toFixed(2)}</td>
+          <td>${rand(amount)}</td>
           <td>${litres > 0 ? esc(litres) + ' L' : '—'}</td>
           <td>${perLitre}</td>
-          <td>${esc(f.odometerKm || 0)} km</td>
+          <td>${km(f.odometerKm || 0)}</td>
           <td>${f.receiptPhotoUrl
             ? `<a href="${esc(f.receiptPhotoUrl)}" target="_blank" rel="noopener">View</a>` : '—'}</td>
         </tr>`;
@@ -1553,7 +1629,7 @@ function renderLogs() {
             <td>${hhmm(l.startTimeMillis)}</td>
             <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
             <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
-            <td>${l.endTimeMillis ? esc(kmOf(l)) + ' km' : '—'}</td>
+            <td>${l.endTimeMillis ? km(kmOf(l)) : '—'}</td>
             <td>${esc(l.mainAreasWorked || '—')}</td>
           </tr>`).join('');
 }
