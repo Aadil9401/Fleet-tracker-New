@@ -596,21 +596,36 @@ function renderToday() {
     `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
 
-  $('notStartedCard').innerHTML = notStarted.length === 0 ? '' : `
-    <div class="card" style="background:var(--error-container);color:var(--on-error-container)">
-      <h2 class="section">Not started yet (${notStarted.length})</h2>
-      ${notStarted.map(e => `<div>• ${esc(fullName(e))}</div>`).join('')}
-    </div>`;
+  const absent = data.todaysLogs.filter(l => l.notWorking);
+
+  $('notStartedCard').innerHTML = `
+    ${notStarted.length === 0 ? '' : `
+      <div class="card" style="background:var(--error-container);color:var(--on-error-container)">
+        <h2 class="section">Not started yet (${notStarted.length})</h2>
+        ${notStarted.map(e => `<div>• ${esc(fullName(e))}</div>`).join('')}
+      </div>`}
+    ${absent.length === 0 ? '' : `
+      <div class="card" style="background:var(--secondary-container);color:var(--on-secondary-container)">
+        <h2 class="section">Not working today (${absent.length})</h2>
+        ${absent.map(l => `<div>• ${esc(l.employeeName)}${
+          l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</div>`).join('')}
+      </div>`}`;
 
   $('todayRows').innerHTML = data.todaysLogs.length === 0
     ? `<tr><td colspan="5" class="empty">Nobody has clocked in yet today.</td></tr>`
-    : data.todaysLogs.map(l => `<tr>
-        <td>${esc(l.employeeName)}</td>
-        <td>${hhmm(l.startTimeMillis)}</td>
-        <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
-        <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
-        <td>${esc(l.mainAreasWorked || '—')}</td>
-      </tr>`).join('');
+    : data.todaysLogs.map(l => l.notWorking
+        ? `<tr>
+            <td>${esc(l.employeeName)}</td>
+            <td colspan="4"><em>Not working${
+              l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
+          </tr>`
+        : `<tr>
+            <td>${esc(l.employeeName)}</td>
+            <td>${hhmm(l.startTimeMillis)}</td>
+            <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
+            <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
+            <td>${esc(l.mainAreasWorked || '—')}</td>
+          </tr>`).join('');
 }
 
 const fullName = (e) => `${e.name || ''} ${e.surname || ''}`.trim();
@@ -1025,14 +1040,21 @@ function renderLogs() {
 
   $('timeRows').innerHTML = data.recentTimeLogs.length === 0
     ? `<tr><td colspan="6" class="empty">No work days recorded yet.</td></tr>`
-    : data.recentTimeLogs.map(l => `<tr>
-        <td>${esc(l.employeeName)}</td>
-        <td>${esc(l.date)}</td>
-        <td>${hhmm(l.startTimeMillis)}</td>
-        <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
-        <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
-        <td>${esc(l.mainAreasWorked || '—')}</td>
-      </tr>`).join('');
+    : data.recentTimeLogs.map(l => l.notWorking
+        ? `<tr>
+            <td>${esc(l.employeeName)}</td>
+            <td>${esc(l.date)}</td>
+            <td colspan="4"><em>Not working${
+              l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
+          </tr>`
+        : `<tr>
+            <td>${esc(l.employeeName)}</td>
+            <td>${esc(l.date)}</td>
+            <td>${hhmm(l.startTimeMillis)}</td>
+            <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
+            <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
+            <td>${esc(l.mainAreasWorked || '—')}</td>
+          </tr>`).join('');
 }
 </script>
 </body>

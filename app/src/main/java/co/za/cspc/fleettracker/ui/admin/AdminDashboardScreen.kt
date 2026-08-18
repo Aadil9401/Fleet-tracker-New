@@ -132,9 +132,13 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                         Spacer(Modifier.height(4.dp))
-                        notWorking.forEach {
+                        notWorking.forEach { person ->
+                            val reason = state.todaysLogs
+                                .firstOrNull { it.uid == person.uid }
+                                ?.notWorkingReason
+                                .orEmpty()
                             Text(
-                                "• ${it.fullName}",
+                                "• ${person.fullName}" + if (reason.isNotBlank()) " — $reason" else "",
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -183,6 +187,13 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                             color = MaterialTheme.colorScheme.secondary,
                             fontWeight = FontWeight.Bold
                         )
+                        if (log.notWorkingReason.isNotBlank()) {
+                            Text(
+                                log.notWorkingReason,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         return@Column
                     }
                     val started = if (log.hasStarted) timeFormat.format(Date(log.startTimeMillis)) else "-"
@@ -1504,6 +1515,14 @@ private fun LogsTab(state: AdminUiState) {
             Card {
                 Column(Modifier.padding(12.dp)) {
                     Text(log.employeeName, fontWeight = FontWeight.Bold)
+                    if (log.notWorking) {
+                        Text(
+                            "${log.date}  •  Not working" +
+                                if (log.notWorkingReason.isNotBlank()) " — ${log.notWorkingReason}" else "",
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        return@Column
+                    }
                     val startText = if (log.hasStarted) timeFormat.format(Date(log.startTimeMillis)) else "-"
                     val endText = if (log.hasEnded) timeFormat.format(Date(log.endTimeMillis)) else "still working"
                     Text("${log.date}  •  $startText → $endText")

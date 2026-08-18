@@ -193,20 +193,36 @@ fun EmployeeHomeScreen(
     }
 
     if (showNotWorkingConfirm) {
+        var reason by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showNotWorkingConfirm = false },
             title = { Text("Not working today?") },
             text = {
-                Text(
-                    "You'll be recorded as absent for today and won't be able to clock " +
-                        "in or out. You can undo this if you change your mind."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "You'll be recorded as absent for today and won't be able to " +
+                            "clock in or out. You can undo this if you change your mind."
+                    )
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        label = { Text("Reason") },
+                        supportingText = { Text("e.g. Sick leave, annual leave, family responsibility") },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    showNotWorkingConfirm = false
-                    viewModel.markNotWorking()
-                }) { Text("Yes, I'm not working") }
+                TextButton(
+                    // A reason is the whole point of the record, so it's required.
+                    enabled = reason.isNotBlank(),
+                    onClick = {
+                        showNotWorkingConfirm = false
+                        viewModel.markNotWorking(reason)
+                    }
+                ) { Text("Confirm") }
             },
             dismissButton = {
                 TextButton(onClick = { showNotWorkingConfirm = false }) { Text("Cancel") }
@@ -233,11 +249,20 @@ private fun StatusCard(state: EmployeeUiState) {
         Column(Modifier.padding(16.dp)) {
             Text("Today", style = MaterialTheme.typography.titleMedium)
             when {
-                log?.notWorking == true -> Text(
-                    "Marked as not working today.",
-                    color = MaterialTheme.colorScheme.secondary,
-                    fontWeight = FontWeight.Bold
-                )
+                log?.notWorking == true -> Column {
+                    Text(
+                        "Marked as not working today.",
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (log.notWorkingReason.isNotBlank()) {
+                        Text(
+                            "Reason: ${log.notWorkingReason}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 log == null || !log.hasStarted -> Text("You haven't started yet.")
                 log.hasStarted && !log.hasEnded -> Text("Started at ${timeFormat.format(Date(log.startTimeMillis))}")
                 else -> Text(

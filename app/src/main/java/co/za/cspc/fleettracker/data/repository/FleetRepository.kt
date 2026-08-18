@@ -383,7 +383,7 @@ class FleetRepository(
      * would, which is also what keeps this person out of the "hasn't started yet"
      * attendance alert.
      */
-    suspend fun markNotWorking(uid: String, employeeName: String) {
+    suspend fun markNotWorking(uid: String, employeeName: String, reason: String) {
         val docId = "${uid}_${todayString()}"
         db.collection("timeLogs").document(docId).set(
             mapOf(
@@ -391,6 +391,7 @@ class FleetRepository(
                 "employeeName" to employeeName,
                 "date" to todayString(),
                 "notWorking" to true,
+                "notWorkingReason" to reason.trim(),
                 "startTimeMillis" to 0L,
                 "startOdometerKm" to 0L,
                 "endTimeMillis" to 0L,

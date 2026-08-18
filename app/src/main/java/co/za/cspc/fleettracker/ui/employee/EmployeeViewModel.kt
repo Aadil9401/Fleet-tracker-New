@@ -47,12 +47,13 @@ class EmployeeViewModel(
         }
     }
 
-    fun markNotWorking() {
+    fun markNotWorking(reason: String) {
         val profile = uiState.profile ?: return
+        if (reason.isBlank()) return
         uiState = uiState.copy(busy = true, message = null)
         viewModelScope.launch {
             try {
-                repo.markNotWorking(profile.uid, profile.fullName)
+                repo.markNotWorking(profile.uid, profile.fullName, reason)
                 uiState = uiState.copy(
                     busy = false,
                     todaysLog = repo.todaysTimeLog(profile.uid),

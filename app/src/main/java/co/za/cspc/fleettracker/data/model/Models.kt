@@ -115,7 +115,9 @@ data class TimeLog(
     /** Free text: the main areas this person worked in that day. */
     val mainAreasWorked: String = "",
     /** Marked absent for the day — no clocking in or out, and no attendance alert. */
-    val notWorking: Boolean = false
+    val notWorking: Boolean = false,
+    /** Why they're not working, e.g. "Sick leave", "Annual leave". */
+    val notWorkingReason: String = ""
 ) {
     val hasStarted: Boolean get() = startTimeMillis > 0L
     val hasEnded: Boolean get() = endTimeMillis > 0L
