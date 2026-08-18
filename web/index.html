@@ -587,6 +587,14 @@
     <section id="tab-logs" class="hidden">
       <div class="card">
         <div class="toolbar">
+          <div><label for="logFrom">From</label><input id="logFrom" type="date"></div>
+          <div><label for="logTo">To</label><input id="logTo" type="date"></div>
+          <button id="logRun">Load</button>
+          <button id="logToday" class="outline">Today</button>
+          <button id="logWeek" class="outline">Last 7 days</button>
+          <button id="logMonth" class="outline">Last 30 days</button>
+        </div>
+        <div class="toolbar">
           <div class="grow">
             <label for="logSearch">Filter by employee</label>
             <input id="logSearch" type="search" placeholder="Name">
@@ -594,9 +602,7 @@
           <button id="exportLogs" class="outline">Export work days</button>
           <button id="exportFuel" class="outline">Export fuel</button>
         </div>
-        <p class="sub" style="font-size:.82rem;margin:0">
-          Showing the 50 most recent entries. For a date range, use the Reports tab.
-        </p>
+        <div class="count" id="logRange"></div>
       </div>
       <div class="card">
         <h2 class="section">Recent fuel logs</h2>
@@ -851,6 +857,10 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
       $('repFrom').value = todayString();
       $('repTo').value = todayString();
       runReport();
+    }
+    // Logs open on the last week — a single day is often empty of fuel entries.
+    if (btn.dataset.tab === 'logs' && !$('logFrom').value) {
+      setLogRange(shiftDate(todayString(), -6), todayString());
     }
   });
 });
@@ -1726,6 +1736,50 @@ $('logSearch').addEventListener('input', (e) => {
   renderLogs();
 });
 
+/* ---------------- logs date range ---------------- */
+$('logToday').addEventListener('click', () => setLogRange(todayString(), todayString()));
+$('logWeek').addEventListener('click', () => setLogRange(shiftDate(todayString(), -6), todayString()));
+$('logMonth').addEventListener('click', () => setLogRange(shiftDate(todayString(), -29), todayString()));
+$('logRun').addEventListener('click', () => setLogRange($('logFrom').value, $('logTo').value));
+
+function setLogRange(from, to) {
+  $('logFrom').value = from;
+  $('logTo').value = to;
+  loadLogsRange();
+}
+
+async function loadLogsRange() {
+  const from = $('logFrom').value;
+  const to = $('logTo').value;
+  if (!from || !to) { showMsg('Choose both dates first.', 'err'); return; }
+  if (from > to) { showMsg('"From" must be on or before "To".', 'err'); return; }
+
+  $('logRange').textContent = 'Loading…';
+  try {
+    // Ordered by the same field the range filters on, which Firestore allows without
+    // a composite index. Finer ordering within a day is done below in JS.
+    const [timeSnap, fuelSnap] = await Promise.all([
+      getDocs(query(collection(db, 'timeLogs'),
+        where('date', '>=', from), where('date', '<=', to), orderBy('date', 'desc'))),
+      getDocs(query(collection(db, 'fuelLogs'),
+        where('date', '>=', from), where('date', '<=', to), orderBy('date', 'desc')))
+    ]);
+    const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
+    data.recentTimeLogs = rows(timeSnap)
+      .sort((a, b) => (b.startTimeMillis || 0) - (a.startTimeMillis || 0));
+    data.fuelLogs = rows(fuelSnap)
+      .sort((a, b) => (b.timestampMillis || 0) - (a.timestampMillis || 0));
+
+    $('logRange').textContent = from === to
+      ? prettyDate(from)
+      : `${prettyDate(from)} → ${prettyDate(to)}`;
+    renderLogs();
+  } catch (err) {
+    $('logRange').textContent = '';
+    showMsg('Could not load logs: ' + err.message, 'err');
+  }
+}
+
 const matchesLogFilter = (row) =>
   !logFilter || String(row.employeeName || '').toLowerCase().includes(logFilter);
 
@@ -1734,7 +1788,7 @@ function renderLogs() {
   const times = data.recentTimeLogs.filter(matchesLogFilter);
 
   $('fuelRows').innerHTML = fuel.length === 0
-    ? `<tr><td colspan="7" class="empty">No fuel logs${logFilter ? ' for that name' : ' yet'}.</td></tr>`
+    ? `<tr><td colspan="7" class="empty">No fuel logs${logFilter ? ' for that name' : ''} in this period.</td></tr>`
     : fuel.map(f => {
         const amount = Number(f.amountSpentRands || 0);
         const litres = Number(f.litres || 0);
@@ -1753,7 +1807,7 @@ function renderLogs() {
       }).join('');
 
   $('timeRows').innerHTML = times.length === 0
-    ? `<tr><td colspan="7" class="empty">No work days${logFilter ? ' for that name' : ' recorded yet'}.</td></tr>`
+    ? `<tr><td colspan="7" class="empty">No work days${logFilter ? ' for that name' : ''} in this period.</td></tr>`
     : times.map(l => l.notWorking
         ? `<tr>
             <td>${personCell(l)}</td>
@@ -1783,7 +1837,7 @@ $('exportLogs').addEventListener('click', () => {
     l.endTimeMillis ? kmOf(l) : '',
     l.mainAreasWorked || '', l.notWorking ? 'Yes' : 'No', l.notWorkingReason || ''
   ]));
-  downloadCsv('work-days.csv', rows);
+  downloadCsv(`work-days-${$('logFrom').value}-to-${$('logTo').value}.csv`, rows);
 });
 
 $('exportFuel').addEventListener('click', () => {
@@ -1797,7 +1851,7 @@ $('exportFuel').addEventListener('click', () => {
       f.odometerKm || 0, f.receiptPhotoUrl || ''
     ]);
   });
-  downloadCsv('fuel-logs.csv', rows);
+  downloadCsv(`fuel-logs-${$('logFrom').value}-to-${$('logTo').value}.csv`, rows);
 });
 </script>
 </body>
