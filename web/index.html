@@ -350,7 +350,7 @@
         <div class="table-wrap"><table>
           <thead><tr>
             <th>Employee</th><th>Province</th><th>Team</th>
-            <th>Days</th><th>Absent</th><th>No knock off</th>
+            <th id="repDaysHead">Days</th><th>Absent</th><th>No knock off</th>
             <th>Hours</th><th>Distance</th><th>Fuel</th>
           </tr></thead>
           <tbody id="repRows"></tbody>
@@ -1389,9 +1389,17 @@ async function runReport() {
           + `so hours and distance below exclude them.</span>`
         : '');
 
+    // Over a single day the "days" total is really a headcount, so the wording
+    // changes rather than reading as a count of days.
+    const singleDay = from === to;
+    const isToday = singleDay && from === todayString();
+    $('repDaysHead').textContent = singleDay ? 'Worked' : 'Days';
+
     $('repTiles').innerHTML = [
-      ['Days worked', totals.days],
-      ['Absences', totals.absent],
+      [singleDay
+        ? (isToday ? 'Employees working today' : 'Employees working')
+        : 'Days worked', totals.days],
+      [singleDay ? 'Absent' : 'Absences', totals.absent],
       ['No knock off', totals.open],
       ['Hours', hoursLabel(totals.minutes)],
       ['Distance', `${totals.km} km`],
@@ -1421,7 +1429,9 @@ async function runReport() {
 
 $('exportSummary').addEventListener('click', () => {
   if (reportRows.length === 0) { showMsg('Run a report first.', 'err'); return; }
-  const rows = [['Employee', 'Province', 'Team', 'Days worked', 'Absences',
+  const singleDay = $('repFrom').value === $('repTo').value;
+  const rows = [['Employee', 'Province', 'Team',
+    singleDay ? 'Worked' : 'Days worked', 'Absences',
     'Days without knock off', 'Hours', 'Minutes', 'Distance km', 'Fuel R']];
   reportRows.forEach(r => rows.push([
     r.name, r.province, r.team, r.days, r.absent, r.open,
