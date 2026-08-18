@@ -13,6 +13,7 @@ import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -49,6 +50,15 @@ class FleetRepository(
         }
 
         fun todayString(): String = dayFormat.format(Date())
+
+        /** Shifts a yyyy-MM-dd date by whole days, staying in SAST. */
+        fun shiftDate(date: String, days: Int): String {
+            val parsed = runCatching { dayFormat.parse(date) }.getOrNull() ?: return date
+            val calendar = Calendar.getInstance(TimeZone.getTimeZone("Africa/Johannesburg"))
+            calendar.time = parsed
+            calendar.add(Calendar.DAY_OF_MONTH, days)
+            return dayFormat.format(calendar.time)
+        }
 
         /**
          * Employee number reduced to a safe, comparable document id: letters and
@@ -522,8 +532,10 @@ class FleetRepository(
         updateVehicleOdometer(vehicleId, endOdometerKm)
     }
 
-    suspend fun listTodaysTimeLogs(): List<TimeLog> {
-        val snap = db.collection("timeLogs").whereEqualTo("date", todayString()).get().await()
+    suspend fun listTodaysTimeLogs(): List<TimeLog> = listTimeLogsForDate(todayString())
+
+    suspend fun listTimeLogsForDate(date: String): List<TimeLog> {
+        val snap = db.collection("timeLogs").whereEqualTo("date", date).get().await()
         return snap.toObjects(TimeLog::class.java)
     }
 

@@ -26,6 +26,9 @@ data class AdminUiState(
     val employees: List<UserProfile> = emptyList(),
     val admins: List<UserProfile> = emptyList(),
     val vehicles: List<Vehicle> = emptyList(),
+    /** The day being viewed on the first tab — not necessarily today. */
+    val selectedDate: String = FleetRepository.todayString(),
+    /** Logs for [selectedDate]. */
     val todaysLogs: List<TimeLog> = emptyList(),
     val recentTimeLogs: List<TimeLog> = emptyList(),
     val recentFuelLogs: List<FuelLog> = emptyList(),
@@ -55,7 +58,7 @@ class AdminViewModel(
                 val employees = repo.listEmployees()
                 val admins = repo.listAdmins()
                 val vehicles = repo.listVehicles()
-                val todaysLogs = repo.listTodaysTimeLogs()
+                val todaysLogs = repo.listTimeLogsForDate(uiState.selectedDate)
                 val recentTimeLogs = repo.listRecentTimeLogs()
                 val fuelLogs = repo.listRecentFuelLogs()
                 val settings = repo.getSettings()
@@ -77,6 +80,29 @@ class AdminViewModel(
             }
         }
     }
+
+    /** Steps the viewed day backwards or forwards and reloads just that day's logs. */
+    fun shiftSelectedDate(days: Int) {
+        val next = FleetRepository.shiftDate(uiState.selectedDate, days)
+        // Don't let the admin page forward into days that haven't happened.
+        if (next > FleetRepository.todayString()) return
+        uiState = uiState.copy(selectedDate = next, busy = true, message = null)
+        viewModelScope.launch {
+            try {
+                uiState = uiState.copy(busy = false, todaysLogs = repo.listTimeLogsForDate(next))
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not load that day: ${e.message}")
+            }
+        }
+    }
+
+    fun jumpToToday() {
+        if (uiState.selectedDate == FleetRepository.todayString()) return
+        uiState = uiState.copy(selectedDate = FleetRepository.todayString())
+        refresh()
+    }
+
+    val viewingToday: Boolean get() = uiState.selectedDate == FleetRepository.todayString()
 
     /**
      * Who is unaccounted for today: active employees who have neither clocked in nor

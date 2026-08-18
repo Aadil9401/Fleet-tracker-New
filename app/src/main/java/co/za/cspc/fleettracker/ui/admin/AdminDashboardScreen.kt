@@ -11,6 +11,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Edit
@@ -115,12 +117,36 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
     val activeCount = state.employees.count { it.active }
     val knockedOff = state.todaysLogs.count { it.hasEnded }
 
+    val totalMinutes = state.todaysLogs.sumOf { it.minutesWorked }
+    val totalKm = state.todaysLogs.sumOf { it.kmTravelled }
+    val servicesDue = state.vehicles.count { it.isServiceDue(System.currentTimeMillis()) }
+
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            DayNavigator(
+                date = state.selectedDate,
+                isToday = viewModel.viewingToday,
+                busy = state.busy,
+                onShift = { viewModel.shiftSelectedDate(it) },
+                onToday = { viewModel.jumpToToday() }
+            )
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatTile("Started", "$started/$activeCount", Modifier.weight(1f))
                 StatTile("Knocked off", knockedOff.toString(), Modifier.weight(1f))
                 StatTile("Not working", notWorking.size.toString(), Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatTile(
+                    "Hours",
+                    if (totalMinutes > 0) "${totalMinutes / 60}h ${totalMinutes % 60}m" else "—",
+                    Modifier.weight(1f)
+                )
+                StatTile("Distance", "$totalKm km", Modifier.weight(1f))
+                StatTile("Service due", servicesDue.toString(), Modifier.weight(1f))
             }
         }
         if (notWorking.isNotEmpty()) {
@@ -173,16 +199,40 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                 }
             }
         }
-        if (state.todaysLogs.isNotEmpty()) {
-            item {
-                Text(
-                    "Today's activity",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        // Grouped by province so a big team reads as regional crews rather than one
+        // long undifferentiated list.
+        val grouped = state.todaysLogs
+            .groupBy { log ->
+                state.employees.firstOrNull { it.uid == log.uid }
+                    ?.province
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "No province set"
             }
-        }
-        items(state.todaysLogs) { log ->
+            .toSortedMap()
+
+        grouped.forEach { (province, logs) ->
+            item {
+                val provinceMinutes = logs.sumOf { it.minutesWorked }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                ) {
+                    Text(
+                        province.asCaptured(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${logs.size} · " +
+                            if (provinceMinutes > 0) "${provinceMinutes / 60}h ${provinceMinutes % 60}m" else "—",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            items(logs) { log ->
             Card {
                 Column(Modifier.padding(12.dp)) {
                     // Province and team live on the employee record, not the log, so
@@ -196,7 +246,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                     Text(heading.asCaptured(), fontWeight = FontWeight.Bold)
                     if (log.notWorking) {
                         Text(
-                            "Not working today",
+                            "Not working",
                             color = MaterialTheme.colorScheme.secondary,
                             fontWeight = FontWeight.Bold
                         )
@@ -219,7 +269,13 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                         )
                     }
                     Text("Start: $started   Knock off: $ended")
-                    if (log.hasEnded) Text("Distance: ${log.kmTravelled} km")
+                    if (log.hasEnded) {
+                        Text(
+                            "${log.durationLabel}  •  ${log.kmTravelled} km",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     if (log.mainAreasWorked.isNotBlank()) {
                         Text(
                             "Areas: ${log.mainAreasWorked}".asCaptured(),
@@ -229,8 +285,65 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                     }
                 }
             }
+            }
         }
     }
+}
+
+/** ◀ date ▶ stepper, so any past day can be reviewed rather than only today. */
+@Composable
+private fun DayNavigator(
+    date: String,
+    isToday: Boolean,
+    busy: Boolean,
+    onShift: (Int) -> Unit,
+    onToday: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+        ) {
+            IconButton(onClick = { onShift(-1) }, enabled = !busy) {
+                Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous day")
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    prettyDate(date),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                if (!isToday) {
+                    TextButton(onClick = onToday, enabled = !busy) { Text("Back to today") }
+                }
+            }
+            IconButton(
+                onClick = { onShift(1) },
+                // Nothing to see in the future.
+                enabled = !busy && !isToday
+            ) {
+                Icon(Icons.Filled.ChevronRight, contentDescription = "Next day")
+            }
+        }
+    }
+}
+
+/** "Mon 18 Aug 2026" from a yyyy-MM-dd string, falling back to the raw value. */
+private fun prettyDate(date: String): String {
+    val parsed = runCatching {
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("Africa/Johannesburg")
+        }.parse(date)
+    }.getOrNull() ?: return date
+    return dayLabelFormat.format(parsed)
 }
 
 @Composable
@@ -1609,7 +1722,13 @@ private fun LogsTab(state: AdminUiState) {
                     val startText = if (log.hasStarted) timeFormat.format(Date(log.startTimeMillis)) else "-"
                     val endText = if (log.hasEnded) timeFormat.format(Date(log.endTimeMillis)) else "still working"
                     Text("${log.date}  •  $startText → $endText")
-                    if (log.hasEnded) Text("Distance: ${log.kmTravelled} km")
+                    if (log.hasEnded) {
+                        Text(
+                            "${log.durationLabel}  •  ${log.kmTravelled} km",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     if (log.mainAreasWorked.isNotBlank()) {
                         Text(
                             "Areas: ${log.mainAreasWorked}".asCaptured(),

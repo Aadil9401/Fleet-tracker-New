@@ -122,6 +122,16 @@ data class TimeLog(
     val hasStarted: Boolean get() = startTimeMillis > 0L
     val hasEnded: Boolean get() = endTimeMillis > 0L
     val kmTravelled: Long get() = (endOdometerKm - startOdometerKm).coerceAtLeast(0)
+
+    /** Minutes between clocking in and knocking off. Zero until the day is finished. */
+    val minutesWorked: Long
+        get() = if (hasStarted && hasEnded && endTimeMillis > startTimeMillis) {
+            (endTimeMillis - startTimeMillis) / 60_000L
+        } else 0L
+
+    /** "9h 25m", or a dash while the day is still open. */
+    val durationLabel: String
+        get() = if (minutesWorked <= 0L) "—" else "${minutesWorked / 60}h ${minutesWorked % 60}m"
 }
 
 /** A fuel purchase logged by an employee. */
