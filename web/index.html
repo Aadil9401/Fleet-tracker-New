@@ -511,8 +511,12 @@ const db = getFirestore(app);
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], recentTimeLogs: [], fuelLogs: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
-/** The day shown on the Day view tab — not necessarily today. */
-let selectedDate = todayString();
+/**
+ * The day shown on the Day view tab — not necessarily today. Assigned further down,
+ * once todayString() exists: initialising it here would run before that function is
+ * defined and kill the whole script.
+ */
+let selectedDate;
 /** Rows behind the current report, kept so Export CSV matches what's on screen. */
 let reportRows = [];
 
@@ -525,6 +529,8 @@ const todayString = () => {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
+
+selectedDate = todayString();
 
 const hhmm = (millis) => millis
   ? new Date(millis).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
