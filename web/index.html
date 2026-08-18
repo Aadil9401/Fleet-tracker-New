@@ -1392,13 +1392,10 @@ async function runReport() {
     // Over a single day the "days" total is really a headcount, so the wording
     // changes rather than reading as a count of days.
     const singleDay = from === to;
-    const isToday = singleDay && from === todayString();
     $('repDaysHead').textContent = singleDay ? 'Worked' : 'Days';
 
     $('repTiles').innerHTML = [
-      [singleDay
-        ? (isToday ? 'Employees working today' : 'Employees working')
-        : 'Days worked', totals.days],
+      [singleDay ? 'Number of employees' : 'Days worked', totals.days],
       [singleDay ? 'Absent' : 'Absences', totals.absent],
       ['No knock off', totals.open],
       ['Hours', hoursLabel(totals.minutes)],
