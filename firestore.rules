@@ -43,7 +43,10 @@ service cloud.firestore {
     // which also makes it race-proof, unlike a read-then-write check.
     match /employeeNumbers/{employeeNumber} {
       allow get: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      // Signing-up users may only claim a number for themselves. Admins may claim on
+      // someone else's behalf, which is needed when correcting an employee's number.
+      allow create: if isSignedIn() &&
+        (request.resource.data.uid == request.auth.uid || isAdmin());
       allow update: if false;
       allow delete: if isAdmin();
     }

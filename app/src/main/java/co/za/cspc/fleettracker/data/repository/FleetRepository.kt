@@ -221,7 +221,25 @@ class FleetRepository(
         vehicleRegistration: String,
         contactEmail: String
     ) {
-        db.collection("users").document(uid).update(
+        val ref = db.collection("users").document(uid)
+        val oldKey = employeeNumberKey(ref.get().await().getString("employeeNumber").orEmpty())
+        val newKey = employeeNumberKey(employeeNumber)
+
+        // Claim the new number BEFORE touching the profile, so a clash leaves
+        // everything untouched rather than half-changed.
+        if (newKey != oldKey && newKey.isNotBlank()) {
+            try {
+                db.collection("employeeNumbers").document(newKey)
+                    .set(mapOf("uid" to uid)).await()
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "Employee number ${employeeNumber.trim()} is already registered " +
+                        "to someone else."
+                )
+            }
+        }
+
+        ref.update(
             mapOf(
                 "name" to name.trim(),
                 "surname" to surname.trim(),
@@ -232,6 +250,11 @@ class FleetRepository(
                 "contactEmail" to contactEmail.trim()
             )
         ).await()
+
+        // Release the old number only once the profile actually moved off it.
+        if (newKey != oldKey && oldKey.isNotBlank()) {
+            runCatching { db.collection("employeeNumbers").document(oldKey).delete().await() }
+        }
     }
 
     /**

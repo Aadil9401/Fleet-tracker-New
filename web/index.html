@@ -422,7 +422,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore, collection, doc, getDoc, getDocs, query, where,
-  updateDoc, deleteDoc, writeBatch, orderBy, limit
+  setDoc, updateDoc, deleteDoc, writeBatch, orderBy, limit
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const SERVICE_INTERVAL_KM = 15000;
@@ -726,6 +726,11 @@ function renderEmployees() {
         + `rather than a duplicate, use Deactivate instead — that's reversible.`)) return;
       try {
         await deleteDoc(doc(db, 'users', emp.id));
+        // Release their employee number so the right person can register it.
+        const key = numberKey(emp.employeeNumber);
+        if (key) {
+          try { await deleteDoc(doc(db, 'employeeNumbers', key)); } catch (err) { /* harmless */ }
+        }
         showMsg('Employee removed.');
         await loadAll();
       } catch (err) { showMsg('Could not remove: ' + err.message, 'err'); }
@@ -830,19 +835,43 @@ $('editCancel').addEventListener('click', () => {
   editingUid = null;
 });
 
+/** Matches employeeNumberKey() in the app so both agree on what counts as the same number. */
+const numberKey = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
 $('editSave').addEventListener('click', async () => {
   if (!editingUid) return;
   $('editSave').disabled = true;
   try {
+    const before = data.employees.find(x => x.id === editingUid);
+    const oldKey = numberKey(before?.employeeNumber);
+    const newNumber = $('eNumber').value.trim();
+    const newKey = numberKey(newNumber);
+
+    // Claim the new number first, so a clash aborts before anything changes.
+    if (newKey !== oldKey && newKey) {
+      try {
+        await setDoc(doc(db, 'employeeNumbers', newKey), { uid: editingUid });
+      } catch (err) {
+        showMsg(`Employee number ${newNumber} is already registered to someone else.`, 'err');
+        $('editSave').disabled = false;
+        return;
+      }
+    }
+
     await updateDoc(doc(db, 'users', editingUid), {
       name: $('eName').value.trim(),
       surname: $('eSurname').value.trim(),
-      employeeNumber: $('eNumber').value.trim(),
+      employeeNumber: newNumber,
       province: $('eProvince').value,
       teamName: $('eTeam').value.trim(),
       vehicleRegistration: $('eReg').value.trim().toUpperCase(),
       contactEmail: $('eEmail').value.trim()
     });
+
+    // Release the old number now the profile has moved off it.
+    if (newKey !== oldKey && oldKey) {
+      try { await deleteDoc(doc(db, 'employeeNumbers', oldKey)); } catch (err) { /* leaves it reserved; harmless */ }
+    }
     $('editOverlay').classList.add('hidden');
     editingUid = null;
     showMsg('Employee details updated.');
