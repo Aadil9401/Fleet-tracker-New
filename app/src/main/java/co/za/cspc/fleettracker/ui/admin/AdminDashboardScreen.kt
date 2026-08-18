@@ -1073,7 +1073,9 @@ private fun AddEmployeeDialog(
     // before we bother creating the account.
     val emailLooksValid = contactEmail.contains("@") &&
         contactEmail.substringAfterLast("@").contains(".")
-    val canCreate = !busy && name.isNotBlank() && surname.isNotBlank() && emailLooksValid
+    // Employee number required here too — it's the key that stops duplicate accounts.
+    val canCreate = !busy && name.isNotBlank() && surname.isNotBlank() &&
+        employeeNumber.isNotBlank() && emailLooksValid
 
     AlertDialog(
         onDismissRequest = onDismiss,

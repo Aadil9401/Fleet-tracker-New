@@ -118,12 +118,14 @@ class FleetRepository(
             createdAt = System.currentTimeMillis()
         )
 
+        var reservedKey: String? = null
         try {
             // Claim the employee number first. This write is rejected if someone has
             // already registered it, so it doubles as the duplicate check.
             try {
                 db.collection("employeeNumbers").document(numberKey)
                     .set(mapOf("uid" to uid)).await()
+                reservedKey = numberKey
             } catch (e: Exception) {
                 throw IllegalStateException(
                     "Employee number ${employeeNumber.trim()} is already registered. " +
@@ -148,6 +150,12 @@ class FleetRepository(
                 )
             ).await()
         } catch (e: Exception) {
+            // Release the number BEFORE deleting the account. The rule that permits
+            // this checks the caller owns the claim, so once the account is gone the
+            // release would be denied and the number burnt for good.
+            reservedKey?.let { key ->
+                runCatching { db.collection("employeeNumbers").document(key).delete().await() }
+            }
             // Undo the half-made account. Without this the person is left with a
             // login that has no profile, which fails as "Account not set up
             // correctly" on every future attempt and can't be retried.

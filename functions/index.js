@@ -78,6 +78,11 @@ function randomPassword(length = 10) {
   return out;
 }
 
+/** Must match employeeNumberKey() in FleetRepository.kt so both agree on identity. */
+function employeeNumberKey(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 function slugify(value) {
   const noDiacritics = value
     .toLowerCase()
@@ -117,6 +122,13 @@ exports.createEmployee = onCall({ secrets: [GMAIL_USER, GMAIL_APP_PASSWORD] }, a
     );
   }
 
+  // Employee number is the uniqueness key for self sign-up, so admin-created accounts
+  // must reserve it too — otherwise someone could later sign up with the same number.
+  const numberKey = employeeNumberKey(employeeNumber);
+  if (!numberKey) {
+    throw new HttpsError("invalid-argument", "An employee number is required.");
+  }
+
   const base = `${slugify(name)}.${slugify(surname)}`;
   let email = `${base}@cspc.local`;
   let suffix = 1;
@@ -138,6 +150,19 @@ exports.createEmployee = onCall({ secrets: [GMAIL_USER, GMAIL_APP_PASSWORD] }, a
     password,
     displayName: `${name} ${surname}`,
   });
+
+  // create() fails if the document already exists, which is what makes this the
+  // duplicate check rather than a racy read-then-write.
+  try {
+    await db.collection("employeeNumbers").doc(numberKey).create({ uid: userRecord.uid });
+  } catch (e) {
+    // Don't leave an orphaned login behind.
+    await auth.deleteUser(userRecord.uid).catch(() => {});
+    throw new HttpsError(
+      "already-exists",
+      `Employee number ${employeeNumber} is already registered to someone else.`
+    );
+  }
 
   await db.collection("users").doc(userRecord.uid).set({
     name,
