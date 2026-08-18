@@ -615,12 +615,12 @@ function renderToday() {
     ? `<tr><td colspan="5" class="empty">Nobody has clocked in yet today.</td></tr>`
     : data.todaysLogs.map(l => l.notWorking
         ? `<tr>
-            <td>${esc(l.employeeName)}</td>
+            <td>${personCell(l)}</td>
             <td colspan="4"><em>Not working${
               l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
           </tr>`
         : `<tr>
-            <td>${esc(l.employeeName)}</td>
+            <td>${personCell(l)}</td>
             <td>${hhmm(l.startTimeMillis)}</td>
             <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
             <td>${l.endTimeMillis ? esc(Math.max(0, (l.endOdometerKm||0)-(l.startOdometerKm||0))) + ' km' : '—'}</td>
@@ -629,6 +629,20 @@ function renderToday() {
 }
 
 const fullName = (e) => `${e.name || ''} ${e.surname || ''}`.trim();
+
+/**
+ * "Christian Dube, Eastern Cape, Mthatha" — province and team come off the employee
+ * record rather than the log, so they're looked up by uid.
+ */
+function personCell(log) {
+  const person = data.employees.find(e => e.id === log.uid);
+  const parts = [
+    log.employeeName || (person ? fullName(person) : ''),
+    person?.province,
+    person?.teamName
+  ].filter(Boolean);
+  return esc(parts.join(', '));
+}
 
 function renderEmployees() {
   const counts = {};
@@ -1042,13 +1056,13 @@ function renderLogs() {
     ? `<tr><td colspan="6" class="empty">No work days recorded yet.</td></tr>`
     : data.recentTimeLogs.map(l => l.notWorking
         ? `<tr>
-            <td>${esc(l.employeeName)}</td>
+            <td>${personCell(l)}</td>
             <td>${esc(l.date)}</td>
             <td colspan="4"><em>Not working${
               l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
           </tr>`
         : `<tr>
-            <td>${esc(l.employeeName)}</td>
+            <td>${personCell(l)}</td>
             <td>${esc(l.date)}</td>
             <td>${hhmm(l.startTimeMillis)}</td>
             <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>

@@ -184,7 +184,15 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
         items(state.todaysLogs) { log ->
             Card {
                 Column(Modifier.padding(12.dp)) {
-                    Text(log.employeeName, fontWeight = FontWeight.Bold)
+                    // Province and team live on the employee record, not the log, so
+                    // they're looked up by uid.
+                    val person = state.employees.firstOrNull { it.uid == log.uid }
+                    val heading = listOfNotNull(
+                        log.employeeName.ifBlank { person?.fullName },
+                        person?.province?.takeIf { it.isNotBlank() },
+                        person?.teamName?.takeIf { it.isNotBlank() }
+                    ).joinToString(", ")
+                    Text(heading, fontWeight = FontWeight.Bold)
                     if (log.notWorking) {
                         Text(
                             "Not working today",
