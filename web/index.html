@@ -401,10 +401,11 @@
           <div>
             <label for="dayStatus">Show</label>
             <select id="dayStatus">
-              <option value="all">Everyone with an entry</option>
+              <option value="all">Everyone</option>
               <option value="working">Still working</option>
               <option value="done">Knocked off</option>
               <option value="absent">Not working</option>
+              <option value="none">No entry at all</option>
             </select>
           </div>
           <label class="checkline">
@@ -876,9 +877,13 @@ function renderAll() {
 function renderToday() {
   const activeEmployees = data.employees.filter(e => e.active !== false);
   const started = data.todaysLogs.filter(l => l.startTimeMillis > 0);
-  const startedUids = new Set(started.map(l => l.uid));
   const knockedOff = data.todaysLogs.filter(l => l.endTimeMillis > 0).length;
-  const notStarted = activeEmployees.filter(e => !startedUids.has(e.id));
+  // Accounted for = clocked in OR marked not working. Without the second half,
+  // someone who reported themselves absent also showed up in the red "no entry"
+  // list, i.e. counted twice and chased unnecessarily.
+  const accountedFor = new Set(
+    data.todaysLogs.filter(l => l.startTimeMillis > 0 || l.notWorking).map(l => l.uid));
+  const notStarted = activeEmployees.filter(e => !accountedFor.has(e.id));
 
   const isToday = selectedDate === todayString();
   $('dayLabel').textContent = prettyDate(selectedDate) + (isToday ? ' (today)' : '');
@@ -917,10 +922,11 @@ function renderToday() {
   $('dayDate').value = selectedDate;
   $('dayDate').max = todayString();
 
+  const allRows = dayRows();
   const visible = visibleDayLogs();
-  $('dayShowing').textContent = visible.length === data.todaysLogs.length
-    ? `${data.todaysLogs.length} entr${data.todaysLogs.length === 1 ? 'y' : 'ies'}`
-    : `Showing ${visible.length} of ${data.todaysLogs.length}`;
+  $('dayShowing').textContent = visible.length === allRows.length
+    ? `${allRows.length} employee(s)`
+    : `Showing ${visible.length} of ${allRows.length}`;
 
   const dayTable = (logs) => `
     <div class="table-wrap"><table>
@@ -929,10 +935,16 @@ function renderToday() {
         <th>Hours</th><th>Distance</th><th>Areas</th>
       </tr></thead>
       <tbody>
-        ${logs.map(l => l.notWorking
+        ${logs.map(l => l.noEntry
           ? `<tr>
               <td>${personCell(l)}</td>
-              <td colspan="5"><em>Not working${
+              <td colspan="5" style="color:var(--error)">
+                <em>No entry — has not clocked in or reported absent</em></td>
+            </tr>`
+          : l.notWorking
+          ? `<tr>
+              <td>${personCell(l)}</td>
+              <td colspan="5" style="color:var(--secondary)"><em>Not working${
                 l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
             </tr>`
           : `<tr>
@@ -947,8 +959,8 @@ function renderToday() {
     </table></div>`;
 
   if (visible.length === 0) {
-    $('dayGroups').innerHTML = `<div class="empty">${data.todaysLogs.length === 0
-      ? 'No entries for this day.'
+    $('dayGroups').innerHTML = `<div class="empty">${allRows.length === 0
+      ? 'No employees on record yet.'
       : 'Nothing matches those filters.'}</div>`;
   } else if (!$('dayGroup').checked) {
     $('dayGroups').innerHTML = dayTable(visible);
@@ -973,14 +985,30 @@ function renderToday() {
   }
 }
 
+/**
+ * Everyone who belongs on the selected day: people with an entry, plus active
+ * employees who have none at all. Those used to appear only as bullets in a card,
+ * which meant they were invisible to the filters and missing from exports.
+ */
+function dayRows() {
+  const withEntry = data.todaysLogs;
+  const seen = new Set(withEntry.map(l => l.uid));
+  const missing = data.employees
+    .filter(e => e.active !== false && !seen.has(e.id))
+    .map(e => ({ uid: e.id, employeeName: fullName(e), noEntry: true }));
+  return [...withEntry, ...missing];
+}
+
 /** Day-view rows after the search box and the status dropdown. */
 function visibleDayLogs() {
   const q = $('daySearch').value.trim().toLowerCase();
   const status = $('dayStatus').value;
-  return data.todaysLogs.filter(l => {
+  return dayRows().filter(l => {
     if (status === 'absent' && !l.notWorking) return false;
-    if (status === 'working' && (l.notWorking || !l.startTimeMillis || l.endTimeMillis)) return false;
-    if (status === 'done' && (l.notWorking || !l.endTimeMillis)) return false;
+    if (status === 'none' && !l.noEntry) return false;
+    if (status === 'working' &&
+      (l.noEntry || l.notWorking || !l.startTimeMillis || l.endTimeMillis)) return false;
+    if (status === 'done' && (l.noEntry || l.notWorking || !l.endTimeMillis)) return false;
     if (!q) return true;
     const person = data.employees.find(e => e.id === l.uid);
     return [l.employeeName, person && fullName(person), person?.province, person?.teamName]
@@ -1006,21 +1034,25 @@ $('dayNext').addEventListener('click', () => goToDate(shiftDate(selectedDate, 1)
 $('dayToday').addEventListener('click', () => goToDate(todayString()));
 
 $('exportDay').addEventListener('click', () => {
-  const rows = [['Date', 'Employee', 'Province', 'Team', 'Start', 'Knock off',
-    'Hours', 'Minutes', 'Distance km', 'Areas', 'Not working', 'Reason']];
+  const rows = [['Date', 'Employee', 'Province', 'Team', 'Status', 'Start', 'Knock off',
+    'Hours', 'Minutes', 'Distance km', 'Areas', 'Reason']];
   // Exports what's on screen, filters included.
   visibleDayLogs().forEach(l => {
     const p = data.employees.find(e => e.id === l.uid);
+    const status = l.noEntry ? 'No entry'
+      : l.notWorking ? 'Not working'
+      : l.endTimeMillis ? 'Knocked off'
+      : 'Still working';
     rows.push([
       selectedDate,
       l.employeeName || (p ? fullName(p) : ''),
       p?.province || '', p?.teamName || '',
+      status,
       l.startTimeMillis ? hhmm(l.startTimeMillis) : '',
       l.endTimeMillis ? hhmm(l.endTimeMillis) : '',
       hoursLabel(minutesWorked(l)), minutesWorked(l),
       l.endTimeMillis ? kmOf(l) : '',
       l.mainAreasWorked || '',
-      l.notWorking ? 'Yes' : 'No',
       l.notWorkingReason || ''
     ]);
   });
