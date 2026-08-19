@@ -73,8 +73,14 @@ service cloud.firestore {
     match /timeLogs/{logId} {
       allow get: if isAdmin() ||
         (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
-      allow list: if isAdmin();
-      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      // Employees may list their OWN days, which is what the "my recent days" screen
+      // needs. Firestore only permits a query it can prove satisfies this rule, so a
+      // client asking for everyone's logs is rejected outright.
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      // Admins can create on someone's behalf, so a forgotten day can be recorded
+      // after the fact. Employees can still only create their own.
+      allow create: if isAdmin() ||
+        (isSignedIn() && request.resource.data.uid == request.auth.uid);
       allow update: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow delete: if isAdmin();
     }

@@ -497,6 +497,32 @@
       <div class="card" id="adminsCard"></div>
     </section>
 
+    <!-- EDIT DAY ENTRY MODAL -->
+    <div id="entryOverlay" class="overlay hidden">
+      <div class="modal">
+        <h2 class="section" id="entryTitle">Edit day</h2>
+        <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)" id="entrySub"></p>
+        <div class="toolbar">
+          <div class="grow"><label for="enStart">Start time</label><input id="enStart" type="time"></div>
+          <div class="grow"><label for="enEnd">Knock off time</label><input id="enEnd" type="time"></div>
+        </div>
+        <div class="toolbar">
+          <div class="grow"><label for="enStartKm">Start odometer</label><input id="enStartKm" type="number" min="0"></div>
+          <div class="grow"><label for="enEndKm">End odometer</label><input id="enEndKm" type="number" min="0"></div>
+        </div>
+        <div class="field"><label for="enAreas">Areas worked</label><input id="enAreas"></div>
+        <div id="entryError"></div>
+        <p class="sub" style="font-size:.8rem">
+          Corrections made here are recorded as edited by you, so it stays clear which
+          figures were entered by the employee and which were adjusted.
+        </p>
+        <div class="row-actions" style="justify-content:flex-end">
+          <button id="entryCancel" class="outline">Cancel</button>
+          <button id="entrySave">Save</button>
+        </div>
+      </div>
+    </div>
+
     <!-- EDIT EMPLOYEE MODAL -->
     <div id="editOverlay" class="overlay hidden">
       <div class="modal">
@@ -932,7 +958,7 @@ function renderToday() {
     <div class="table-wrap"><table>
       <thead><tr>
         <th>Employee</th><th>Start</th><th>Knock off</th>
-        <th>Hours</th><th>Distance</th><th>Areas</th>
+        <th>Hours</th><th>Distance</th><th>Areas</th><th></th>
       </tr></thead>
       <tbody>
         ${logs.map(l => l.noEntry
@@ -940,20 +966,31 @@ function renderToday() {
               <td>${personCell(l)}</td>
               <td colspan="5" style="color:var(--error)">
                 <em>No entry — has not clocked in or reported absent</em></td>
+              <td class="row-actions">
+                <button class="ghost" data-entry="${esc(l.uid)}">Record day</button>
+              </td>
             </tr>`
           : l.notWorking
           ? `<tr>
               <td>${personCell(l)}</td>
               <td colspan="5" style="color:var(--secondary)"><em>Not working${
                 l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
+              <td></td>
             </tr>`
           : `<tr>
               <td>${personCell(l)}</td>
               <td>${hhmm(l.startTimeMillis)}</td>
-              <td>${l.endTimeMillis ? hhmm(l.endTimeMillis) : '<em>still working</em>'}</td>
+              <td>${l.endTimeMillis
+                ? hhmm(l.endTimeMillis)
+                : '<em style="color:var(--error)">not knocked off</em>'}</td>
               <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
               <td>${l.endTimeMillis ? km(kmOf(l)) : '—'}</td>
-              <td>${esc(l.mainAreasWorked || '—')}</td>
+              <td>${esc(l.mainAreasWorked || '—')}${
+                l.editedByAdmin ? ' <span class="chip">edited</span>' : ''}</td>
+              <td class="row-actions">
+                <button class="ghost" data-entry="${esc(l.uid)}">${
+                  l.endTimeMillis ? 'Edit' : 'Close day'}</button>
+              </td>
             </tr>`).join('')}
       </tbody>
     </table></div>`;
@@ -983,7 +1020,97 @@ function renderToday() {
         ${dayTable(logs)}`;
     }).join('');
   }
+
+  // Wired after the tables are written, whichever layout was rendered.
+  $('dayGroups').querySelectorAll('[data-entry]').forEach(btn => {
+    btn.addEventListener('click', () => openEntryModal(btn.dataset.entry));
+  });
 }
+
+/* ---------------- editing a day entry ---------------- */
+let editingEntryUid = null;
+
+/** yyyy-MM-dd + "HH:mm" → epoch millis in the browser's timezone. */
+function millisFor(date, time) {
+  if (!time) return 0;
+  const [y, m, d] = date.split('-').map(Number);
+  const [hh, mm] = time.split(':').map(Number);
+  return new Date(y, m - 1, d, hh, mm, 0, 0).getTime();
+}
+const timeValue = (millis) => millis
+  ? new Date(millis).toTimeString().slice(0, 5)
+  : '';
+
+function openEntryModal(uid) {
+  const row = dayRows().find(r => r.uid === uid);
+  if (!row) return;
+  editingEntryUid = uid;
+  const person = data.employees.find(e => e.id === uid);
+  $('entryTitle').textContent = row.noEntry ? 'Record day' : 'Edit day';
+  $('entrySub').textContent =
+    `${row.employeeName || (person ? fullName(person) : '')} · ${prettyDate(selectedDate)}`;
+  $('enStart').value = timeValue(row.startTimeMillis);
+  $('enEnd').value = timeValue(row.endTimeMillis);
+  $('enStartKm').value = row.startOdometerKm ?? '';
+  $('enEndKm').value = row.endOdometerKm ?? '';
+  $('enAreas').value = row.mainAreasWorked || '';
+  $('entryError').innerHTML = '';
+  $('entryOverlay').classList.remove('hidden');
+}
+
+$('entryCancel').addEventListener('click', () => {
+  $('entryOverlay').classList.add('hidden');
+  editingEntryUid = null;
+});
+
+$('entrySave').addEventListener('click', async () => {
+  if (!editingEntryUid) return;
+  const startTime = $('enStart').value;
+  const endTime = $('enEnd').value;
+  const startKm = $('enStartKm').value === '' ? null : Number($('enStartKm').value);
+  const endKm = $('enEndKm').value === '' ? null : Number($('enEndKm').value);
+  const fail = (msg) => {
+    $('entryError').innerHTML = `<div class="msg err">${esc(msg)}</div>`;
+  };
+
+  if (!startTime) return fail('A start time is needed.');
+  if (endTime && endTime < startTime) return fail('Knock off cannot be before the start time.');
+  if (startKm !== null && endKm !== null && endKm < startKm) {
+    return fail('End odometer cannot be lower than the start odometer.');
+  }
+
+  const person = data.employees.find(e => e.id === editingEntryUid);
+  const row = dayRows().find(r => r.uid === editingEntryUid);
+  $('entrySave').disabled = true;
+  try {
+    // Document id is {uid}_{date}, so this both creates a missing day and edits an
+    // existing one. merge keeps anything not shown on this form.
+    await setDoc(doc(db, 'timeLogs', `${editingEntryUid}_${selectedDate}`), {
+      uid: editingEntryUid,
+      employeeName: row?.employeeName || (person ? fullName(person) : ''),
+      date: selectedDate,
+      startTimeMillis: millisFor(selectedDate, startTime),
+      endTimeMillis: millisFor(selectedDate, endTime),
+      startOdometerKm: startKm ?? 0,
+      endOdometerKm: endKm ?? 0,
+      mainAreasWorked: $('enAreas').value.trim(),
+      notWorking: false,
+      // Marks the figures as adjusted, so an employee's own entry and an admin
+      // correction stay distinguishable.
+      editedByAdmin: true,
+      editedAtMillis: Date.now()
+    }, { merge: true });
+
+    $('entryOverlay').classList.add('hidden');
+    editingEntryUid = null;
+    showMsg('Day updated.');
+    await loadAll();
+  } catch (err) {
+    fail('Could not save: ' + err.message);
+  } finally {
+    $('entrySave').disabled = false;
+  }
+});
 
 /**
  * Everyone who belongs on the selected day: people with an entry, plus active

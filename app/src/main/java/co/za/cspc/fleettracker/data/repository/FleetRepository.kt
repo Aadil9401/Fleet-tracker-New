@@ -539,6 +539,19 @@ class FleetRepository(
         return snap.toObjects(TimeLog::class.java)
     }
 
+    /**
+     * An employee's own recent days. The security rules only permit a query that is
+     * provably restricted to the caller's own uid, which is exactly this one.
+     */
+    suspend fun listMyRecentTimeLogs(uid: String, limit: Long = 7): List<TimeLog> {
+        val snap = db.collection("timeLogs")
+            .whereEqualTo("uid", uid)
+            .orderBy("date")
+            .limitToLast(limit)
+            .get().await()
+        return snap.toObjects(TimeLog::class.java).asReversed()
+    }
+
     suspend fun listRecentTimeLogs(limit: Long = 50): List<TimeLog> {
         val snap = db.collection("timeLogs")
             .orderBy("startTimeMillis")

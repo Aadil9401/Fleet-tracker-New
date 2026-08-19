@@ -9,6 +9,20 @@ object Role {
     const val EMPLOYEE = "employee"
 }
 
+/**
+ * Absence categories. Kept as a fixed list so leave can actually be counted — free
+ * text alone can't answer "how much sick leave did we have this month".
+ */
+val ABSENCE_REASONS = listOf(
+    "Sick leave",
+    "Annual leave",
+    "Family responsibility",
+    "Unpaid leave",
+    "Public holiday",
+    "No work allocated",
+    "Other"
+)
+
 /** The nine South African provinces, offered as a picker on the add-employee form. */
 val SA_PROVINCES = listOf(
     "Eastern Cape",

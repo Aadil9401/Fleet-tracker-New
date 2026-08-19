@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import co.za.cspc.fleettracker.data.model.ABSENCE_REASONS
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.km
@@ -154,6 +156,50 @@ fun EmployeeHomeScreen(
                 }
             }
 
+            if (state.myRecentDays.isNotEmpty()) {
+                item { HorizontalDivider() }
+                item {
+                    Text("My recent days", style = MaterialTheme.typography.titleMedium)
+                }
+                items(state.myRecentDays) { day ->
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(day.date, fontWeight = FontWeight.Bold)
+                            when {
+                                day.notWorking -> Text(
+                                    "Not working" +
+                                        if (day.notWorkingReason.isNotBlank()) {
+                                            " — ${day.notWorkingReason}"
+                                        } else "",
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                                day.hasEnded -> Text(
+                                    "${timeFormat.format(Date(day.startTimeMillis))} → " +
+                                        "${timeFormat.format(Date(day.endTimeMillis))}  •  " +
+                                        "${day.durationLabel}  •  ${day.kmTravelled.km()}"
+                                )
+                                day.hasStarted -> Text(
+                                    "Started ${timeFormat.format(Date(day.startTimeMillis))} " +
+                                        "— never knocked off",
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            if (day.mainAreasWorked.isNotBlank()) {
+                                Text(
+                                    day.mainAreasWorked.asCaptured(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             state.message?.let { msg ->
                 item {
                     LaunchedEffect(msg) {
@@ -202,7 +248,9 @@ fun EmployeeHomeScreen(
     }
 
     if (showNotWorkingConfirm) {
-        var reason by remember { mutableStateOf("") }
+        var category by remember { mutableStateOf("") }
+        var detail by remember { mutableStateOf("") }
+        var reasonMenuOpen by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showNotWorkingConfirm = false },
             title = { Text("Not working today?") },
@@ -212,23 +260,56 @@ fun EmployeeHomeScreen(
                         "You'll be recorded as absent for today and won't be able to " +
                             "clock in or out. You can undo this if you change your mind."
                     )
+                    Box(Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = category,
+                            onValueChange = { },
+                            readOnly = true,
+                            label = { Text("Reason") },
+                            singleLine = true,
+                            trailingIcon = {
+                                IconButton(onClick = { reasonMenuOpen = true }) {
+                                    Icon(
+                                        Icons.Filled.ArrowDropDown,
+                                        contentDescription = "Choose a reason"
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        DropdownMenu(
+                            expanded = reasonMenuOpen,
+                            onDismissRequest = { reasonMenuOpen = false }
+                        ) {
+                            ABSENCE_REASONS.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option) },
+                                    onClick = {
+                                        category = option
+                                        reasonMenuOpen = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                     OutlinedTextField(
-                        value = reason,
-                        onValueChange = { reason = it },
-                        label = { Text("Reason") },
-                        supportingText = { Text("e.g. Sick leave, annual leave, family responsibility") },
+                        value = detail,
+                        onValueChange = { detail = it },
+                        label = { Text("Anything to add (optional)") },
                         minLines = 2,
-                        maxLines = 4,
+                        maxLines = 3,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
                 TextButton(
-                    // A reason is the whole point of the record, so it's required.
-                    enabled = reason.isNotBlank(),
+                    // A category is required; the free text beside it is optional.
+                    enabled = category.isNotBlank(),
                     onClick = {
                         showNotWorkingConfirm = false
+                        val reason = if (detail.isBlank()) category
+                        else "$category — ${detail.trim()}"
                         viewModel.markNotWorking(reason)
                     }
                 ) { Text("Confirm") }

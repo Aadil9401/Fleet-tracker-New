@@ -16,6 +16,8 @@ data class EmployeeUiState(
     val profile: UserProfile? = null,
     val vehicle: Vehicle? = null,
     val todaysLog: TimeLog? = null,
+    /** The person's own recent days, so they can check their own hours. */
+    val myRecentDays: List<TimeLog> = emptyList(),
     val message: String? = null,
     val busy: Boolean = false
 )
@@ -37,7 +39,16 @@ class EmployeeViewModel(
                     repo.getVehicle(profile.assignedVehicleId)
                 } else null
                 val log = repo.todaysTimeLog(profile.uid)
-                uiState = uiState.copy(loading = false, vehicle = vehicle, todaysLog = log)
+                // Their own history is a nice-to-have: if the query fails, the rest of
+                // the screen should still work.
+                val recent = runCatching { repo.listMyRecentTimeLogs(profile.uid) }
+                    .getOrDefault(emptyList())
+                uiState = uiState.copy(
+                    loading = false,
+                    vehicle = vehicle,
+                    todaysLog = log,
+                    myRecentDays = recent
+                )
             } catch (e: Exception) {
                 uiState = uiState.copy(
                     loading = false,
