@@ -397,7 +397,10 @@ private fun OdometerDialog(
     // otherwise record a day of 0 km.
     val entered = text.toLongOrNull()
     val tooLow = entered != null && minimumKm != null && entered < minimumKm
-    val canConfirm = entered != null && !tooLow
+    // Areas are required on both clock in and knock off — a day with no areas is of
+    // no use in the reports, and chasing it up afterwards never works.
+    val areasMissing = areas.isBlank()
+    val canConfirm = entered != null && !tooLow && !areasMissing
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -423,8 +426,17 @@ private fun OdometerDialog(
                 OutlinedTextField(
                     value = areas,
                     onValueChange = { areas = it },
-                    label = { Text(areasLabel) },
-                    supportingText = { Text("e.g. Umhlanga, Ballito, Verulam") },
+                    label = { Text("$areasLabel *") },
+                    isError = areasMissing,
+                    supportingText = {
+                        Text(
+                            if (areasMissing) {
+                                "Required — e.g. Umhlanga, Ballito, Verulam"
+                            } else {
+                                "e.g. Umhlanga, Ballito, Verulam"
+                            }
+                        )
+                    },
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth()
