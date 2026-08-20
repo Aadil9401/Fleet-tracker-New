@@ -677,7 +677,8 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 // Everything loaded for the signed-in admin.
-let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], recentTimeLogs: [], fuelLogs: [] };
+let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
+  recentTimeLogs: [], fuelLogs: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -847,20 +848,25 @@ onAuthStateChanged(auth, async (user) => {
 /* ---------------- loading ---------------- */
 async function loadAll() {
   try {
-    const [employees, admins, vehicles, todaysLogs, recentTimeLogs, fuelLogs] = await Promise.all([
-      getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
-      getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
-      getDocs(collection(db, 'vehicles')),
-      getDocs(query(collection(db, 'timeLogs'), where('date', '==', selectedDate))),
-      getDocs(query(collection(db, 'timeLogs'), orderBy('startTimeMillis', 'desc'), limit(50))),
-      getDocs(query(collection(db, 'fuelLogs'), orderBy('timestampMillis', 'desc'), limit(50)))
-    ]);
+    const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs] =
+      await Promise.all([
+        getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
+        getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
+        getDocs(collection(db, 'vehicles')),
+        getDocs(query(collection(db, 'timeLogs'), where('date', '==', selectedDate))),
+        // Fuel for the selected day specifically. data.fuelLogs belongs to the Logs
+        // tab's own date range, so it can't be used for the day totals.
+        getDocs(query(collection(db, 'fuelLogs'), where('date', '==', selectedDate))),
+        getDocs(query(collection(db, 'timeLogs'), orderBy('startTimeMillis', 'desc'), limit(50))),
+        getDocs(query(collection(db, 'fuelLogs'), orderBy('timestampMillis', 'desc'), limit(50)))
+      ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
     data = {
       employees: rows(employees),
       admins: rows(admins),
       vehicles: rows(vehicles),
       todaysLogs: rows(todaysLogs),
+      dayFuelLogs: rows(dayFuel),
       recentTimeLogs: rows(recentTimeLogs),
       fuelLogs: rows(fuelLogs)
     };
@@ -918,6 +924,7 @@ function renderToday() {
 
   const totalMins = data.todaysLogs.reduce((sum, l) => sum + minutesWorked(l), 0);
   const totalKm = data.todaysLogs.reduce((sum, l) => sum + kmOf(l), 0);
+  const totalFuel = data.dayFuelLogs.reduce((sum, f) => sum + Number(f.amountSpentRands || 0), 0);
   const servicesDue = data.vehicles.filter(isServiceDue).length;
 
   $('todayTiles').innerHTML = [
@@ -925,6 +932,7 @@ function renderToday() {
     ['Knocked off', knockedOff],
     ['Hours', hoursLabel(totalMins)],
     ['Distance', km(totalKm)],
+    ['Fuel', rand(totalFuel)],
     ['Service due', servicesDue]
   ].map(([cap, big]) =>
     `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
@@ -954,17 +962,22 @@ function renderToday() {
     ? `${allRows.length} employee(s)`
     : `Showing ${visible.length} of ${allRows.length}`;
 
+  /** What this person spent on fuel on the selected day. */
+  const fuelFor = (uid) => data.dayFuelLogs
+    .filter(f => f.uid === uid)
+    .reduce((sum, f) => sum + Number(f.amountSpentRands || 0), 0);
+
   const dayTable = (logs) => `
     <div class="table-wrap"><table>
       <thead><tr>
         <th>Employee</th><th>Start</th><th>Knock off</th>
-        <th>Hours</th><th>Distance</th><th>Areas</th><th></th>
+        <th>Hours</th><th>Distance</th><th>Fuel</th><th>Areas</th><th></th>
       </tr></thead>
       <tbody>
         ${logs.map(l => l.noEntry
           ? `<tr>
               <td>${personCell(l)}</td>
-              <td colspan="5" style="color:var(--error)">
+              <td colspan="6" style="color:var(--error)">
                 <em>No entry — has not clocked in or reported absent</em></td>
               <td class="row-actions">
                 <button class="ghost" data-entry="${esc(l.uid)}">Record day</button>
@@ -973,7 +986,7 @@ function renderToday() {
           : l.notWorking
           ? `<tr>
               <td>${personCell(l)}</td>
-              <td colspan="5" style="color:var(--secondary)"><em>Not working${
+              <td colspan="6" style="color:var(--secondary)"><em>Not working${
                 l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
               <td></td>
             </tr>`
@@ -985,6 +998,7 @@ function renderToday() {
                 : '<em style="color:var(--error)">not knocked off</em>'}</td>
               <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
               <td>${l.endTimeMillis ? km(kmOf(l)) : '—'}</td>
+              <td>${fuelFor(l.uid) > 0 ? rand(fuelFor(l.uid)) : '—'}</td>
               <td>${esc(l.mainAreasWorked || '—')}${
                 l.editedByAdmin ? ' <span class="chip">edited</span>' : ''}</td>
               <td class="row-actions">
@@ -1012,10 +1026,12 @@ function renderToday() {
     $('dayGroups').innerHTML = Object.keys(groups).sort().map(province => {
       const logs = groups[province];
       const mins = logs.reduce((s, l) => s + minutesWorked(l), 0);
+      const provinceFuel = logs.reduce((s, l) => s + fuelFor(l.uid), 0);
       return `
         <div class="group-head">
           <span>${esc(province)}</span>
-          <span class="tally">${logs.length} · ${hoursLabel(mins)}</span>
+          <span class="tally">${logs.length} · ${hoursLabel(mins)}${
+            provinceFuel > 0 ? ' · ' + rand(provinceFuel) : ''}</span>
         </div>
         ${dayTable(logs)}`;
     }).join('');
@@ -1162,7 +1178,7 @@ $('dayToday').addEventListener('click', () => goToDate(todayString()));
 
 $('exportDay').addEventListener('click', () => {
   const rows = [['Date', 'Employee', 'Province', 'Team', 'Status', 'Start', 'Knock off',
-    'Hours', 'Minutes', 'Distance km', 'Areas', 'Reason']];
+    'Hours', 'Minutes', 'Distance km', 'Fuel R', 'Areas', 'Reason']];
   // Exports what's on screen, filters included.
   visibleDayLogs().forEach(l => {
     const p = data.employees.find(e => e.id === l.uid);
@@ -1179,6 +1195,10 @@ $('exportDay').addEventListener('click', () => {
       l.endTimeMillis ? hhmm(l.endTimeMillis) : '',
       hoursLabel(minutesWorked(l)), minutesWorked(l),
       l.endTimeMillis ? kmOf(l) : '',
+      data.dayFuelLogs
+        .filter(f => f.uid === l.uid)
+        .reduce((s, f) => s + Number(f.amountSpentRands || 0), 0)
+        .toFixed(2),
       l.mainAreasWorked || '',
       l.notWorkingReason || ''
     ]);
