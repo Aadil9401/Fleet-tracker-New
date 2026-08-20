@@ -494,6 +494,38 @@
         </table></div>
       </div>
 
+      <div class="card">
+        <h2 class="section">Staff list</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          Upload your official list once. When people sign up, press
+          <b>Fill from staff list</b> and their name, province, team and vehicle are
+          corrected to match it — so a mistyped province or team gets fixed centrally
+          rather than chased person by person. Matching is on employee number.
+        </p>
+        <div class="field">
+          <label for="rosterFile">Choose a CSV file</label>
+          <input id="rosterFile" type="file" accept=".csv,text/csv,text/plain">
+        </div>
+        <div class="field">
+          <label for="rosterText">…or paste your list (one person per line)</label>
+          <textarea id="rosterText" rows="5"
+            placeholder="1234, Christian, Dube, Eastern Cape, Mthatha, ND987654"></textarea>
+        </div>
+        <div class="toolbar">
+          <button id="rosterUpload">Save staff list</button>
+          <button id="rosterFill" class="outline">Fill from staff list</button>
+          <button id="rosterClear" class="danger">Clear list</button>
+        </div>
+        <div class="count" id="rosterStatus"></div>
+        <details class="help">
+          <summary>Format</summary>
+          <pre>employee number, name, surname, province, team, vehicle registration</pre>
+          Only the employee number is required — leave any other column blank and that
+          field is left alone when filling. A heading row is ignored, and you can paste
+          cells straight from Excel.
+        </details>
+      </div>
+
       <div class="card" id="adminsCard"></div>
     </section>
 
@@ -678,7 +710,7 @@ const db = getFirestore(app);
 
 // Everything loaded for the signed-in admin.
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
-  recentTimeLogs: [], fuelLogs: [] };
+  recentTimeLogs: [], fuelLogs: [], roster: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -849,7 +881,7 @@ onAuthStateChanged(auth, async (user) => {
 async function loadAll() {
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
-      activityWindow] = await Promise.all([
+      activityWindow, roster] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -861,7 +893,8 @@ async function loadAll() {
         getDocs(query(collection(db, 'fuelLogs'), orderBy('timestampMillis', 'desc'), limit(50))),
         // A bounded window, used only to work out when each person was last active.
         getDocs(query(collection(db, 'timeLogs'),
-          where('date', '>=', shiftDate(todayString(), -60))))
+          where('date', '>=', shiftDate(todayString(), -60)))),
+        getDocs(collection(db, 'roster'))
       ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
     data = {
@@ -872,6 +905,7 @@ async function loadAll() {
       dayFuelLogs: rows(dayFuel),
       recentTimeLogs: rows(recentTimeLogs),
       fuelLogs: rows(fuelLogs),
+      roster: rows(roster),
       // uid → the most recent date that person has any entry for.
       lastActive: rows(activityWindow).reduce((acc, l) => {
         if (l.uid && (!acc[l.uid] || l.date > acc[l.uid])) acc[l.uid] = l.date;
@@ -1358,6 +1392,14 @@ function renderEmployees() {
 
   renderAdmins();
 
+  // How many of the uploaded list have actually signed up yet.
+  const signedUpKeys = new Set(data.employees.map(e => numberKey(e.employeeNumber)).filter(Boolean));
+  const onList = data.roster.length;
+  const waiting = data.roster.filter(r => !signedUpKeys.has(r.key || numberKey(r.employeeNumber))).length;
+  $('rosterStatus').textContent = onList === 0
+    ? 'No staff list saved yet.'
+    : `${onList} on the list · ${onList - waiting} signed up · ${waiting} not yet signed up`;
+
   $('empRows').querySelectorAll('[data-assign]').forEach(sel => {
     sel.addEventListener('change', async () => {
       try {
@@ -1492,6 +1534,137 @@ $('empSearch').addEventListener('input', (e) => {
 $('provinceFilter').addEventListener('change', (e) => {
   filters.province = e.target.value;
   renderEmployees();
+});
+
+/* ---------------- staff list (roster) ---------------- */
+$('rosterFile').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const text = await file.text();
+  if (text.startsWith('PK')) {
+    showMsg("That's an Excel .xlsx file. Use File → Save As → CSV, then pick the .csv.", 'err');
+    return;
+  }
+  $('rosterText').value = text;
+  showMsg('File loaded — check the list, then press Save staff list.');
+});
+
+/** employee number, name, surname, province, team, vehicle registration */
+function parseRosterLines(text) {
+  return text.split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean)
+    .filter(line => {
+      const first = line.split(/[,\t]/)[0].trim().toLowerCase();
+      return !(first.startsWith('employee') || first === 'no' || first === 'number');
+    })
+    .map(line => {
+      const p = line.split(/[,\t]/).map(x => x.trim());
+      const key = numberKey(p[0]);
+      if (!key) return null;
+      return {
+        key,
+        employeeNumber: p[0],
+        name: p[1] || '',
+        surname: p[2] || '',
+        province: p[3] || '',
+        teamName: p[4] || '',
+        vehicleRegistration: (p[5] || '').toUpperCase()
+      };
+    })
+    .filter(Boolean);
+}
+
+$('rosterUpload').addEventListener('click', async () => {
+  const parsed = parseRosterLines($('rosterText').value);
+  if (parsed.length === 0) {
+    showMsg('Nothing to save — check the format and try again.', 'err');
+    return;
+  }
+  try {
+    for (let i = 0; i < parsed.length; i += 400) {
+      const batch = writeBatch(db);
+      parsed.slice(i, i + 400).forEach(r =>
+        batch.set(doc(db, 'roster', r.key), r, { merge: true }));
+      await batch.commit();
+    }
+    showMsg(`Staff list saved — ${parsed.length} person(s).`);
+    $('rosterText').value = '';
+    $('rosterFile').value = '';
+    await loadAll();
+  } catch (err) { showMsg('Could not save the list: ' + err.message, 'err'); }
+});
+
+$('rosterFill').addEventListener('click', async () => {
+  if (data.roster.length === 0) {
+    showMsg('Upload a staff list first.', 'err');
+    return;
+  }
+  const byNumber = {};
+  data.roster.forEach(r => { byNumber[r.key || numberKey(r.employeeNumber)] = r; });
+
+  const unmatched = [];
+  let updated = 0, alreadyCorrect = 0;
+  const changes = [];
+
+  data.employees.forEach(e => {
+    const key = numberKey(e.employeeNumber);
+    if (!key) { unmatched.push(`${fullName(e)} (no employee number)`); return; }
+    const entry = byNumber[key];
+    if (!entry) { unmatched.push(`${fullName(e)} (${e.employeeNumber})`); return; }
+
+    // Only fields the list actually supplies, so a blank column never wipes
+    // something an employee entered correctly.
+    const patch = {};
+    if (entry.name && entry.name !== e.name) patch.name = entry.name;
+    if (entry.surname && entry.surname !== e.surname) patch.surname = entry.surname;
+    if (entry.province && entry.province !== e.province) patch.province = entry.province;
+    if (entry.teamName && entry.teamName !== e.teamName) patch.teamName = entry.teamName;
+    if (entry.vehicleRegistration &&
+      entry.vehicleRegistration !== e.vehicleRegistration) {
+      patch.vehicleRegistration = entry.vehicleRegistration;
+    }
+
+    if (Object.keys(patch).length === 0) { alreadyCorrect++; return; }
+    changes.push({ id: e.id, patch });
+    updated++;
+  });
+
+  if (updated === 0) {
+    showMsg(`Nothing to change. ${alreadyCorrect} already match the list.`
+      + (unmatched.length ? ` Not on the list: ${unmatched.join('; ')}.` : ''),
+      unmatched.length ? 'err' : 'ok');
+    return;
+  }
+  if (!confirm(`Update ${updated} employee(s) to match the staff list?`)) return;
+
+  try {
+    for (let i = 0; i < changes.length; i += 400) {
+      const batch = writeBatch(db);
+      changes.slice(i, i + 400).forEach(c => batch.update(doc(db, 'users', c.id), c.patch));
+      await batch.commit();
+    }
+    let report = `Updated ${updated} employee(s).`;
+    if (alreadyCorrect) report += ` ${alreadyCorrect} already matched.`;
+    if (unmatched.length) report += ` Not on the list: ${unmatched.join('; ')}.`;
+    showMsg(report, unmatched.length ? 'err' : 'ok');
+    await loadAll();
+  } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
+});
+
+$('rosterClear').addEventListener('click', async () => {
+  if (data.roster.length === 0) return;
+  if (!confirm(`Delete the saved staff list (${data.roster.length} people)? `
+    + `Employee records themselves are not affected.`)) return;
+  try {
+    for (let i = 0; i < data.roster.length; i += 400) {
+      const batch = writeBatch(db);
+      data.roster.slice(i, i + 400).forEach(r => batch.delete(doc(db, 'roster', r.id)));
+      await batch.commit();
+    }
+    showMsg('Staff list cleared.');
+    await loadAll();
+  } catch (err) { showMsg('Could not clear: ' + err.message, 'err'); }
 });
 
 $('autoAssignBtn').addEventListener('click', async () => {

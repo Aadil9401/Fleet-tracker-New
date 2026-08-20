@@ -55,6 +55,13 @@ service cloud.firestore {
         (isSignedIn() && resource.data.uid == request.auth.uid);
     }
 
+    // The authoritative staff list the admin uploads, keyed by employee number.
+    // Admin-only: it holds names and postings for people who may not have signed up
+    // yet, so there's no reason for an employee's app to read it.
+    match /roster/{employeeNumber} {
+      allow read, write: if isAdmin();
+    }
+
     // Vehicles: everyone signed in can see fleet info, only admin edits it.
     match /vehicles/{vehicleId} {
       allow read: if isSignedIn();
