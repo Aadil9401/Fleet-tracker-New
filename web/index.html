@@ -489,7 +489,7 @@
         </div>
         <div class="count" id="empCount"></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th>Province</th><th>Vehicle reg</th><th>Assigned vehicle</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Employee</th><th>Province</th><th>Vehicle reg</th><th>Assigned vehicle</th><th>Last active</th><th>Status</th><th></th></tr></thead>
           <tbody id="empRows"></tbody>
         </table></div>
       </div>
@@ -848,8 +848,8 @@ onAuthStateChanged(auth, async (user) => {
 /* ---------------- loading ---------------- */
 async function loadAll() {
   try {
-    const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs] =
-      await Promise.all([
+    const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
+      activityWindow] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -858,7 +858,10 @@ async function loadAll() {
         // tab's own date range, so it can't be used for the day totals.
         getDocs(query(collection(db, 'fuelLogs'), where('date', '==', selectedDate))),
         getDocs(query(collection(db, 'timeLogs'), orderBy('startTimeMillis', 'desc'), limit(50))),
-        getDocs(query(collection(db, 'fuelLogs'), orderBy('timestampMillis', 'desc'), limit(50)))
+        getDocs(query(collection(db, 'fuelLogs'), orderBy('timestampMillis', 'desc'), limit(50))),
+        // A bounded window, used only to work out when each person was last active.
+        getDocs(query(collection(db, 'timeLogs'),
+          where('date', '>=', shiftDate(todayString(), -60))))
       ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
     data = {
@@ -868,7 +871,12 @@ async function loadAll() {
       todaysLogs: rows(todaysLogs),
       dayFuelLogs: rows(dayFuel),
       recentTimeLogs: rows(recentTimeLogs),
-      fuelLogs: rows(fuelLogs)
+      fuelLogs: rows(fuelLogs),
+      // uid → the most recent date that person has any entry for.
+      lastActive: rows(activityWindow).reduce((acc, l) => {
+        if (l.uid && (!acc[l.uid] || l.date > acc[l.uid])) acc[l.uid] = l.date;
+        return acc;
+      }, {})
     };
     renderAll();
   } catch (err) {
@@ -1222,6 +1230,21 @@ function personCell(log) {
   return esc(parts.join(', '));
 }
 
+/**
+ * When this person last had any entry, with days-ago in brackets. Amber past a week
+ * and red for never — but only ever as information: a quiet week is a holiday as
+ * often as it is a dead account, so this is a prompt to look, not a verdict.
+ */
+function lastActiveCell(uid) {
+  const date = (data.lastActive || {})[uid];
+  if (!date) return `<span style="color:var(--error)">never</span>`;
+  const days = Math.round(
+    (new Date(todayString()).getTime() - new Date(date).getTime()) / 86400000);
+  const label = days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+  const colour = days >= 7 ? 'color:var(--secondary);font-weight:600' : '';
+  return `<span style="${colour}" title="${esc(date)}">${esc(label)}</span>`;
+}
+
 function renderEmployees() {
   const counts = {};
   data.employees.forEach(e => { counts[e.province] = (counts[e.province] || 0) + 1; });
@@ -1263,7 +1286,7 @@ function renderEmployees() {
   ].join('');
 
   $('empRows').innerHTML = filtered.length === 0
-    ? `<tr><td colspan="6" class="empty">${data.employees.length === 0
+    ? `<tr><td colspan="7" class="empty">${data.employees.length === 0
         ? 'No employees yet. They can sign up on the phone app.'
         : 'Nobody matches that search.'}</td></tr>`
     : filtered.map(e => {
@@ -1284,6 +1307,7 @@ function renderEmployees() {
           <td>${e.province ? `<span class="chip">${esc(e.province)}</span>` : '—'}</td>
           <td>${esc(e.vehicleRegistration || '—')}</td>
           <td><select data-assign="${esc(e.id)}">${vehicleOptions(e.assignedVehicleId)}</select></td>
+          <td>${lastActiveCell(e.id)}</td>
           <td><span class="badge ${active ? '' : 'off'}">${active ? 'Active' : 'Inactive'}</span></td>
           <td class="row-actions">
             <button class="ghost" data-edit="${esc(e.id)}">Edit</button>
