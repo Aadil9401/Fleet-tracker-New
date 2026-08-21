@@ -1588,6 +1588,20 @@ $('rosterFile').addEventListener('change', async (e) => {
   showMsg('File loaded — check the list, then press Save staff list.');
 });
 
+/**
+ * Maps a typed province onto the exact spelling the app filters on. Real lists say
+ * "KWA-ZULU NATAL" where the app expects "KwaZulu-Natal"; without this the employee
+ * would simply never appear under that province filter. Unrecognised values are kept
+ * as typed rather than guessed at.
+ */
+function canonicalProvince(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const squash = (s) => s.toUpperCase().replace(/[^A-Z]/g, '');
+  const match = SA_PROVINCES.find(p => squash(p) === squash(raw));
+  return match || raw;
+}
+
 /** employee number, name, surname, province, team, vehicle registration */
 function parseRosterLines(text) {
   return text.split(/\r?\n/)
@@ -1606,7 +1620,7 @@ function parseRosterLines(text) {
         employeeNumber: p[0],
         name: p[1] || '',
         surname: p[2] || '',
-        province: p[3] || '',
+        province: canonicalProvince(p[3]),
         teamName: p[4] || '',
         vehicleRegistration: (p[5] || '').toUpperCase()
       };
@@ -1620,6 +1634,13 @@ $('rosterUpload').addEventListener('click', async () => {
     showMsg('Nothing to save — check the format and try again.', 'err');
     return;
   }
+  // Anything that isn't a recognised province is worth naming, since it won't match
+  // the province filter later.
+  const oddProvinces = [...new Set(parsed
+    .map(r => r.province)
+    .filter(p => p && !SA_PROVINCES.includes(p)))];
+  const noName = parsed.filter(r => !r.name).length;
+
   try {
     for (let i = 0; i < parsed.length; i += 400) {
       const batch = writeBatch(db);
@@ -1627,7 +1648,10 @@ $('rosterUpload').addEventListener('click', async () => {
         batch.set(doc(db, 'roster', r.key), r, { merge: true }));
       await batch.commit();
     }
-    showMsg(`Staff list saved — ${parsed.length} person(s).`);
+    let note = `Staff list saved — ${parsed.length} person(s).`;
+    if (noName > 0) note += ` ${noName} have no first name.`;
+    if (oddProvinces.length) note += ` Unrecognised province(s): ${oddProvinces.join(', ')}.`;
+    showMsg(note, (oddProvinces.length || noName) ? 'err' : 'ok');
     $('rosterText').value = '';
     $('rosterFile').value = '';
     await loadAll();
