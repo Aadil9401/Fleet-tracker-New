@@ -30,6 +30,16 @@ val ABSENCE_REASONS = listOf(
     "Other"
 )
 
+/**
+ * Makes common on South African fleets. Used only to turn a vehicle name into a
+ * sensible dealership search — "Suzuki Magnite" becomes "Suzuki dealership".
+ */
+val VEHICLE_MAKES = listOf(
+    "Nissan", "Toyota", "Suzuki", "Ford", "Volkswagen", "VW", "Isuzu", "Hyundai",
+    "Kia", "Mahindra", "Renault", "Mazda", "Chevrolet", "Haval", "Chery", "GWM",
+    "Mercedes", "BMW", "Peugeot", "Opel", "Datsun"
+)
+
 /** The nine South African provinces, offered as a picker on the add-employee form. */
 val SA_PROVINCES = listOf(
     "Eastern Cape",
@@ -134,6 +144,25 @@ data class Vehicle(
 
     fun isServiceDueByKm(): Boolean =
         serviceIntervalKm > 0L && currentOdometerKm >= nextServiceAtKm()
+
+    /**
+     * True once the vehicle is within the last 5% of its service window, which is
+     * when offering to find a dealership becomes useful rather than clutter.
+     * Vehicles with no service history return false — readiness is unknown, so
+     * prompting would be guesswork.
+     */
+    fun isNearingService(): Boolean = (percentToNextService() ?: 0) >= 95
+
+    /**
+     * What to search for when looking for somewhere to service this vehicle. If the
+     * name carries a recognisable make we search for that make's dealerships;
+     * otherwise a generic search, since names like "Bakkie 1" tell us nothing.
+     */
+    fun dealershipSearchQuery(): String {
+        val haystack = "$name $registrationNumber".uppercase()
+        val make = VEHICLE_MAKES.firstOrNull { haystack.contains(it.uppercase()) }
+        return if (make != null) "$make dealership" else "car service centre"
+    }
 
     fun isServiceDueByDate(nowMillis: Long): Boolean {
         if (lastServiceDateMillis <= 0L) return false

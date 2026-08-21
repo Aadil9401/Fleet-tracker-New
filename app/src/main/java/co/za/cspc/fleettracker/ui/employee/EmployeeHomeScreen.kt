@@ -1,5 +1,8 @@
 package co.za.cspc.fleettracker.ui.employee
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -10,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -43,6 +47,7 @@ fun EmployeeHomeScreen(
     viewModel: EmployeeViewModel = viewModel()
 ) {
     val state = viewModel.uiState
+    val context = LocalContext.current
     var showClockInDialog by remember { mutableStateOf(false) }
     var showClockOutDialog by remember { mutableStateOf(false) }
     var showFuelDialog by remember { mutableStateOf(false) }
@@ -150,6 +155,29 @@ fun EmployeeHomeScreen(
                                 Text(
                                     "Service is due — please tell your admin",
                                     color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            // Only offered in the last 5% of the window, so it isn't
+                            // sitting there for months before it's any use.
+                            if (vehicle.isNearingService()) {
+                                Spacer(Modifier.height(8.dp))
+                                Button(
+                                    onClick = { findDealership(context, vehicle.dealershipSearchQuery()) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Place,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Find nearest dealership")
+                                }
+                                Text(
+                                    "Opens your maps app. Confirm the booking with your " +
+                                        "admin before taking the vehicle in.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -537,3 +565,20 @@ private fun FuelDialog(
  * which plain toDoubleOrNull() rejects — leaving Save greyed out with no explanation.
  */
 private fun String.toAmountOrNull(): Double? = trim().replace(',', '.').toDoubleOrNull()
+
+/**
+ * Hands the search to whatever maps app is installed, which does the locating itself.
+ * That keeps this free of any location permission and of any paid places API — we
+ * never see or store the person's position.
+ */
+private fun findDealership(context: Context, query: String) {
+    val geo = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}"))
+    val web = Intent(
+        Intent.ACTION_VIEW,
+        Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encode(query)}")
+    )
+    // geo: is the better experience but not every device handles it; fall back to the
+    // browser rather than crashing on ActivityNotFoundException.
+    runCatching { context.startActivity(geo) }
+        .recoverCatching { context.startActivity(web) }
+}

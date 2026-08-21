@@ -861,6 +861,18 @@ function percentToNextService(v) {
   return Math.max(0, Math.min(100, pct));
 }
 
+/** Makes common on SA fleets, used to turn a vehicle name into a sensible search. */
+const VEHICLE_MAKES = ['Nissan', 'Toyota', 'Suzuki', 'Ford', 'Volkswagen', 'VW', 'Isuzu',
+  'Hyundai', 'Kia', 'Mahindra', 'Renault', 'Mazda', 'Chevrolet', 'Haval', 'Chery',
+  'GWM', 'Mercedes', 'BMW', 'Peugeot', 'Opel', 'Datsun'];
+
+/** "Suzuki Magnite" → "Suzuki dealership"; "Bakkie 1" → a generic search. */
+function dealershipQuery(v) {
+  const haystack = `${v.name || ''} ${v.registrationNumber || ''}`.toUpperCase();
+  const make = VEHICLE_MAKES.find(m => haystack.includes(m.toUpperCase()));
+  return make ? `${make} dealership` : 'car service centre';
+}
+
 // Mirrors Vehicle.isServiceDue in the Android app, including the "0 months means
 // kilometres only" rule.
 function isServiceDue(v) {
@@ -1814,6 +1826,12 @@ function renderVehicles() {
                 </div>`}
           </td>
           <td class="row-actions">
+            ${pct !== null && pct >= 95
+              ? `<a class="ghost" style="display:inline-block;padding:7px 10px;text-decoration:none"
+                   href="https://www.google.com/maps/search/?api=1&query=${
+                     encodeURIComponent(dealershipQuery(v))}"
+                   target="_blank" rel="noopener">Find dealership</a>`
+              : ''}
             <button class="ghost" data-serviced="${esc(v.id)}">Record service</button>
             <button class="ghost danger" data-del="${esc(v.id)}">Delete</button>
           </td>
