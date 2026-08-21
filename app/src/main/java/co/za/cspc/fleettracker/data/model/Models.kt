@@ -75,43 +75,52 @@ data class Vehicle(
     val currentOdometerKm: Long = 0L,
     val lastServiceOdometerKm: Long = 0L,
     val lastServiceDateMillis: Long = 0L,
+    /** Where it was last serviced, e.g. "Suzuki Umhlanga". */
+    val lastServiceProvider: String = "",
     val serviceIntervalKm: Long = 15000L,
     /** Months between services. Zero or less turns the date-based check off. */
     val serviceIntervalMonths: Long = 6L,
     @get:PropertyName("lastReminderNotifiedDate") @set:PropertyName("lastReminderNotifiedDate")
     var lastReminderNotifiedDate: String = ""
 ) {
-    /** The earliest milestone with no service logged against it. */
-    fun firstUnloggedServiceKm(): Long =
-        if (serviceIntervalKm <= 0) 0
-        else ((lastServiceOdometerKm / serviceIntervalKm) + 1) * serviceIntervalKm
+    /**
+     * The milestone the last recorded service satisfied. Servicing at 149 000 counts
+     * as having done the 150 000 service, so the schedule steps on from there.
+     */
+    private fun servicedThroughKm(): Long =
+        if (lastServiceOdometerKm <= 0L || serviceIntervalKm <= 0L) 0L
+        else ((lastServiceOdometerKm + serviceIntervalKm - 1) / serviceIntervalKm) * serviceIntervalKm
+
+    /** 0 immediately after a service, 100 when the next one falls due. */
+    fun percentToNextService(): Int {
+        if (serviceIntervalKm <= 0L) return 0
+        val start = if (lastServiceOdometerKm > 0L) lastServiceOdometerKm else 0L
+        val next = nextServiceAtKm()
+        if (next <= start) return 100
+        val pct = ((currentOdometerKm - start).toDouble() / (next - start) * 100).toInt()
+        return pct.coerceIn(0, 100)
+    }
 
     /**
      * Services fall on absolute odometer milestones — every 15 000 km on the clock,
-     * so 15 000 / 30 000 / … / 150 000. This is the next milestone ABOVE the current
-     * reading: 149 000 gives 150 000, and a vehicle sitting exactly on 150 000 (just
-     * serviced) gives 165 000.
+     * so 15 000 / 30 000 / … / 150 000.
+     *
+     * With a service on record the schedule steps on from the milestone that service
+     * satisfied, which is what makes the countdown restart when a vehicle is marked
+     * serviced. With no service history at all, it falls back to the next milestone
+     * above the current reading.
      */
-    fun nextServiceAtKm(): Long =
-        if (serviceIntervalKm <= 0) 0
-        else ((currentOdometerKm / serviceIntervalKm) + 1) * serviceIntervalKm
-
-    /** How far still to run before the next milestone. */
-    fun kmUntilService(): Long = nextServiceAtKm() - currentOdometerKm
-
-    /**
-     * Milestones the vehicle has driven past without a service being recorded.
-     * At 151 000 with the last service logged at 135 000, the 150 000 service was
-     * missed, so this is 1. Zero means nothing is outstanding.
-     */
-    fun milestonesMissed(): Int {
-        if (serviceIntervalKm <= 0) return 0
-        val reached = currentOdometerKm / serviceIntervalKm
-        val servicedUpTo = lastServiceOdometerKm / serviceIntervalKm
-        return (reached - servicedUpTo).coerceAtLeast(0L).toInt()
+    fun nextServiceAtKm(): Long = when {
+        serviceIntervalKm <= 0L -> 0L
+        lastServiceOdometerKm > 0L -> servicedThroughKm() + serviceIntervalKm
+        else -> ((currentOdometerKm / serviceIntervalKm) + 1) * serviceIntervalKm
     }
 
-    fun isServiceDueByKm(): Boolean = milestonesMissed() > 0
+    /** Positive: km still to run. Negative: how far past due it already is. */
+    fun kmUntilService(): Long = nextServiceAtKm() - currentOdometerKm
+
+    fun isServiceDueByKm(): Boolean =
+        serviceIntervalKm > 0L && currentOdometerKm >= nextServiceAtKm()
 
     fun isServiceDueByDate(nowMillis: Long): Boolean {
         if (lastServiceDateMillis <= 0L) return false

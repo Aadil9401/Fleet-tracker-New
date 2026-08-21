@@ -529,6 +529,32 @@
       <div class="card" id="adminsCard"></div>
     </section>
 
+    <!-- MARK SERVICED MODAL -->
+    <div id="svcOverlay" class="overlay hidden">
+      <div class="modal">
+        <h2 class="section">Record a service</h2>
+        <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)" id="svcSub"></p>
+        <div class="field">
+          <label for="svcOdo">Odometer at service</label>
+          <input id="svcOdo" type="number" min="0">
+        </div>
+        <div class="field">
+          <label for="svcDate">Date serviced</label>
+          <input id="svcDate" type="date">
+        </div>
+        <div class="field">
+          <label for="svcProvider">Service centre or dealership</label>
+          <input id="svcProvider" placeholder="e.g. Suzuki Umhlanga">
+        </div>
+        <div id="svcError"></div>
+        <p class="sub" style="font-size:.8rem" id="svcNext"></p>
+        <div class="row-actions" style="justify-content:flex-end">
+          <button id="svcCancel" class="outline">Cancel</button>
+          <button id="svcSave">Save service</button>
+        </div>
+      </div>
+    </div>
+
     <!-- EDIT DAY ENTRY MODAL -->
     <div id="entryOverlay" class="overlay hidden">
       <div class="modal">
@@ -797,23 +823,36 @@ const initials = (name, surname) =>
 const intervalOf = (v) => v.serviceIntervalKm || SERVICE_INTERVAL_KM;
 
 /**
- * Services fall on absolute odometer milestones — every 15 000 km on the clock. The
- * next one is the first milestone above the current reading: 149 000 → 150 000.
+ * Services fall on absolute odometer milestones — every 15 000 km on the clock.
+ *
+ * With a service on record the schedule steps on from the milestone that service
+ * satisfied (servicing at 149 000 counts as the 150 000 service, so the next is
+ * 165 000). That is what makes the countdown restart when a vehicle is marked
+ * serviced. With no history at all it falls back to the next milestone above the
+ * current reading.
  */
-const nextServiceAtKm = (v) =>
-  (Math.floor((v.currentOdometerKm || 0) / intervalOf(v)) + 1) * intervalOf(v);
+function nextServiceAtKm(v) {
+  const i = intervalOf(v);
+  const last = v.lastServiceOdometerKm || 0;
+  if (last > 0) return Math.ceil(last / i) * i + i;
+  return (Math.floor((v.currentOdometerKm || 0) / i) + 1) * i;
+}
 
 const kmUntilService = (v) => nextServiceAtKm(v) - (v.currentOdometerKm || 0);
 
-/** Milestones driven past with no service logged against them. */
-const milestonesMissed = (v) => Math.max(0,
-  Math.floor((v.currentOdometerKm || 0) / intervalOf(v)) -
-  Math.floor((v.lastServiceOdometerKm || 0) / intervalOf(v)));
+/** 0 just after a service, 100 when the next one is due. */
+function percentToNextService(v) {
+  const start = v.lastServiceOdometerKm > 0 ? v.lastServiceOdometerKm : 0;
+  const next = nextServiceAtKm(v);
+  if (next <= start) return 100;
+  const pct = Math.round(((v.currentOdometerKm || 0) - start) / (next - start) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
 
 // Mirrors Vehicle.isServiceDue in the Android app, including the "0 months means
 // kilometres only" rule.
 function isServiceDue(v) {
-  if (milestonesMissed(v) > 0) return true;
+  if ((v.currentOdometerKm || 0) >= nextServiceAtKm(v)) return true;
   const months = typeof v.serviceIntervalMonths === 'number' ? v.serviceIntervalMonths : 6;
   if (!v.lastServiceDateMillis || months <= 0) return false;
   return Date.now() - v.lastServiceDateMillis >= months * 30 * 24 * 60 * 60 * 1000;
@@ -1700,18 +1739,25 @@ function renderVehicles() {
     ? `<tr><td colspan="5" class="empty">No vehicles yet. Upload your list above.</td></tr>`
     : data.vehicles.map(v => {
         const due = isServiceDue(v);
-        const interval = intervalOf(v);
-        const missed = milestonesMissed(v);
-        // How far through the current 15 000 km window this vehicle is.
-        const pct = Math.min(100, Math.round((1 - kmUntilService(v) / interval) * 100));
+        const pct = percentToNextService(v);
+        const remaining = kmUntilService(v);
+        const lastServiced = [
+          v.lastServiceOdometerKm > 0 ? km(v.lastServiceOdometerKm) : null,
+          v.lastServiceDateMillis
+            ? new Date(v.lastServiceDateMillis).toLocaleDateString('en-ZA')
+            : null,
+          v.lastServiceProvider || null
+        ].filter(Boolean).join(' · ');
         return `<tr>
           <td><div class="nm">${esc(v.name || v.registrationNumber)}</div>
               <div class="meta">${esc(v.registrationNumber)}</div>
-              ${missed > 0
-                ? `<span class="badge due">${missed} SERVICE${missed > 1 ? 'S' : ''} NOT LOGGED</span>`
-                : (due ? '<span class="badge due">SERVICE DUE</span>' : '')}</td>
+              ${due ? '<span class="badge due">SERVICE DUE</span>' : ''}
+              ${lastServiced ? `<div class="meta">Last: ${esc(lastServiced)}</div>` : ''}</td>
           <td>${km(v.currentOdometerKm || 0)}</td>
-          <td>Next at ${km(nextServiceAtKm(v))}<div class="meta">${km(kmUntilService(v))} to go</div></td>
+          <td>Next at ${km(nextServiceAtKm(v))}<div class="meta">${
+            remaining >= 0 ? km(remaining) + ' to go'
+              : '<span style="color:var(--error)">overdue by ' + km(-remaining) + '</span>'
+          }</div></td>
           <td>
             <div class="progress-cell">
               <span class="pct ${due ? 'due' : ''}">${pct}%</span>
@@ -1719,7 +1765,7 @@ function renderVehicles() {
             </div>
           </td>
           <td class="row-actions">
-            <button class="ghost" data-serviced="${esc(v.id)}" data-odo="${esc(v.currentOdometerKm || 0)}">Mark serviced</button>
+            <button class="ghost" data-serviced="${esc(v.id)}">Record service</button>
             <button class="ghost danger" data-del="${esc(v.id)}">Delete</button>
           </td>
         </tr>`;
@@ -1736,19 +1782,73 @@ function renderVehicles() {
     });
   });
   $('vehRows').querySelectorAll('[data-serviced]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      try {
-        await updateDoc(doc(db, 'vehicles', btn.dataset.serviced), {
-          lastServiceOdometerKm: Number(btn.dataset.odo),
-          lastServiceDateMillis: Date.now(),
-          lastReminderNotifiedDate: ''
-        });
-        showMsg('Marked as serviced today.');
-        await loadAll();
-      } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
-    });
+    btn.addEventListener('click', () => openServiceModal(btn.dataset.serviced));
   });
 }
+
+/* ---------------- recording a service ---------------- */
+let servicingVehicleId = null;
+
+function openServiceModal(vehicleId) {
+  const v = data.vehicles.find(x => x.id === vehicleId);
+  if (!v) return;
+  servicingVehicleId = vehicleId;
+  $('svcSub').textContent =
+    `${v.name || v.registrationNumber} · ${v.registrationNumber} · services every ${km(intervalOf(v))}`;
+  $('svcOdo').value = v.currentOdometerKm || 0;
+  $('svcDate').value = todayString();
+  $('svcProvider').value = v.lastServiceProvider || '';
+  $('svcError').innerHTML = '';
+  updateServicePreview();
+  $('svcOverlay').classList.remove('hidden');
+}
+
+/** Shows where the next service will land, so the reset is visible before saving. */
+function updateServicePreview() {
+  const v = data.vehicles.find(x => x.id === servicingVehicleId);
+  if (!v) return;
+  const odo = Number($('svcOdo').value || 0);
+  const preview = { ...v, lastServiceOdometerKm: odo, currentOdometerKm: Math.max(odo, v.currentOdometerKm || 0) };
+  $('svcNext').textContent =
+    `Next service will fall due at ${km(nextServiceAtKm(preview))}.`;
+}
+$('svcOdo').addEventListener('input', updateServicePreview);
+
+$('svcCancel').addEventListener('click', () => {
+  $('svcOverlay').classList.add('hidden');
+  servicingVehicleId = null;
+});
+
+$('svcSave').addEventListener('click', async () => {
+  if (!servicingVehicleId) return;
+  const odo = Number($('svcOdo').value || 0);
+  const dateStr = $('svcDate').value;
+  if (!odo) {
+    $('svcError').innerHTML = `<div class="msg err">Enter the odometer reading at the service.</div>`;
+    return;
+  }
+  const v = data.vehicles.find(x => x.id === servicingVehicleId);
+  $('svcSave').disabled = true;
+  try {
+    await updateDoc(doc(db, 'vehicles', servicingVehicleId), {
+      lastServiceOdometerKm: odo,
+      lastServiceDateMillis: dateStr ? millisFor(dateStr, '09:00') : Date.now(),
+      lastServiceProvider: $('svcProvider').value.trim(),
+      // A service done at a higher reading than we hold means the odometer is behind.
+      currentOdometerKm: Math.max(odo, v?.currentOdometerKm || 0),
+      // Clears the "already told you about this" marker so future reminders fire.
+      lastReminderNotifiedDate: ''
+    });
+    $('svcOverlay').classList.add('hidden');
+    servicingVehicleId = null;
+    showMsg('Service recorded.');
+    await loadAll();
+  } catch (err) {
+    $('svcError').innerHTML = `<div class="msg err">${esc('Could not save: ' + err.message)}</div>`;
+  } finally {
+    $('svcSave').disabled = false;
+  }
+});
 
 $('deleteAllBtn').addEventListener('click', async () => {
   if (data.vehicles.length === 0) return;

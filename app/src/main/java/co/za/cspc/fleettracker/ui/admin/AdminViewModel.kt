@@ -519,10 +519,19 @@ class AdminViewModel(
         }
     }
 
-    fun markServiced(vehicleId: String, odometerKm: Long) {
+    fun markServiced(vehicleId: String, odometerKm: Long, provider: String) {
+        uiState = uiState.copy(busy = true, message = null)
         viewModelScope.launch {
-            repo.markVehicleServiced(vehicleId, odometerKm)
-            uiState = uiState.copy(vehicles = repo.listVehicles())
+            try {
+                repo.markVehicleServiced(vehicleId, odometerKm, provider)
+                uiState = uiState.copy(
+                    busy = false,
+                    vehicles = repo.listVehicles(),
+                    message = "Service recorded."
+                )
+            } catch (e: Exception) {
+                uiState = uiState.copy(busy = false, message = "Could not save: ${e.message}")
+            }
         }
     }
 

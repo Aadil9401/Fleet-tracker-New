@@ -1287,6 +1287,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
     var showBulkDialog by remember { mutableStateOf(false) }
     var vehicleToDelete by remember { mutableStateOf<Vehicle?>(null) }
     var vehicleToEdit by remember { mutableStateOf<Vehicle?>(null) }
+    var vehicleToService by remember { mutableStateOf<Vehicle?>(null) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = { showAddDialog = true }, modifier = Modifier.fillMaxWidth()) {
@@ -1367,42 +1368,60 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         }
                         Spacer(Modifier.height(10.dp))
                         Text("Odometer: ${v.currentOdometerKm.km()}")
-                        // Milestones are absolute: every 15 000 km on the clock.
+                        // Milestones are absolute, and the countdown restarts from the
+                        // milestone a recorded service satisfied.
+                        val remaining = v.kmUntilService()
                         Text(
                             "Next service at ${v.nextServiceAtKm().km()} — " +
-                                "${v.kmUntilService().km()} to go",
+                                if (remaining >= 0) "${remaining.km()} to go"
+                                else "overdue by ${(-remaining).km()}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            fontWeight = if (remaining < 0) FontWeight.Bold else null,
+                            color = if (remaining >= 0) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
                         )
-                        if (v.milestonesMissed() > 0) {
+                        if (v.lastServiceOdometerKm > 0L) {
                             Text(
-                                if (v.milestonesMissed() == 1) {
-                                    "Service at ${v.firstUnloggedServiceKm().km()} not logged"
-                                } else {
-                                    "${v.milestonesMissed()} services not logged"
-                                },
+                                "Last serviced at ${v.lastServiceOdometerKm.km()}" +
+                                    if (v.lastServiceProvider.isNotBlank()) {
+                                        " · ${v.lastServiceProvider}"
+                                    } else "",
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Spacer(Modifier.height(6.dp))
-                        // How far through the current 15 000 km window the vehicle is.
-                        val progress = if (v.serviceIntervalKm > 0) {
-                            1f - (v.kmUntilService().toFloat() / v.serviceIntervalKm).coerceIn(0f, 1f)
-                        } else 0f
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            color = if (due) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        // Measured from the last service to the next one, so recording
+                        // a service sends this back to zero.
+                        val percent = v.percentToNextService()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "$percent%",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (due) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                }
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            LinearProgressIndicator(
+                                progress = { percent / 100f },
+                                color = if (due) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(onClick = { viewModel.markServiced(v.id, v.currentOdometerKm) }) {
-                                Text("Mark serviced")
+                            TextButton(onClick = { vehicleToService = v }) {
+                                Text("Record service")
                             }
                             TextButton(onClick = { vehicleToEdit = v }) {
                                 Text("Edit")
@@ -1441,6 +1460,65 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 showBulkDialog = false
             },
             onDismiss = { showBulkDialog = false }
+        )
+    }
+
+    vehicleToService?.let { v ->
+        var odometer by remember(v.id) { mutableStateOf(v.currentOdometerKm.toString()) }
+        var provider by remember(v.id) { mutableStateOf(v.lastServiceProvider) }
+        val odoValue = odometer.toLongOrNull()
+        AlertDialog(
+            onDismissRequest = { vehicleToService = null },
+            title = { Text("Record a service") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "${v.name.ifBlank { v.registrationNumber }} · services every " +
+                            v.serviceIntervalKm.km(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = odometer,
+                        onValueChange = { odometer = it.filter { c -> c.isDigit() } },
+                        label = { Text("Odometer at service") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = provider,
+                        onValueChange = { provider = it },
+                        label = { Text("Service centre or dealership") },
+                        supportingText = { Text("e.g. Suzuki Umhlanga") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (odoValue != null) {
+                        // Shows the reset before saving, so it's not a surprise.
+                        val preview = v.copy(
+                            lastServiceOdometerKm = odoValue,
+                            currentOdometerKm = maxOf(odoValue, v.currentOdometerKm)
+                        )
+                        Text(
+                            "Next service will fall due at ${preview.nextServiceAtKm().km()}.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = odoValue != null && !state.busy,
+                    onClick = {
+                        viewModel.markServiced(v.id, odoValue ?: 0L, provider)
+                        vehicleToService = null
+                    }
+                ) { Text("Save service") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vehicleToService = null }) { Text("Cancel") }
+            }
         )
     }
 

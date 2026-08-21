@@ -425,11 +425,17 @@ class FleetRepository(
         return ids.size
     }
 
-    suspend fun markVehicleServiced(vehicleId: String, odometerKm: Long) {
+    suspend fun markVehicleServiced(
+        vehicleId: String,
+        odometerKm: Long,
+        provider: String
+    ) {
         db.collection("vehicles").document(vehicleId).update(
             mapOf(
                 "lastServiceOdometerKm" to odometerKm,
                 "lastServiceDateMillis" to System.currentTimeMillis(),
+                "lastServiceProvider" to provider.trim(),
+                // Clears the "already reminded about this" marker so future reminders fire.
                 "lastReminderNotifiedDate" to ""
             )
         ).await()

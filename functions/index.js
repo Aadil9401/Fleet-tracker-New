@@ -264,16 +264,16 @@ exports.checkServiceReminders = onSchedule(
       const v = doc.data();
       if (v.lastReminderNotifiedDate === today) continue;
 
-      // Must mirror Vehicle.milestonesMissed() in the app: services fall on absolute
-      // odometer milestones (every 15 000 km on the clock), and one is outstanding
-      // when the vehicle has driven past a milestone without a service being logged.
+      // Must mirror Vehicle.nextServiceAtKm() in the app: milestones are absolute
+      // (every 15 000 km on the clock), and once a service is recorded the schedule
+      // steps on from the milestone that service satisfied.
       const interval = v.serviceIntervalKm || 15000;
       const current = v.currentOdometerKm || 0;
       const lastServiced = v.lastServiceOdometerKm || 0;
-      const missed = Math.max(0,
-        Math.floor(current / interval) - Math.floor(lastServiced / interval));
-      const nextServiceAtKm = (Math.floor(current / interval) + 1) * interval;
-      const dueByKm = missed > 0;
+      const nextServiceAtKm = lastServiced > 0
+        ? Math.ceil(lastServiced / interval) * interval + interval
+        : (Math.floor(current / interval) + 1) * interval;
+      const dueByKm = current >= nextServiceAtKm;
 
       // Must mirror Vehicle.isServiceDueByDate on the app side: 0 months means
       // "kilometres only". Note `|| 6` would wrongly turn an explicit 0 into 6.
@@ -285,7 +285,7 @@ exports.checkServiceReminders = onSchedule(
       }
 
       if (dueByKm || dueByDate) {
-        dueVehicles.push({ id: doc.id, ...v, missed, nextServiceAtKm, current });
+        dueVehicles.push({ id: doc.id, ...v, nextServiceAtKm, current });
       }
     }
 
@@ -293,7 +293,9 @@ exports.checkServiceReminders = onSchedule(
 
     const listHtml = dueVehicles
       .map((v) => `<li>${v.name || v.registrationNumber} — on ${v.current} km, ` +
-        `${v.missed} service(s) not logged (last logged at ${v.lastServiceOdometerKm || 0} km)</li>`)
+        `service was due at ${v.nextServiceAtKm} km` +
+        (v.lastServiceProvider ? ` (last serviced at ${v.lastServiceProvider})` : '') +
+        `</li>`)
       .join("");
 
     await sendAdminEmail(
