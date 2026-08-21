@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.ABSENCE_REASONS
 import co.za.cspc.fleettracker.data.model.UserProfile
+import co.za.cspc.fleettracker.data.model.VEHICLE_IN_SERVICE
 import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.km
 import java.text.SimpleDateFormat
@@ -292,20 +293,35 @@ fun EmployeeHomeScreen(
                             }
                         }
                     }
+                    // For a service the dealership is the useful detail, so ask for it
+                    // by name and require it rather than leaving it to free text.
+                    val isService = category == VEHICLE_IN_SERVICE
                     OutlinedTextField(
                         value = detail,
                         onValueChange = { detail = it },
-                        label = { Text("Anything to add (optional)") },
-                        minLines = 2,
+                        label = {
+                            Text(
+                                if (isService) "Service centre or dealership"
+                                else "Anything to add (optional)"
+                            )
+                        },
+                        supportingText = {
+                            if (isService) Text("e.g. Suzuki Umhlanga")
+                        },
+                        isError = isService && detail.isBlank(),
+                        minLines = if (isService) 1 else 2,
                         maxLines = 3,
+                        singleLine = isService,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
                 TextButton(
-                    // A category is required; the free text beside it is optional.
-                    enabled = category.isNotBlank(),
+                    // A category is always required; the detail is only required when
+                    // it's the dealership we're after.
+                    enabled = category.isNotBlank() &&
+                        (category != VEHICLE_IN_SERVICE || detail.isNotBlank()),
                     onClick = {
                         showNotWorkingConfirm = false
                         val reason = if (detail.isBlank()) category

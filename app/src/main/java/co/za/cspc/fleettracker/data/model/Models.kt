@@ -13,6 +13,12 @@ object Role {
  * Absence categories. Kept as a fixed list so leave can actually be counted — free
  * text alone can't answer "how much sick leave did we have this month".
  */
+/**
+ * Named separately because the dialog asks for the dealership when this is the
+ * reason — knowing which vehicle is sitting at which service centre is worth having.
+ */
+const val VEHICLE_IN_SERVICE = "Vehicle in for service"
+
 val ABSENCE_REASONS = listOf(
     "Sick leave",
     "Annual leave",
@@ -20,6 +26,7 @@ val ABSENCE_REASONS = listOf(
     "Unpaid leave",
     "Public holiday",
     "No work allocated",
+    VEHICLE_IN_SERVICE,
     "Other"
 )
 
