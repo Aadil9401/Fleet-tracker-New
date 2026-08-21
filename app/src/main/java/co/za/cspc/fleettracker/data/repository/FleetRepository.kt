@@ -97,6 +97,7 @@ class FleetRepository(
         name: String,
         surname: String,
         email: String,
+        cellNumber: String,
         employeeNumber: String,
         province: String,
         teamName: String,
@@ -118,6 +119,7 @@ class FleetRepository(
             surname = surname.trim(),
             email = cleanEmail,
             contactEmail = cleanEmail,
+            cellNumber = cellNumber.trim(),
             employeeNumber = employeeNumber.trim(),
             province = province.trim(),
             teamName = teamName.trim(),
@@ -149,6 +151,7 @@ class FleetRepository(
                     "surname" to profile.surname,
                     "email" to profile.email,
                     "contactEmail" to profile.contactEmail,
+                    "cellNumber" to profile.cellNumber,
                     "employeeNumber" to profile.employeeNumber,
                     "province" to profile.province,
                     "teamName" to profile.teamName,
@@ -237,7 +240,8 @@ class FleetRepository(
         province: String,
         teamName: String,
         vehicleRegistration: String,
-        contactEmail: String
+        contactEmail: String,
+        cellNumber: String
     ) {
         val ref = db.collection("users").document(uid)
         val oldKey = employeeNumberKey(ref.get().await().getString("employeeNumber").orEmpty())
@@ -265,7 +269,8 @@ class FleetRepository(
                 "province" to province.trim(),
                 "teamName" to teamName.trim(),
                 "vehicleRegistration" to vehicleRegistration.trim().uppercase(),
-                "contactEmail" to contactEmail.trim()
+                "contactEmail" to contactEmail.trim(),
+                "cellNumber" to cellNumber.trim()
             )
         ).await()
 

@@ -77,6 +77,24 @@ fun SignUpScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedTextField(
+                    value = state.cellNumber,
+                    onValueChange = viewModel::onCellNumberChange,
+                    label = { Text("Cell number") },
+                    supportingText = {
+                        Text(
+                            if (state.cellNumber.isNotEmpty() && !state.cellLooksValid) {
+                                "Please enter a full number, e.g. 082 123 4567"
+                            } else {
+                                "So your admin can reach you"
+                            }
+                        )
+                    },
+                    isError = state.cellNumber.isNotEmpty() && !state.cellLooksValid,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             FormSection("Work details") {

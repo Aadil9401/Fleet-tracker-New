@@ -581,7 +581,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
         EditEmployeeDialog(
             employee = employee,
             busy = state.busy,
-            onSave = { name, surname, empNo, province, team, registration, email ->
+            onSave = { name, surname, empNo, province, team, registration, email, cell ->
                 viewModel.saveEmployeeDetails(
                     uid = employee.uid,
                     name = name,
@@ -590,7 +590,8 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
                     province = province,
                     teamName = team,
                     vehicleRegistration = registration,
-                    contactEmail = email
+                    contactEmail = email,
+                    cellNumber = cell
                 )
                 employeeToEdit = null
             },
@@ -635,7 +636,8 @@ private fun EditEmployeeDialog(
     busy: Boolean,
     onSave: (
         name: String, surname: String, employeeNumber: String, province: String,
-        teamName: String, vehicleRegistration: String, contactEmail: String
+        teamName: String, vehicleRegistration: String, contactEmail: String,
+        cellNumber: String
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -646,6 +648,7 @@ private fun EditEmployeeDialog(
     var teamName by remember { mutableStateOf(employee.teamName) }
     var registration by remember { mutableStateOf(employee.vehicleRegistration) }
     var contactEmail by remember { mutableStateOf(employee.contactEmail) }
+    var cellNumber by remember { mutableStateOf(employee.cellNumber) }
     var provinceMenuOpen by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -730,6 +733,14 @@ private fun EditEmployeeDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedTextField(
+                    value = cellNumber,
+                    onValueChange = { cellNumber = it },
+                    label = { Text("Cell number") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Text(
                     "Their sign-in email and password can't be changed here — they " +
                         "can reset the password themselves from the login screen.",
@@ -742,7 +753,8 @@ private fun EditEmployeeDialog(
             TextButton(
                 enabled = !busy && name.isNotBlank() && surname.isNotBlank(),
                 onClick = {
-                    onSave(name, surname, employeeNumber, province, teamName, registration, contactEmail)
+                    onSave(name, surname, employeeNumber, province, teamName, registration,
+                        contactEmail, cellNumber)
                 }
             ) { Text("Save") }
         },
@@ -1017,6 +1029,14 @@ private fun EmployeeCard(
             }
 
             Spacer(Modifier.height(8.dp))
+            if (employee.cellNumber.isNotBlank()) {
+                Text(
+                    employee.cellNumber,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
             Text(
                 employee.contactEmail.ifBlank { employee.email },
                 style = MaterialTheme.typography.bodySmall,

@@ -19,6 +19,7 @@ data class SignUpUiState(
     val name: String = "",
     val surname: String = "",
     val email: String = "",
+    val cellNumber: String = "",
     val employeeNumber: String = "",
     val province: String = "",
     val teamName: String = "",
@@ -31,6 +32,10 @@ data class SignUpUiState(
     val emailLooksValid: Boolean
         get() = email.contains("@") && email.substringAfterLast("@").contains(".")
 
+    /** Lenient on purpose: 10 digits or more, however they choose to space it. */
+    val cellLooksValid: Boolean
+        get() = cellNumber.count { it.isDigit() } >= 10
+
     val passwordLongEnough: Boolean get() = password.length >= MIN_PASSWORD_LENGTH
 
     val passwordsMatch: Boolean get() = password == confirmPassword
@@ -39,7 +44,7 @@ data class SignUpUiState(
         get() = !loading && name.isNotBlank() && surname.isNotBlank() &&
             // Required because it's what stops the same person registering twice.
             employeeNumber.isNotBlank() &&
-            emailLooksValid && passwordLongEnough && passwordsMatch
+            emailLooksValid && cellLooksValid && passwordLongEnough && passwordsMatch
 }
 
 class SignUpViewModel(
@@ -52,6 +57,7 @@ class SignUpViewModel(
     fun onNameChange(value: String) { uiState = uiState.copy(name = value, error = null) }
     fun onSurnameChange(value: String) { uiState = uiState.copy(surname = value, error = null) }
     fun onEmailChange(value: String) { uiState = uiState.copy(email = value, error = null) }
+    fun onCellNumberChange(value: String) { uiState = uiState.copy(cellNumber = value, error = null) }
     fun onEmployeeNumberChange(value: String) { uiState = uiState.copy(employeeNumber = value, error = null) }
     fun onProvinceChange(value: String) { uiState = uiState.copy(province = value, error = null) }
     fun onTeamNameChange(value: String) { uiState = uiState.copy(teamName = value, error = null) }
@@ -68,6 +74,7 @@ class SignUpViewModel(
                     name = uiState.name,
                     surname = uiState.surname,
                     email = uiState.email,
+                    cellNumber = uiState.cellNumber,
                     employeeNumber = uiState.employeeNumber,
                     province = uiState.province,
                     teamName = uiState.teamName,

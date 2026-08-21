@@ -55,6 +55,7 @@ data class UserProfile(
     val email: String = "",
     /** The employee's real email address; where their login details were sent. */
     val contactEmail: String = "",
+    val cellNumber: String = "",
     val employeeNumber: String = "",
     val province: String = "",
     val teamName: String = "",

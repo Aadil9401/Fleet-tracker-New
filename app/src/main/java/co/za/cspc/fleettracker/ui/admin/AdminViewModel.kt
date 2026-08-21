@@ -164,13 +164,15 @@ class AdminViewModel(
         province: String,
         teamName: String,
         vehicleRegistration: String,
-        contactEmail: String
+        contactEmail: String,
+        cellNumber: String
     ) {
         uiState = uiState.copy(busy = true, message = null)
         viewModelScope.launch {
             try {
                 repo.updateEmployeeDetails(
                     uid = uid,
+                    cellNumber = cellNumber,
                     name = name,
                     surname = surname,
                     employeeNumber = employeeNumber,

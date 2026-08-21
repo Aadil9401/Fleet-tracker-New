@@ -519,7 +519,7 @@
         <div class="count" id="rosterStatus"></div>
         <details class="help">
           <summary>Format</summary>
-          <pre>employee number, name, surname, province, team, vehicle registration</pre>
+          <pre>employee number, name, surname, province, team, vehicle registration, cell number</pre>
           Only the employee number is required — leave any other column blank and that
           field is left alone when filling. A heading row is ignored, and you can paste
           cells straight from Excel.
@@ -592,6 +592,7 @@
         <div class="field"><label for="eTeam">Team name</label><input id="eTeam"></div>
         <div class="field"><label for="eReg">Vehicle registration</label><input id="eReg"></div>
         <div class="field"><label for="eEmail">Email address</label><input id="eEmail" type="email"></div>
+        <div class="field"><label for="eCell">Cell number</label><input id="eCell" type="tel" placeholder="082 123 4567"></div>
         <p class="sub" style="font-size:.82rem">
           Their sign-in email and password can't be changed here — they can reset the
           password themselves from the app's login screen.
@@ -1382,6 +1383,10 @@ function renderEmployees() {
               <div class="nm">${esc(fullName(e))}</div>
               <div class="meta">${esc([e.employeeNumber && 'No. ' + e.employeeNumber, e.teamName]
                 .filter(Boolean).join(' • '))}</div>
+              ${e.cellNumber
+                ? `<div class="meta email"><a href="tel:${esc(String(e.cellNumber).replace(/[^\d+]/g, ''))}"
+                     style="font-weight:600">${esc(e.cellNumber)}</a></div>`
+                : '<div class="meta" style="color:var(--error)">no cell number</div>'}
               <div class="meta email">${esc(e.contactEmail || e.email || '')}</div>
               ${isDuplicate(e)
                 ? '<div class="chip" style="background:var(--secondary-container);color:var(--on-secondary-container)">possible duplicate</div>'
@@ -1516,6 +1521,7 @@ function openEditModal(uid) {
   $('eTeam').value = e.teamName || '';
   $('eReg').value = e.vehicleRegistration || '';
   $('eEmail').value = e.contactEmail || '';
+  $('eCell').value = e.cellNumber || '';
   $('eProvince').innerHTML = [
     '<option value="">— none —</option>',
     ...SA_PROVINCES.map(p =>
@@ -1559,7 +1565,8 @@ $('editSave').addEventListener('click', async () => {
       province: $('eProvince').value,
       teamName: $('eTeam').value.trim(),
       vehicleRegistration: $('eReg').value.trim().toUpperCase(),
-      contactEmail: $('eEmail').value.trim()
+      contactEmail: $('eEmail').value.trim(),
+      cellNumber: $('eCell').value.trim()
     });
 
     // Release the old number now the profile has moved off it.
@@ -1633,7 +1640,8 @@ function parseRosterLines(text) {
         surname: p[2] || '',
         province: canonicalProvince(p[3]),
         teamName: p[4] || '',
-        vehicleRegistration: (p[5] || '').toUpperCase()
+        vehicleRegistration: (p[5] || '').toUpperCase(),
+        cellNumber: p[6] || ''
       };
     })
     .filter(Boolean);
@@ -1697,6 +1705,9 @@ $('rosterFill').addEventListener('click', async () => {
     if (entry.vehicleRegistration &&
       entry.vehicleRegistration !== e.vehicleRegistration) {
       patch.vehicleRegistration = entry.vehicleRegistration;
+    }
+    if (entry.cellNumber && entry.cellNumber !== e.cellNumber) {
+      patch.cellNumber = entry.cellNumber;
     }
 
     if (Object.keys(patch).length === 0) { alreadyCorrect++; return; }
