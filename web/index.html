@@ -644,6 +644,12 @@
           <button id="svcApply">Apply</button>
         </div>
         <div class="count" id="svcPreview"></div>
+        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          Vehicles uploaded before this fix may carry a service that never happened,
+          which shows as 0%. Clearing it puts them back to "no service recorded" and
+          onto proper 15 000 km milestones.
+        </p>
+        <button id="svcClearHistory" class="danger">Clear service history for all vehicles</button>
       </div>
 
       <div class="card">
@@ -840,9 +846,14 @@ function nextServiceAtKm(v) {
 
 const kmUntilService = (v) => nextServiceAtKm(v) - (v.currentOdometerKm || 0);
 
-/** 0 just after a service, 100 when the next one is due. */
+/**
+ * 0 just after a service, 100 when the next one is due — or null when no service has
+ * ever been recorded, because then there is genuinely nothing to measure from.
+ * Showing a fabricated 0% (or 99%) for an unknown history is worse than showing "—".
+ */
 function percentToNextService(v) {
-  const start = v.lastServiceOdometerKm > 0 ? v.lastServiceOdometerKm : 0;
+  const start = Number(v.lastServiceOdometerKm || 0);
+  if (start <= 0) return null;
   const next = nextServiceAtKm(v);
   if (next <= start) return 100;
   const pct = Math.round(((v.currentOdometerKm || 0) - start) / (next - start) * 100);
@@ -1779,14 +1790,17 @@ function renderVehicles() {
               ${lastServiced ? `<div class="meta">Last: ${esc(lastServiced)}</div>` : ''}</td>
           <td>${km(v.currentOdometerKm || 0)}</td>
           <td>Next at ${km(nextServiceAtKm(v))}<div class="meta">${
-            remaining >= 0 ? km(remaining) + ' to go'
+            pct === null ? '<span style="color:var(--secondary)">no service recorded</span>'
+              : remaining >= 0 ? km(remaining) + ' to go'
               : '<span style="color:var(--error)">overdue by ' + km(-remaining) + '</span>'
           }</div></td>
           <td>
-            <div class="progress-cell">
-              <span class="pct ${due ? 'due' : ''}">${pct}%</span>
-              <div class="bar-track"><div class="bar-fill ${due ? 'due' : ''}" style="width:${pct}%"></div></div>
-            </div>
+            ${pct === null
+              ? `<span class="meta" title="Record a service to start tracking this vehicle">—</span>`
+              : `<div class="progress-cell">
+                  <span class="pct ${due ? 'due' : ''}">${pct}%</span>
+                  <div class="bar-track"><div class="bar-fill ${due ? 'due' : ''}" style="width:${pct}%"></div></div>
+                </div>`}
           </td>
           <td class="row-actions">
             <button class="ghost" data-serviced="${esc(v.id)}">Record service</button>
@@ -1934,6 +1948,31 @@ $('svcApply').addEventListener('click', async () => {
   } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
 });
 
+$('svcClearHistory').addEventListener('click', async () => {
+  const withHistory = data.vehicles.filter(v => (v.lastServiceOdometerKm || 0) > 0);
+  if (withHistory.length === 0) {
+    showMsg('No vehicle has a recorded service to clear.', 'err');
+    return;
+  }
+  if (!confirm(`Clear the recorded service on ${withHistory.length} vehicle(s)?\n\n`
+    + `They will show "no service recorded" until you record a real one. `
+    + `Odometer readings, logs and intervals are untouched.`)) return;
+  try {
+    for (let i = 0; i < withHistory.length; i += 400) {
+      const batch = writeBatch(db);
+      withHistory.slice(i, i + 400).forEach(v => batch.update(doc(db, 'vehicles', v.id), {
+        lastServiceOdometerKm: 0,
+        lastServiceDateMillis: 0,
+        lastServiceProvider: '',
+        lastReminderNotifiedDate: ''
+      }));
+      await batch.commit();
+    }
+    showMsg(`Cleared service history on ${withHistory.length} vehicle(s).`);
+    await loadAll();
+  } catch (err) { showMsg('Could not clear: ' + err.message, 'err'); }
+});
+
 $('addVehicleBtn').addEventListener('click', async () => {
   const reg = $('vReg').value.trim().toUpperCase();
   if (!reg) { showMsg('Registration is required.', 'err'); return; }
@@ -2007,7 +2046,10 @@ function parseVehicleLines(text) {
         currentOdometerKm: odo,
         // Blank means "nothing travelled since the last service", not 0 km on the
         // clock — otherwise every vehicle would look instantly overdue.
-        lastServiceOdometerKm: digits(p[4]) ?? odo,
+        // Blank means "we don't know", not "serviced just now". Defaulting this to
+        // the current reading claimed a service that never happened, which pinned
+        // every uploaded vehicle at 0% and shifted its milestones.
+        lastServiceOdometerKm: digits(p[4]) ?? 0,
         lastServiceDateMillis: parseServiceDate(p[3]),
         // Optional 6th column, for models on a different schedule (Magnites run
         // 10 000 km). Blank falls back to the fleet standard.

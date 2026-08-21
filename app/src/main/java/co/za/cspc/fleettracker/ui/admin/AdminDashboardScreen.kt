@@ -1397,27 +1397,35 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         // Measured from the last service to the next one, so recording
                         // a service sends this back to zero.
                         val percent = v.percentToNextService()
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (percent == null) {
                             Text(
-                                "$percent%",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = if (due) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.primary
-                                }
+                                "No service recorded yet",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary
                             )
-                            Spacer(Modifier.width(8.dp))
-                            LinearProgressIndicator(
-                                progress = { percent / 100f },
-                                color = if (due) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.primary
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "$percent%",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (due) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { percent / 100f },
+                                    color = if (due) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { vehicleToService = v }) {

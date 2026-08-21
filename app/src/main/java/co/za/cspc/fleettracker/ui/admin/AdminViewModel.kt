@@ -453,7 +453,9 @@ class AdminViewModel(
                 // Falling back to the current reading means "no distance travelled
                 // since the last service" rather than a bogus 0 km baseline, which
                 // would otherwise show the vehicle as instantly overdue.
-                val lastServiceOdometer = parts.getOrNull(4).digitsToLongOrNull() ?: odometer
+                // Blank means "unknown", not "serviced just now" — see the note on
+                // Vehicle.percentToNextService().
+                val lastServiceOdometer = parts.getOrNull(4).digitsToLongOrNull() ?: 0L
 
                 Vehicle(
                     registrationNumber = registration,

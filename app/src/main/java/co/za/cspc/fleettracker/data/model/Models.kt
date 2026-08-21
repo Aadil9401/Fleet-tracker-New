@@ -98,13 +98,18 @@ data class Vehicle(
         if (lastServiceOdometerKm <= 0L || serviceIntervalKm <= 0L) 0L
         else ((lastServiceOdometerKm + serviceIntervalKm - 1) / serviceIntervalKm) * serviceIntervalKm
 
-    /** 0 immediately after a service, 100 when the next one falls due. */
-    fun percentToNextService(): Int {
-        if (serviceIntervalKm <= 0L) return 0
-        val start = if (lastServiceOdometerKm > 0L) lastServiceOdometerKm else 0L
+    /**
+     * 0 immediately after a service, 100 when the next one falls due — or null when
+     * no service has ever been recorded, since there is then nothing to measure from.
+     * A fabricated 0% for an unknown history reads as "just serviced", which is worse
+     * than showing nothing.
+     */
+    fun percentToNextService(): Int? {
+        if (serviceIntervalKm <= 0L || lastServiceOdometerKm <= 0L) return null
         val next = nextServiceAtKm()
-        if (next <= start) return 100
-        val pct = ((currentOdometerKm - start).toDouble() / (next - start) * 100).toInt()
+        if (next <= lastServiceOdometerKm) return 100
+        val pct = ((currentOdometerKm - lastServiceOdometerKm).toDouble() /
+            (next - lastServiceOdometerKm) * 100).toInt()
         return pct.coerceIn(0, 100)
     }
 
