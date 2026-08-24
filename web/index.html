@@ -646,11 +646,18 @@
         </div>
         <div class="count" id="svcPreview"></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
-          Vehicles uploaded before this fix may carry a service that never happened,
-          which shows as 0%. Clearing it puts them back to "no service recorded" and
-          onto proper 15 000 km milestones.
+          <b>Set baseline</b> assumes each vehicle was last serviced at the milestone it
+          most recently passed — a vehicle on 85 000 km is treated as serviced at
+          75 000, so its next service falls at 90 000 and the percentage reads 67%.
+          That gets useful figures out of the mileages you uploaded without pretending
+          a service happened today. Only vehicles with no service on record are
+          touched. <b>Clear</b> undoes it.
         </p>
-        <button id="svcClearHistory" class="danger">Clear service history for all vehicles</button>
+        <div class="toolbar">
+          <button id="svcBaseline" class="outline">Set baseline from current mileage</button>
+          <button id="svcClearHistory" class="danger">Clear service history</button>
+        </div>
+        <div class="count" id="svcBaselineNote"></div>
       </div>
 
       <div class="card">
@@ -1975,6 +1982,55 @@ $('svcApply').addEventListener('click', async () => {
     $('svcPreview').textContent = '';
     await loadAll();
   } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
+});
+
+/**
+ * Treats each vehicle as serviced at the last milestone it passed. Deliberately not
+ * "serviced at today's reading": that would push the first reminder a full interval
+ * out, so a vehicle actually due in 1 000 km would go 15 000 unnoticed. Erring early
+ * is the safer direction for maintenance.
+ */
+$('svcBaseline').addEventListener('click', async () => {
+  const candidates = data.vehicles.filter(v => (v.lastServiceOdometerKm || 0) <= 0);
+  const plan = candidates
+    .map(v => {
+      const i = intervalOf(v);
+      const baseline = Math.floor((v.currentOdometerKm || 0) / i) * i;
+      return { v, baseline };
+    })
+    // A vehicle below its first interval genuinely has no service yet — leave it.
+    .filter(p => p.baseline > 0);
+
+  const skippedLowKm = candidates.length - plan.length;
+  const skippedHasHistory = data.vehicles.length - candidates.length;
+
+  if (plan.length === 0) {
+    showMsg(`Nothing to baseline. ${skippedHasHistory} already have a service on record`
+      + `${skippedLowKm ? `, ${skippedLowKm} below their first interval` : ''}.`, 'err');
+    return;
+  }
+  if (!confirm(`Set a service baseline on ${plan.length} vehicle(s)?\n\n`
+    + `Each is treated as serviced at the last milestone it passed. `
+    + `Vehicles with a real service on record are left alone.`)) return;
+
+  try {
+    for (let i = 0; i < plan.length; i += 400) {
+      const batch = writeBatch(db);
+      plan.slice(i, i + 400).forEach(p => batch.update(doc(db, 'vehicles', p.v.id), {
+        lastServiceOdometerKm: p.baseline,
+        // No date claimed: we know the mileage it was due at, not when it happened.
+        lastServiceDateMillis: 0,
+        lastServiceProvider: '',
+        lastReminderNotifiedDate: ''
+      }));
+      await batch.commit();
+    }
+    let note = `Baseline set on ${plan.length} vehicle(s).`;
+    if (skippedHasHistory) note += ` ${skippedHasHistory} left alone (already have a service).`;
+    if (skippedLowKm) note += ` ${skippedLowKm} below their first interval.`;
+    showMsg(note);
+    await loadAll();
+  } catch (err) { showMsg('Could not set baseline: ' + err.message, 'err'); }
 });
 
 $('svcClearHistory').addEventListener('click', async () => {
