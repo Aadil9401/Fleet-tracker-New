@@ -13,24 +13,34 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-/** Element ids the real page provides, so $() returns a stub rather than null. */
+/**
+ * Element ids the real page provides, so $() returns a stub rather than null.
+ *
+ * Writes to a stub carrying an id are recorded in globalThis.__writes, so a test can
+ * call a render function and then assert on the markup it produced. Without that the
+ * tests could only prove the module runs, not that it renders anything sane — and a
+ * table row with the wrong number of cells runs perfectly well.
+ */
 function browserStubs(html) {
   const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
   return `
 const __ids = ${JSON.stringify(ids)};
-const __stubEl = () => ({
+globalThis.__writes = {};
+const __stubEl = (id) => ({
   addEventListener() {}, querySelectorAll: () => [], classList: { toggle() {}, add() {}, remove() {} },
-  set innerHTML(v) {}, get innerHTML() { return ''; },
-  set textContent(v) {}, get textContent() { return ''; },
+  set innerHTML(v) { if (id) globalThis.__writes[id] = v; },
+  get innerHTML() { return (id && globalThis.__writes[id]) || ''; },
+  set textContent(v) { if (id) globalThis.__writes[id] = v; },
+  get textContent() { return (id && globalThis.__writes[id]) || ''; },
   set value(v) {}, get value() { return ''; },
   set disabled(v) {}, get disabled() { return false; },
   style: {}, files: [], focus() {}, click() {}, appendChild() {}, removeChild() {}
 });
 globalThis.document = {
-  getElementById: (id) => __ids.includes(id) ? __stubEl() : null,
+  getElementById: (id) => __ids.includes(id) ? __stubEl(id) : null,
   querySelectorAll: () => [],
-  createElement: () => __stubEl(),
-  body: __stubEl()
+  createElement: () => __stubEl(null),
+  body: __stubEl(null)
 };
 globalThis.window = globalThis;
 globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
@@ -66,6 +76,11 @@ const orderBy = () => ({}), limit = () => ({});
  * calling a function before its declaration initialises kills the module silently and
  * leaves the real page inert, and `node --check` cannot see it.
  */
+/** What the page last rendered into each element, by id. See browserStubs(). */
+export function writes() {
+  return globalThis.__writes ?? {};
+}
+
 export async function loadPortal(htmlPath, expose = []) {
   const html = readFileSync(htmlPath, 'utf8');
   const script = html.split('<script type="module">')[1].split('</script>')[0];

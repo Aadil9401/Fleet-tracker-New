@@ -70,7 +70,7 @@ The portal is one file of plain JavaScript with no build step, so these run
 straight from a checkout with nothing installed:
 
 ```bash
-node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.html && node --check functions/index.js
+node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.html && node web/render-test.mjs web/index.html && node --check functions/index.js
 ```
 
 - `smoke-test.mjs` evaluates the portal's module against stubbed browser and
@@ -79,6 +79,12 @@ node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.htm
 - `parser-test.mjs` pins the logic where a wrong answer gets written to the
   database or emailed out — the vehicle upload's service-interval floor, and the
   service milestone maths.
+- `render-test.mjs` drives the day view against stub data and checks the markup it
+  produces — chiefly that all three row shapes (worked, absent, no entry) lay out on
+  the same columns as the header. A row with the wrong number of cells renders
+  perfectly happily, so nothing else would catch it.
+
+All three share the browser and Firebase stubs in `portal-harness.mjs`.
 
 Note that the service milestone rules exist in three places: `web/index.html`,
 `Vehicle` in `Models.kt`, and `checkServiceReminders` in `functions/index.js`.

@@ -222,6 +222,12 @@
     transition: transform .16s var(--ease), box-shadow .16s var(--ease);
   }
   .tile:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+  /* A figure that needs acting on should not look like one that doesn't. .bad is for
+     a count that must reach zero, .warn for a shortfall, .calm for "nothing here" —
+     a grey 0 reads as settled, where a green 0 still asks to be checked. */
+  .tile.bad { background: var(--error-container); color: var(--on-error-container); }
+  .tile.warn { background: var(--secondary-container); color: var(--on-secondary-container); }
+  .tile.calm { background: var(--surface-variant); color: var(--muted); }
   .tile .big {
     font-size: 1.75rem; font-weight: 700; line-height: 1.15;
     letter-spacing: -.02em;
@@ -242,6 +248,13 @@
     position: sticky; top: 0; background: var(--surface); z-index: 1;
     border-bottom-width: 2px; white-space: nowrap;
   }
+  /* Sortable headers. The arrow only appears on the column actually in use, so the
+     header row stays quiet until you ask something of it. */
+  th[data-sort] { cursor: pointer; user-select: none; }
+  th[data-sort]:hover { color: var(--primary); }
+  th[data-sort].sorted-asc::after { content: ' ▲'; font-size: .9em; }
+  th[data-sort].sorted-desc::after { content: ' ▼'; font-size: .9em; }
+
   /* Numeric columns read right-aligned; the first column stays the anchor. */
   td:not(:first-child), th:not(:first-child) { text-align: right; }
   td:first-child, th:first-child { text-align: left; }
@@ -270,6 +283,8 @@
   table td, .person .nm, .person .meta, .chip, .caps { text-transform: uppercase; }
   .email, a { text-transform: none; }
 
+  .nm { font-weight: 600; }
+  .meta { font-size: .8rem; color: var(--muted); }
   .person .nm { font-weight: 600; }
   .person .meta { font-size: .8rem; color: var(--muted); }
 
@@ -300,6 +315,22 @@
   .pct.due { color: var(--error); }
 
   .empty { color: var(--muted); text-align: center; padding: 28px 12px; }
+
+  /* One row per person, with the same detail and the same action the table row gets.
+     These used to be bare bullets: you read a name here, then went hunting for that
+     person in the table below to do anything about it. */
+  .exception {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s2) 0; border-top: 1px solid rgba(0,0,0,.09);
+  }
+  .exception:first-child { border-top: none; }
+  .exception .who { flex: 1; min-width: 0; }
+  .exception .meta { color: inherit; opacity: .75; }
+  .exception button { color: inherit; }
+
+  /* Dimmed while a fetch is in flight, so stale figures can't be mistaken for fresh
+     ones. Pointer events stay live — blocking them mid-load feels broken. */
+  #appView.busy main { opacity: .45; transition: opacity .15s var(--ease); }
 
   .overlay {
     position: fixed; inset: 0; background: rgba(30,42,38,.45);
@@ -467,10 +498,17 @@
           <button id="exportSummary" class="outline">Export CSV</button>
         </div>
         <div class="table-wrap"><table>
+          <!-- Province and team fold into the employee cell: they repeat identically
+               down the page and are filter dimensions, not per-row facts worth two of
+               nine columns. Every header sorts. -->
           <thead><tr>
-            <th>Employee</th><th>Province</th><th>Team</th>
-            <th id="repDaysHead">Days</th><th>Absent</th><th>No knock off</th>
-            <th>Hours</th><th>Distance</th><th>Fuel</th>
+            <th data-sort="name">Employee</th>
+            <th data-sort="days"><span id="repDaysHead">Days</span></th>
+            <th data-sort="absent">Absent</th>
+            <th data-sort="open">No knock off</th>
+            <th data-sort="minutes">Hours</th>
+            <th data-sort="km">Distance</th>
+            <th data-sort="fuel">Fuel</th>
           </tr></thead>
           <tbody id="repRows"></tbody>
         </table></div>
@@ -983,6 +1021,7 @@ onAuthStateChanged(auth, async (user) => {
 
 /* ---------------- loading ---------------- */
 async function loadAll() {
+  $('appView').classList.add('busy');
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
       activityWindow, roster] = await Promise.all([
@@ -1019,6 +1058,8 @@ async function loadAll() {
     renderAll();
   } catch (err) {
     showMsg('Could not load data: ' + err.message, 'err');
+  } finally {
+    $('appView').classList.remove('busy');
   }
 }
 
@@ -1073,15 +1114,18 @@ function renderToday() {
   const totalFuel = data.dayFuelLogs.reduce((sum, f) => sum + Number(f.amountSpentRands || 0), 0);
   const servicesDue = data.vehicles.filter(isServiceDue).length;
 
+  // "Not started" gets its own tile because it is the number that needs acting on,
+  // and reading it off "12/40" meant doing arithmetic to find it.
   $('todayTiles').innerHTML = [
-    ['Started', `${started.length}/${activeEmployees.length}`],
-    ['Knocked off', knockedOff],
-    ['Hours', hoursLabel(totalMins)],
-    ['Distance', km(totalKm)],
-    ['Fuel', rand(totalFuel)],
-    ['Service due', servicesDue]
-  ].map(([cap, big]) =>
-    `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+    ['Started', `${started.length}/${activeEmployees.length}`, notStarted.length ? 'warn' : ''],
+    ['Not started', notStarted.length, notStarted.length ? 'bad' : 'calm'],
+    ['Knocked off', knockedOff, ''],
+    ['Hours', hoursLabel(totalMins), ''],
+    ['Distance', km(totalKm), ''],
+    ['Fuel', rand(totalFuel), ''],
+    ['Service due', servicesDue, servicesDue ? 'bad' : 'calm']
+  ].map(([cap, big, tone]) =>
+    `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
 
   const absent = data.todaysLogs.filter(l => l.notWorking);
@@ -1090,13 +1134,28 @@ function renderToday() {
     ${notStarted.length === 0 ? '' : `
       <div class="card" style="background:var(--error-container);color:var(--on-error-container)">
         <h2 class="section">No entry ${isToday ? 'yet' : 'that day'} (${notStarted.length})</h2>
-        ${notStarted.map(e => `<div class="caps">• ${esc(fullName(e))}</div>`).join('')}
+        ${notStarted.map(e => `
+          <div class="exception">
+            <div class="who">
+              <div class="nm caps">${esc(fullName(e))}</div>
+              ${[e.province, e.teamName].filter(Boolean).length
+                ? `<div class="meta caps">${esc([e.province, e.teamName].filter(Boolean).join(' · '))}</div>`
+                : ''}
+            </div>
+            <button class="ghost" data-entry="${esc(e.id)}">Record day</button>
+          </div>`).join('')}
       </div>`}
     ${absent.length === 0 ? '' : `
       <div class="card" style="background:var(--secondary-container);color:var(--on-secondary-container)">
         <h2 class="section">Not working (${absent.length})</h2>
-        ${absent.map(l => `<div class="caps">• ${esc(l.employeeName)}${
-          l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</div>`).join('')}
+        ${absent.map(l => `
+          <div class="exception">
+            <div class="who">
+              <div class="nm caps">${esc(l.employeeName)}</div>
+              ${l.notWorkingReason
+                ? `<div class="meta caps">${esc(l.notWorkingReason)}</div>` : ''}
+            </div>
+          </div>`).join('')}
       </div>`}`;
 
   $('dayDate').value = selectedDate;
@@ -1121,19 +1180,22 @@ function renderToday() {
       </tr></thead>
       <tbody>
         ${logs.map(l => l.noEntry
+          // The status goes in the name cell as a badge and every other column keeps
+          // its dash. A colspan here collapsed six columns into one sentence, so a
+          // list of forty people alternated between eight-column and three-column
+          // rows and the eye lost the grid it had just been given.
           ? `<tr>
-              <td>${personCell(l)}</td>
-              <td colspan="6" style="color:var(--error)">
-                <em>No entry — has not clocked in or reported absent</em></td>
+              <td>${personCell(l)}<span class="badge off">No entry</span></td>
+              <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
               <td class="row-actions">
                 <button class="ghost" data-entry="${esc(l.uid)}">Record day</button>
               </td>
             </tr>`
           : l.notWorking
           ? `<tr>
-              <td>${personCell(l)}</td>
-              <td colspan="6" style="color:var(--secondary)"><em>Not working${
-                l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</em></td>
+              <td>${personCell(l)}<span class="badge">Not working</span></td>
+              <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+              <td>${esc(l.notWorkingReason || '—')}</td>
               <td></td>
             </tr>`
           : `<tr>
@@ -1183,9 +1245,12 @@ function renderToday() {
     }).join('');
   }
 
-  // Wired after the tables are written, whichever layout was rendered.
-  $('dayGroups').querySelectorAll('[data-entry]').forEach(btn => {
-    btn.addEventListener('click', () => openEntryModal(btn.dataset.entry));
+  // Wired after the tables are written, whichever layout was rendered. The
+  // exception card carries the same buttons, so it is wired from the same place.
+  [$('dayGroups'), $('notStartedCard')].forEach(container => {
+    container.querySelectorAll('[data-entry]').forEach(btn => {
+      btn.addEventListener('click', () => openEntryModal(btn.dataset.entry));
+    });
   });
 }
 
@@ -1360,12 +1425,12 @@ const fullName = (e) => `${e.name || ''} ${e.surname || ''}`.trim();
  */
 function personCell(log) {
   const person = data.employees.find(e => e.id === log.uid);
-  const parts = [
-    log.employeeName || (person ? fullName(person) : ''),
-    person?.province,
-    person?.teamName
-  ].filter(Boolean);
-  return esc(parts.join(', '));
+  const name = log.employeeName || (person ? fullName(person) : '');
+  const detail = [person?.province, person?.teamName].filter(Boolean).join(' · ');
+  // Two lines rather than one comma-run: the name is what you scan for, and in
+  // capitals "SARAH DUBE, EASTERN CAPE, MTHATHA" gives the eye nothing to catch.
+  return `<div class="nm">${esc(name)}</div>`
+    + (detail ? `<div class="meta">${esc(detail)}</div>` : '');
 }
 
 /**
@@ -2348,16 +2413,31 @@ async function runReport() {
   }
 }
 
+/**
+ * Which column the report is ordered by. Without this the only way to ask "who has
+ * the most absences" was to export the table and sort it in Excel.
+ */
+let reportSort = { key: 'name', dir: 1 };
+
+function sortReportRows(rows) {
+  const { key, dir } = reportSort;
+  return [...rows].sort((a, b) => key === 'name'
+    ? dir * String(a.name || '').localeCompare(String(b.name || ''))
+    : dir * ((Number(a[key]) || 0) - (Number(b[key]) || 0)));
+}
+
 /** Rows currently visible, after the search and dropdowns. */
 function visibleReportRows() {
   const q = reportFilters.query.trim().toLowerCase();
-  return reportRows.filter(r => {
+  // Sorted here rather than in the render, so the CSV export comes out in the same
+  // order the admin is looking at.
+  return sortReportRows(reportRows.filter(r => {
     if (reportFilters.province && r.province !== reportFilters.province) return false;
     if (reportFilters.team && r.team !== reportFilters.team) return false;
     if (!q) return true;
     return [r.name, r.province, r.team]
       .some(v => String(v ?? '').toLowerCase().includes(q));
-  });
+  }));
 }
 
 function renderReport() {
@@ -2394,6 +2474,12 @@ function renderReport() {
 
   $('repDaysHead').textContent = singleDay ? 'Worked' : 'Days';
 
+  document.querySelectorAll('#tab-reports th[data-sort]').forEach(th => {
+    const active = th.dataset.sort === reportSort.key;
+    th.classList.toggle('sorted-asc', active && reportSort.dir === 1);
+    th.classList.toggle('sorted-desc', active && reportSort.dir === -1);
+  });
+
   $('repTiles').innerHTML = [
     [singleDay ? 'Number of employees' : 'Days worked', totals.days],
     [singleDay ? 'Absent' : 'Absences', totals.absent],
@@ -2406,13 +2492,14 @@ function renderReport() {
   ).join('');
 
   $('repRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="9" class="empty">${reportRows.length === 0
+    ? `<tr><td colspan="7" class="empty">${reportRows.length === 0
         ? 'Nothing recorded in that period.'
         : 'Nobody matches that filter.'}</td></tr>`
     : rows.map(r => `<tr>
-        <td>${esc(r.name)}</td>
-        <td>${esc(r.province || '—')}</td>
-        <td>${esc(r.team || '—')}</td>
+        <td><div class="nm">${esc(r.name)}</div>${
+          [r.province, r.team].filter(Boolean).length
+            ? `<div class="meta">${esc([r.province, r.team].filter(Boolean).join(' · '))}</div>`
+            : ''}</td>
         <td>${r.days}</td>
         <td>${r.absent}</td>
         <td${r.open > 0 ? ' style="color:var(--error);font-weight:700"' : ''}>${r.open}</td>
@@ -2421,6 +2508,17 @@ function renderReport() {
         <td>${rand(r.fuel)}</td>
       </tr>`).join('');
 }
+
+// A figure column opens on its largest value, which is the question being asked of
+// it; a name column opens A–Z. Clicking the column already in use reverses it.
+document.querySelectorAll('#tab-reports th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (reportSort.key === key) reportSort = { key, dir: -reportSort.dir };
+    else reportSort = { key, dir: key === 'name' ? 1 : -1 };
+    renderReport();
+  });
+});
 
 $('repSearch').addEventListener('input', (e) => {
   reportFilters.query = e.target.value;

@@ -28,6 +28,9 @@ jobs:
       - name: Portal logic is still correct
         run: node web/parser-test.mjs web/index.html
 
+      - name: Portal still renders correctly
+        run: node web/render-test.mjs web/index.html
+
       - name: Cloud Functions parse
         run: node --check functions/index.js
 
