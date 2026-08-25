@@ -37,9 +37,13 @@ to users changed.
 
 ### Admins, in the browser portal
 
-- **Day view** — who has started, knocked off, is absent or has no entry at all,
-  for any date; searchable, filterable by status, groupable, with fuel spent per
-  person and per province. Entries can be corrected or recorded after the fact.
+- **Day view** — who has started, knocked off, is absent, parked after the 18:30
+  curfew, or has no entry at all, for any date; searchable, filterable by status,
+  groupable, with fuel spent per person and per province. Entries can be corrected
+  or recorded after the fact.
+- **Every headline figure opens** — tap any of the eight tiles on the day view and
+  it lists the people behind that number: who hasn't started, who parked late and
+  by how long, who drove furthest, which vehicles are due and who's driving them.
 - **Reports** — any date range (or today / last 7 / last 30), filtered by
   employee, province or team, with totals that follow the filter
 - **Employees** — add staff (the app generates a username and password and emails

@@ -17,7 +17,7 @@ import { readFileSync } from 'fs';
 import { loadPortal, writes } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
-  'renderToday', 'data', 'PARK_BY'
+  'renderToday', 'data', 'PARK_BY', 'openTileModal'
 ]);
 
 let failures = 0;
@@ -106,6 +106,47 @@ const card = writes()['notStartedCard'] ?? '';
 check('the no-entry card names the person', card.includes('Thabo Nkosi'), true);
 check('the no-entry card carries their posting', card.includes('Limpopo · Polokwane'), true);
 check('the no-entry card offers the same action', /data-entry="u3"/.test(card), true);
+
+/* ---------------- every figure opens onto its rows ---------------- */
+// Each tile is a button carrying the key its detail is looked up by. A tile whose key
+// has no case in tileDetail() opens nothing at all, silently, so the set is pinned here.
+const tileKeys = [...tiles.matchAll(/data-tile="([^"]+)"/g)].map(m => m[1]);
+check('all eight figures are buttons', (tiles.match(/<button class="tile/g) ?? []).length, 8);
+check('and each carries its lookup key', tileKeys,
+  ['started', 'notstarted', 'knockedoff', 'hours', 'distance', 'fuel', 'late', 'service']);
+
+/** Open a tile and hand back what it rendered. */
+function opened(key) {
+  portal.openTileModal(key);
+  return { title: writes()['tileTitle'] ?? '', sub: writes()['tileSub'] ?? '', body: writes()['tileBody'] ?? '' };
+}
+
+const late = opened('late');
+check('the late figure opens on the curfew', late.title, `Parked after ${portal.PARK_BY}`);
+check('and names only the person who was late',
+  [late.body.includes('Lerato Mokoena'), late.body.includes('Sarah Dube')], [true, false]);
+check('with how late they were', late.body.includes('45 min'), true);
+
+const missing = opened('notstarted');
+check('no-entry opens on the person with no entry',
+  [missing.body.includes('Thabo Nkosi'), missing.body.includes('Sarah Dube')], [true, false]);
+check('and counts one person, not one row', missing.sub.includes('1 person'), true);
+
+const started = opened('started');
+check('started names everyone who clocked in',
+  [started.body.includes('Sarah Dube'), started.body.includes('Lerato Mokoena'),
+    started.body.includes('Thabo Nkosi')], [true, true, false]);
+
+const hours = opened('hours');
+check('hours ranks the longest day first',
+  hours.body.indexOf('Lerato Mokoena') < hours.body.indexOf('Sarah Dube'), true);
+
+// An absence is neither a start nor a distance, so it appears in neither.
+check('an absence is not counted as a day worked',
+  opened('distance').body.includes('John Smith'), false);
+
+check('a figure of zero explains itself rather than showing an empty table',
+  opened('service').body.includes('Nothing due.'), true);
 
 /* ---------------- the reports table's column grid ---------------- */
 // renderReport can't be driven from here — its rows live in a module-level `let` that

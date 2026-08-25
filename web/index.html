@@ -222,6 +222,10 @@
     transition: transform .16s var(--ease), box-shadow .16s var(--ease);
   }
   .tile:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+  /* Tiles are buttons. Every headline figure opens onto the rows it came from — a
+     number that says something is wrong without saying who just sends you hunting
+     through the table underneath for the names. */
+  button.tile { display: block; width: 100%; border: none; font: inherit; }
   /* A figure that needs acting on should not look like one that doesn't. .bad is for
      a count that must reach zero, .warn for a shortfall, .calm for "nothing here" —
      a grey 0 reads as settled, where a green 0 still asks to be checked. */
@@ -454,6 +458,7 @@
         <div class="count" id="dayShowing"></div>
       </div>
       <div class="tiles" id="todayTiles"></div>
+      <div class="count">Tap any figure above to see who is behind it.</div>
       <div id="notStartedCard"></div>
       <div class="card">
         <div class="toolbar">
@@ -623,6 +628,18 @@
         <div class="row-actions" style="justify-content:flex-end">
           <button id="entryCancel" class="outline">Cancel</button>
           <button id="entrySave">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- WHAT IS BEHIND A FIGURE -->
+    <div id="tileOverlay" class="overlay hidden">
+      <div class="modal" style="max-width:640px">
+        <h2 class="section" id="tileTitle"></h2>
+        <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)" id="tileSub"></p>
+        <div id="tileBody"></div>
+        <div class="row-actions" style="justify-content:flex-end;margin-top:var(--s4)">
+          <button id="tileClose" class="outline">Close</button>
         </div>
       </div>
     </div>
@@ -883,6 +900,11 @@ function minutesParkedLate(log) {
     : 0;
 }
 const isParkedLate = (log) => minutesParkedLate(log) > 0;
+
+/** "45 min", "1h 05m". hoursLabel would render three quarters of an hour as "0h 45m". */
+const lateLabel = (mins) => mins <= 0 ? '—'
+  : mins < 60 ? `${mins} min`
+  : `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
 
 /** Grouped thousands — 85000 reads as "85 000", which is far easier to scan. */
 const num = (n) => Number(n || 0).toLocaleString('en-ZA').replace(/,/g, ' ');
@@ -1183,16 +1205,17 @@ function renderToday() {
   // "Not started" gets its own tile because it is the number that needs acting on,
   // and reading it off "12/40" meant doing arithmetic to find it.
   $('todayTiles').innerHTML = [
-    ['Started', `${started.length}/${activeEmployees.length}`, notStarted.length ? 'warn' : ''],
-    ['Not started', notStarted.length, notStarted.length ? 'bad' : 'calm'],
-    ['Knocked off', knockedOff, ''],
-    ['Hours', hoursLabel(totalMins), ''],
-    ['Distance', km(totalKm), ''],
-    ['Fuel', rand(totalFuel), ''],
-    ['Parked late', parkedLate, parkedLate ? 'warn' : 'calm'],
-    ['Service due', servicesDue, servicesDue ? 'bad' : 'calm']
-  ].map(([cap, big, tone]) =>
-    `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+    ['Started', `${started.length}/${activeEmployees.length}`, notStarted.length ? 'warn' : '', 'started'],
+    ['Not started', notStarted.length, notStarted.length ? 'bad' : 'calm', 'notstarted'],
+    ['Knocked off', knockedOff, '', 'knockedoff'],
+    ['Hours', hoursLabel(totalMins), '', 'hours'],
+    ['Distance', km(totalKm), '', 'distance'],
+    ['Fuel', rand(totalFuel), '', 'fuel'],
+    ['Parked late', parkedLate, parkedLate ? 'warn' : 'calm', 'late'],
+    ['Service due', servicesDue, servicesDue ? 'bad' : 'calm', 'service']
+  ].map(([cap, big, tone, key]) =>
+    `<button class="tile ${tone}" data-tile="${key}" title="See who is behind this figure"`
+    + `><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></button>`
   ).join('');
 
   const absent = data.todaysLogs.filter(l => l.notWorking);
@@ -1314,6 +1337,10 @@ function renderToday() {
     }).join('');
   }
 
+  $('todayTiles').querySelectorAll('[data-tile]').forEach(btn => {
+    btn.addEventListener('click', () => openTileModal(btn.dataset.tile));
+  });
+
   // Wired after the tables are written, whichever layout was rendered. The
   // exception card carries the same buttons, so it is wired from the same place.
   [$('dayGroups'), $('notStartedCard')].forEach(container => {
@@ -1322,6 +1349,132 @@ function renderToday() {
     });
   });
 }
+
+/* ---------------- what is behind a figure ---------------- */
+
+/** Name over posting, from a uid. personCell() needs a log; this needs only the person. */
+function personLine(uid, fallbackName) {
+  const person = data.employees.find(e => e.id === uid);
+  const name = person ? fullName(person) : (fallbackName || 'Unknown');
+  const detail = [person?.province, person?.teamName].filter(Boolean).join(' · ');
+  return `<div class="nm">${esc(name)}</div>`
+    + (detail ? `<div class="meta">${esc(detail)}</div>` : '');
+}
+
+/**
+ * The rows behind one tile on the day view.
+ *
+ * Returns cells as already-escaped HTML, so personLine() and the badges can carry their
+ * own markup. Anything added here must escape its own text.
+ */
+function tileDetail(key) {
+  const logs = data.todaysLogs;
+  const fuelFor = (uid) => data.dayFuelLogs
+    .filter(f => f.uid === uid)
+    .reduce((sum, f) => sum + Number(f.amountSpentRands || 0), 0);
+
+  switch (key) {
+    case 'started': {
+      const rows = logs.filter(l => l.startTimeMillis > 0)
+        .sort((a, b) => a.startTimeMillis - b.startTimeMillis);
+      return { title: 'Started', columns: ['Employee', 'Start'],
+        empty: 'Nobody has started yet.',
+        rows: rows.map(l => [personLine(l.uid, l.employeeName), hhmm(l.startTimeMillis)]) };
+    }
+    case 'notstarted': {
+      // Accounted for = clocked in OR reported not working, matching the tile.
+      const accountedFor = new Set(
+        logs.filter(l => l.startTimeMillis > 0 || l.notWorking).map(l => l.uid));
+      const rows = data.employees
+        .filter(e => e.active !== false && !accountedFor.has(e.id))
+        .sort((a, b) => fullName(a).localeCompare(fullName(b)));
+      return { title: 'No entry yet', columns: ['Employee'],
+        empty: 'Everyone is accounted for.',
+        rows: rows.map(e => [personLine(e.id)]) };
+    }
+    case 'knockedoff': {
+      const rows = logs.filter(l => l.endTimeMillis > 0)
+        .sort((a, b) => b.endTimeMillis - a.endTimeMillis);
+      return { title: 'Knocked off', columns: ['Employee', 'Knock off', 'Hours'],
+        empty: 'Nobody has knocked off yet.',
+        rows: rows.map(l => [personLine(l.uid, l.employeeName), hhmm(l.endTimeMillis),
+          hoursLabel(minutesWorked(l))]) };
+    }
+    case 'hours': {
+      const rows = logs.filter(l => minutesWorked(l) > 0)
+        .sort((a, b) => minutesWorked(b) - minutesWorked(a));
+      return { title: 'Hours worked', columns: ['Employee', 'Hours'],
+        empty: 'No completed days yet.',
+        rows: rows.map(l => [personLine(l.uid, l.employeeName), hoursLabel(minutesWorked(l))]) };
+    }
+    case 'distance': {
+      const rows = logs.filter(l => l.endTimeMillis > 0 && kmOf(l) > 0)
+        .sort((a, b) => kmOf(b) - kmOf(a));
+      return { title: 'Distance travelled', columns: ['Employee', 'Distance'],
+        empty: 'No distance recorded yet.',
+        rows: rows.map(l => [personLine(l.uid, l.employeeName), km(kmOf(l))]) };
+    }
+    case 'fuel': {
+      const uids = [...new Set(data.dayFuelLogs.map(f => f.uid))]
+        .filter(uid => fuelFor(uid) > 0)
+        .sort((a, b) => fuelFor(b) - fuelFor(a));
+      return { title: 'Fuel spent', columns: ['Employee', 'Fuel'],
+        empty: 'No fuel logged yet.',
+        rows: uids.map(uid => [personLine(uid), rand(fuelFor(uid))]) };
+    }
+    case 'late': {
+      const rows = logs.filter(isParkedLate)
+        .sort((a, b) => minutesParkedLate(b) - minutesParkedLate(a));
+      return { title: `Parked after ${PARK_BY}`,
+        columns: ['Employee', 'Knocked off', 'Late by'],
+        empty: `Everyone was parked by ${PARK_BY}.`,
+        rows: rows.map(l => [personLine(l.uid, l.employeeName), hhmm(l.endTimeMillis),
+          `<span class="badge late">${esc(lateLabel(minutesParkedLate(l)))}</span>`]) };
+    }
+    case 'service': {
+      // Who is driving it matters more than the vehicle on its own — somebody has to
+      // be told to take it in.
+      const holderByReg = {};
+      data.employees.forEach(e => {
+        const reg = normReg(e.vehicleRegistration);
+        if (reg) holderByReg[reg] = e;
+      });
+      const rows = data.vehicles.filter(isServiceDue)
+        .sort((a, b) => nextServiceAtKm(a) - nextServiceAtKm(b));
+      return { title: 'Due for a service', columns: ['Vehicle', 'Next service', 'Assigned to'],
+        empty: 'Nothing due.',
+        rows: rows.map(v => {
+          const holder = holderByReg[normReg(v.registrationNumber)];
+          return [
+            `<div class="nm">${esc(v.name || v.registrationNumber)}</div>`
+              + `<div class="meta">${esc(v.registrationNumber)}</div>`,
+            nextServiceAtKm(v) > 0 ? km(nextServiceAtKm(v)) : '—',
+            holder ? esc(fullName(holder)) : '<span class="meta">nobody</span>'
+          ];
+        }) };
+    }
+    default: return null;
+  }
+}
+
+function openTileModal(key) {
+  const detail = tileDetail(key);
+  if (!detail) return;
+  $('tileTitle').textContent = detail.title;
+  $('tileSub').textContent =
+    `${prettyDate(selectedDate)} · ${detail.rows.length} ${detail.rows.length === 1 ? 'person' : 'rows'}`;
+  $('tileBody').innerHTML = detail.rows.length === 0
+    ? `<div class="empty">${esc(detail.empty)}</div>`
+    : `<div class="table-wrap"><table>
+        <thead><tr>${detail.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+        <tbody>${detail.rows
+          .map(r => `<tr>${r.map(cell => `<td>${cell}</td>`).join('')}</tr>`)
+          .join('')}</tbody>
+      </table></div>`;
+  $('tileOverlay').classList.remove('hidden');
+}
+
+$('tileClose').addEventListener('click', () => $('tileOverlay').classList.add('hidden'));
 
 /* ---------------- editing a day entry ---------------- */
 let editingEntryUid = null;
