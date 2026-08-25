@@ -23,6 +23,7 @@ const { getFirestore } = require("firebase-admin/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
+const { randomInt } = require("node:crypto");
 const nodemailer = require("nodemailer");
 
 initializeApp();
@@ -69,11 +70,20 @@ function todayString(tz) {
   return new Date().toLocaleDateString("en-CA", { timeZone: tz }); // yyyy-MM-dd
 }
 
+/**
+ * The alphabet leaves out I, l, 1, O and 0 on purpose: these passwords get read off a
+ * screen and typed on a phone, so a character nobody can tell apart costs a support call.
+ *
+ * randomInt rather than Math.random, because this is a real account credential.
+ * Math.random is a fast PRNG, not a secure one — its output is predictable from enough
+ * observed values, and every employee sees one of these values. randomInt draws from
+ * the OS entropy source and is free of the modulo bias a naive % would introduce.
+ */
 function randomPassword(length = 10) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
   let out = "";
   for (let i = 0; i < length; i++) {
-    out += chars[Math.floor(Math.random() * chars.length)];
+    out += chars[randomInt(chars.length)];
   }
   return out;
 }
