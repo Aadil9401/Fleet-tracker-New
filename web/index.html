@@ -733,6 +733,16 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const SERVICE_INTERVAL_KM = 15000;
+/**
+ * The smallest figure believable as a service interval. Anything under it is treated
+ * as not supplied at all.
+ *
+ * 0 is not a harmless value here: this portal and the reminder emails both read a 0
+ * interval as "use the fleet standard", while the phone app reads it as "don't judge
+ * this vehicle by kilometres". A vehicle uploaded with 0 therefore showed a service
+ * percentage and sent reminders from here, while the driver's phone showed nothing.
+ */
+const MIN_SERVICE_INTERVAL_KM = 1000;
 const ALL_PROVINCES = 'All provinces';
 const SA_PROVINCES = ['Eastern Cape','Free State','Gauteng','KwaZulu-Natal','Limpopo',
   'Mpumalanga','North West','Northern Cape','Western Cape'];
@@ -1968,7 +1978,10 @@ $('svcApply').addEventListener('click', async () => {
   const matches = vehiclesMatchingInterval();
   const interval = Number($('svcInterval').value || 0);
   if (matches.length === 0) { showMsg('Nothing matches that text.', 'err'); return; }
-  if (!interval || interval < 1000) { showMsg('Enter a sensible interval in km.', 'err'); return; }
+  if (!interval || interval < MIN_SERVICE_INTERVAL_KM) {
+    showMsg(`Enter an interval of at least ${num(MIN_SERVICE_INTERVAL_KM)} km.`, 'err');
+    return;
+  }
   if (!confirm(`Set ${matches.length} vehicle(s) to a ${num(interval)} km service interval?`)) return;
   try {
     for (let i = 0; i < matches.length; i += 400) {
@@ -2112,8 +2125,14 @@ const digits = (s) => {
   return only ? Number(only) : null;
 };
 
+/**
+ * Returns the vehicles to add, plus any interval column too small to use. Those are
+ * worth naming back to the admin, because the vehicle quietly lands on the fleet
+ * standard rather than the figure they typed.
+ */
 function parseVehicleLines(text) {
-  return text.split(/\r?\n/)
+  const ignoredIntervals = [];
+  const vehicles = text.split(/\r?\n/)
     .map(l => l.trim())
     .filter(Boolean)
     .filter(line => {
@@ -2125,6 +2144,14 @@ function parseVehicleLines(text) {
       const reg = (p[0] || '').toUpperCase();
       if (!reg) return null;
       const odo = digits(p[2]) ?? 0;
+      const suppliedInterval = digits(p[5]);
+      const usableInterval =
+        suppliedInterval !== null && suppliedInterval >= MIN_SERVICE_INTERVAL_KM
+          ? suppliedInterval
+          : null;
+      if (suppliedInterval !== null && usableInterval === null) {
+        ignoredIntervals.push({ reg, supplied: suppliedInterval });
+      }
       return {
         registrationNumber: reg,
         name: p[1] || reg,
@@ -2137,16 +2164,18 @@ function parseVehicleLines(text) {
         lastServiceOdometerKm: digits(p[4]) ?? 0,
         lastServiceDateMillis: parseServiceDate(p[3]),
         // Optional 6th column, for models on a different schedule (Magnites run
-        // 10 000 km). Blank falls back to the fleet standard.
-        serviceIntervalKm: digits(p[5]) ?? SERVICE_INTERVAL_KM,
+        // 10 000 km). Blank — or a figure too small to be real — falls back to the
+        // fleet standard.
+        serviceIntervalKm: usableInterval ?? SERVICE_INTERVAL_KM,
         serviceIntervalMonths: 0
       };
     })
     .filter(Boolean);
+  return { vehicles, ignoredIntervals };
 }
 
 $('bulkBtn').addEventListener('click', async () => {
-  const parsed = parseVehicleLines($('bulkText').value);
+  const { vehicles: parsed, ignoredIntervals } = parseVehicleLines($('bulkText').value);
   if (parsed.length === 0) {
     showMsg('Nothing to add — check the format and try again.', 'err');
     return;
@@ -2171,7 +2200,14 @@ $('bulkBtn').addEventListener('click', async () => {
     }
     let report = `Added ${toAdd.length} vehicle(s).`;
     if (skipped) report += ` Skipped ${skipped} already on the list.`;
-    showMsg(report);
+    // Only the ones actually written — naming a skipped duplicate's interval is noise.
+    const addedRegs = new Set(toAdd.map(v => normReg(v.registrationNumber)));
+    const ignored = ignoredIntervals.filter(i => addedRegs.has(normReg(i.reg)));
+    if (ignored.length) {
+      report += ` Service interval too small to use, so ${num(SERVICE_INTERVAL_KM)} km`
+        + ` applies instead: ${ignored.map(i => `${i.reg} (${i.supplied})`).join(', ')}.`;
+    }
+    showMsg(report, ignored.length ? 'err' : 'ok');
     $('bulkText').value = '';
     $('csvFile').value = '';
     await loadAll();
