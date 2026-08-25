@@ -70,7 +70,7 @@ The portal is one file of plain JavaScript with no build step, so these run
 straight from a checkout with nothing installed:
 
 ```bash
-node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.html && node web/render-test.mjs web/index.html && node --check functions/index.js
+node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.html && node web/render-test.mjs web/index.html && node web/service-schedule-test.mjs web/index.html service-schedule-cases.csv && node functions/service-schedule-test.mjs service-schedule-cases.csv && node --check functions/index.js
 ```
 
 - `smoke-test.mjs` evaluates the portal's module against stubbed browser and
@@ -84,10 +84,26 @@ node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.htm
   the same columns as the header. A row with the wrong number of cells renders
   perfectly happily, so nothing else would catch it.
 
-All three share the browser and Firebase stubs in `portal-harness.mjs`.
+Those three share the browser and Firebase stubs in `portal-harness.mjs`.
 
-Note that the service milestone rules exist in three places: `web/index.html`,
-`Vehicle` in `Models.kt`, and `checkServiceReminders` in `functions/index.js`.
-Nothing enforces that they agree, so a change to one needs the same change to
-the other two, and `parser-test.mjs` is the table of cases all three should
-satisfy.
+## The service schedule
+
+The rules for when a vehicle is due — milestones, progress percentage, the
+kilometre and date verdicts — are needed in three places that **cannot share
+code**: the phone app is Kotlin, the portal is one self-contained HTML file with
+no build step, and the Cloud Functions are a separate deploy root that can reach
+neither. So there are three implementations, and one specification they all
+answer to.
+
+| | |
+|---|---|
+| **The specification** | `service-schedule-cases.csv` — a table of cases, at the repo root |
+| Phone app | `ServiceSchedule.kt`, checked by `ServiceScheduleTest` (`gradle testDebugUnitTest`) |
+| Admin portal | inline in `index.html`, checked by `web/service-schedule-test.mjs` |
+| Reminder job | `functions/service-schedule.js`, checked by `functions/service-schedule-test.mjs` |
+
+**Change a rule in the CSV, then change it in all three.** CI runs every copy
+against the table and names the one that disagrees. That table was written after
+finding three real divergences between the copies — they are documented at the
+bottom of the CSV, including one where the portal and the phone showed different
+service percentages for the same vehicle.

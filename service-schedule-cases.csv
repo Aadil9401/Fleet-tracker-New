@@ -1,0 +1,58 @@
+﻿# The service schedule contract. THIS FILE IS THE SPECIFICATION.
+#
+# The same rules are implemented three times over, because the three places that need
+# them cannot share code: the Android app is Kotlin, the admin portal is a single
+# self-contained HTML file with no build step, and the Cloud Functions are a separate
+# deploy root that cannot reach either. Nothing stops those three drifting apart, and
+# they had: see the notes at the bottom.
+#
+# So all three are tested against this table instead. Change a rule here, change it in
+# all three, and CI tells you if you missed one:
+#
+#   web/service-schedule-test.mjs        the portal        (node)
+#   functions/service-schedule-test.mjs  the reminder job  (node)
+#   app/src/test/.../ServiceScheduleTest.kt  the phone app (gradle test)
+#
+# Columns
+#   name                a label for the case, shown when it fails
+#   intervalKm          serviceIntervalKm as stored. 0 means the vehicle has none
+#   lastServiceOdoKm    lastServiceOdometerKm. 0 means no service has ever been recorded
+#   currentOdoKm        currentOdometerKm
+#   intervalMonths      serviceIntervalMonths. 0 turns the date-based check off
+#   lastServiceDaysAgo  how long ago the last service was. -1 means no date on record
+#   nextAtKm            expected next service milestone. 0 when not tracked
+#   percent             expected progress through the window, or "none" for unknown
+#   dueByKm             expected kilometre-based verdict
+#   dueByDate           expected date-based verdict
+name,intervalKm,lastServiceOdoKm,currentOdoKm,intervalMonths,lastServiceDaysAgo,nextAtKm,percent,dueByKm,dueByDate
+no-history-mid-window,15000,0,90000,0,-1,105000,none,false,false
+no-history-exactly-on-a-milestone,15000,0,15000,0,-1,30000,none,false,false
+early-service-still-satisfies-its-milestone,15000,149000,152000,0,-1,165000,18,false,false
+service-exactly-on-a-milestone-steps-on,15000,150000,150000,0,-1,165000,0,false,false
+custom-interval-reached-is-due,10000,85000,100000,0,-1,100000,100,true,false
+odometer-below-the-last-service-reading,15000,100000,90000,0,-1,120000,0,false,false
+far-past-due-clamps-at-100,15000,100000,200000,0,-1,120000,100,true,false
+no-interval-means-not-tracked,0,80000,90000,0,-1,0,none,false,false
+due-by-date-alone,15000,80000,81000,6,200,105000,4,false,true
+not-yet-due-by-date,15000,80000,81000,6,100,105000,4,false,false
+zero-months-disables-the-date-check,15000,80000,81000,0,999,105000,4,false,false
+no-service-date-recorded,15000,80000,81000,6,-1,105000,4,false,false
+#
+# Divergences this table was written to close, all three found by writing it:
+#
+# 1. A vehicle with no interval. The portal and the reminder job both read 0 as "use
+#    the fleet standard of 15 000", inventing a schedule nobody set, while the phone
+#    read it as "not tracked by kilometres". The same vehicle showed a percentage and
+#    sent reminders from the portal while the driver's phone showed nothing at all.
+#    Settled as: 0 means not tracked. See no-interval-means-not-tracked.
+#
+# 2. Rounding. The portal rounded the percentage and the phone truncated it, so a
+#    vehicle 18.75% through its window read 19% to the admin and 18% to the driver.
+#    Settled as: truncate, matching the phone — a progress figure should not overstate
+#    itself, and the driver's number is the one that gets quoted. See
+#    early-service-still-satisfies-its-milestone.
+#
+# 3. The kilometre verdict had no interval guard in either JS copy. Masked while 0 fell
+#    back to 15 000; the moment divergence 1 was fixed it would have reported EVERY
+#    untracked vehicle as due, because the next milestone is 0 and any reading is above
+#    it. See no-interval-means-not-tracked, dueByKm.

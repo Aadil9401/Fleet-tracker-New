@@ -86,4 +86,8 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Plain JVM unit tests. ServiceSchedule has no Firebase or Android dependency, so
+    // the service rules can be held to service-schedule-cases.csv without an emulator.
+    testImplementation("junit:junit:4.13.2")
 }

@@ -11,9 +11,10 @@
  *    this vehicle by kilometres" while this portal and the reminder emails read it as
  *    "use the fleet standard" — so the same vehicle was both tracked and untracked.
  *
- * 2. The service milestone maths. The same rules exist three times over (here, in
- *    Vehicle.kt, and in the reminder function), and nothing but this makes them agree.
- *    If a case below changes, the other two copies need the same change.
+ * 2. The 18:30 parking curfew.
+ *
+ * The service milestone rules are deliberately absent: those belong to
+ * service-schedule-cases.csv, which all three implementations are tested against.
  */
 import { loadPortal } from './portal-harness.mjs';
 
@@ -123,36 +124,11 @@ check('isParkedLate agrees with the minutes on time',
 check('isParkedLate agrees with the minutes when late',
   portal.isParkedLate(shift({ endTimeMillis: past(30) })), true);
 
-/* ---------------- service milestones ---------------- */
-const v = (o) => ({ serviceIntervalKm: 15000, currentOdometerKm: 0,
-  lastServiceOdometerKm: 0, lastServiceDateMillis: 0, serviceIntervalMonths: 0, ...o });
-
-check('no history: next milestone above the current reading',
-  portal.nextServiceAtKm(v({ currentOdometerKm: 90000 })), 105000);
-check('no history: no percentage to show',
-  portal.percentToNextService(v({ currentOdometerKm: 90000 })), null);
-
-// Servicing at 149 000 counts as the 150 000 service, so the next is 165 000.
-check('an early service still satisfies its milestone',
-  portal.nextServiceAtKm(v({ currentOdometerKm: 152000, lastServiceOdometerKm: 149000 })), 165000);
-check('percentage measures from the service, not the milestone',
-  portal.percentToNextService(v({ currentOdometerKm: 152000, lastServiceOdometerKm: 149000 })), 19);
-
-check('a service exactly on a milestone steps to the next one',
-  portal.nextServiceAtKm(v({ currentOdometerKm: 150000, lastServiceOdometerKm: 150000 })), 165000);
-check('freshly serviced reads 0%',
-  portal.percentToNextService(v({ currentOdometerKm: 150000, lastServiceOdometerKm: 150000 })), 0);
-
-check('a custom interval is respected',
-  portal.nextServiceAtKm(v({ serviceIntervalKm: 10000, currentOdometerKm: 100000, lastServiceOdometerKm: 85000 })), 100000);
-check('reaching the milestone is due',
-  portal.isServiceDue(v({ serviceIntervalKm: 10000, currentOdometerKm: 100000, lastServiceOdometerKm: 85000 })), true);
-
-// An odometer below the last service reading is a typo, not -50% of a window.
-check('percentage never goes below 0',
-  portal.percentToNextService(v({ currentOdometerKm: 90000, lastServiceOdometerKm: 100000 })), 0);
-check('percentage never goes above 100',
-  portal.percentToNextService(v({ currentOdometerKm: 200000, lastServiceOdometerKm: 100000 })), 100);
+/* The service milestone rules are NOT tested here. They live in
+   service-schedule-cases.csv and are run against all three implementations — the
+   portal, the reminder job and the phone app — by their own tests. A second copy of
+   those cases here would have made this a fourth place the rules are written down,
+   which is the whole problem that file exists to solve. */
 
 console.log(failures === 0
   ? '\nPARSER TESTS OK'

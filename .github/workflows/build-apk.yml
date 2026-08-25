@@ -39,3 +39,9 @@ jobs:
         with:
           name: fleet-tracker-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # After the upload on purpose: if the service rules have drifted from
+      # service-schedule-cases.csv the run should go red, but the APK is still there to
+      # download. Its two JS counterparts run in the checks workflow.
+      - name: Phone app matches the service schedule spec
+        run: gradle testDebugUnitTest --no-daemon

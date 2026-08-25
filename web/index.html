@@ -929,13 +929,23 @@ const normReg = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const initials = (name, surname) =>
   ((name?.[0] ?? '') + (surname?.[0] ?? '')).toUpperCase() || '?';
 
-const intervalOf = (v) => v.serviceIntervalKm || SERVICE_INTERVAL_KM;
 /**
- * Whether a vehicle's stored interval is one the upload would accept today.
+ * The interval as stored, with 0 meaning the vehicle has none.
  *
- * intervalOf() above papers over anything unusable, which is what makes these worth
- * hunting for: nothing in the fleet table ever looks wrong, so a vehicle stored with 0
- * shows a percentage here while the driver's phone shows nothing at all.
+ * This used to fall back to the fleet standard, which invented a schedule nobody had
+ * set: the portal showed a percentage and sent reminders for a vehicle the driver's
+ * phone treated as untracked. 0 now means untracked here too.
+ *
+ * Note this is a different question from hasUsableInterval() below. That one is input
+ * validation — is this a figure we would accept on an upload. This one is the schedule
+ * rule, and it has to match the phone exactly, which guards on nothing more than
+ * "greater than zero".
+ */
+const intervalOf = (v) => Math.max(0, Number(v.serviceIntervalKm || 0));
+
+/**
+ * Whether a vehicle's stored interval is one the upload would accept today. Used only
+ * to hunt down rows that predate that floor — the schedule itself does not care.
  */
 const hasUsableInterval = (v) => Number(v.serviceIntervalKm || 0) >= MIN_SERVICE_INTERVAL_KM;
 
@@ -949,10 +959,13 @@ const hasUsableInterval = (v) => Number(v.serviceIntervalKm || 0) >= MIN_SERVICE
  * current reading.
  */
 function nextServiceAtKm(v) {
-  const i = intervalOf(v);
-  const last = v.lastServiceOdometerKm || 0;
-  if (last > 0) return Math.ceil(last / i) * i + i;
-  return (Math.floor((v.currentOdometerKm || 0) / i) + 1) * i;
+  const interval = intervalOf(v);
+  if (interval <= 0) return 0;
+  const last = Number(v.lastServiceOdometerKm || 0);
+  const current = Number(v.currentOdometerKm || 0);
+  return last > 0
+    ? Math.ceil(last / interval) * interval + interval
+    : (Math.floor(current / interval) + 1) * interval;
 }
 
 const kmUntilService = (v) => nextServiceAtKm(v) - (v.currentOdometerKm || 0);
@@ -964,10 +977,13 @@ const kmUntilService = (v) => nextServiceAtKm(v) - (v.currentOdometerKm || 0);
  */
 function percentToNextService(v) {
   const start = Number(v.lastServiceOdometerKm || 0);
-  if (start <= 0) return null;
+  if (intervalOf(v) <= 0 || start <= 0) return null;
   const next = nextServiceAtKm(v);
   if (next <= start) return 100;
-  const pct = Math.round(((v.currentOdometerKm || 0) - start) / (next - start) * 100);
+  // Truncated rather than rounded, matching the phone. This rounded, so a vehicle
+  // 18.75% through its window read 19% to the admin and 18% to the driver — and the
+  // driver's figure is the one that gets quoted down the phone.
+  const pct = Math.trunc((Number(v.currentOdometerKm || 0) - start) / (next - start) * 100);
   return Math.max(0, Math.min(100, pct));
 }
 
@@ -983,14 +999,32 @@ function dealershipQuery(v) {
   return make ? `${make} dealership` : 'car service centre';
 }
 
-// Mirrors Vehicle.isServiceDue in the Android app, including the "0 months means
-// kilometres only" rule.
-function isServiceDue(v) {
-  if ((v.currentOdometerKm || 0) >= nextServiceAtKm(v)) return true;
-  const months = typeof v.serviceIntervalMonths === 'number' ? v.serviceIntervalMonths : 6;
-  if (!v.lastServiceDateMillis || months <= 0) return false;
-  return Date.now() - v.lastServiceDateMillis >= months * 30 * 24 * 60 * 60 * 1000;
+/**
+ * The kilometre verdict. The interval guard is not decoration: with no interval the
+ * next milestone is 0, and every reading on earth is at or above 0 — so without it,
+ * every untracked vehicle reports as due.
+ */
+function isServiceDueByKm(v) {
+  return intervalOf(v) > 0 && Number(v.currentOdometerKm || 0) >= nextServiceAtKm(v);
 }
+
+/** The date verdict. 0 months means "judge by kilometres only". */
+function isServiceDueByDate(v, nowMillis) {
+  const last = Number(v.lastServiceDateMillis || 0);
+  const months = typeof v.serviceIntervalMonths === 'number' ? v.serviceIntervalMonths : 6;
+  if (last <= 0 || months <= 0) return false;
+  return nowMillis - last >= months * 30 * 24 * 60 * 60 * 1000;
+}
+
+/** Both rules, at a given moment. Mirrors Vehicle.isServiceDue on the phone. */
+const isServiceDueAt = (v, nowMillis) =>
+  isServiceDueByKm(v) || isServiceDueByDate(v, nowMillis);
+
+/**
+ * Takes only the vehicle on purpose: this gets passed straight to Array.filter, which
+ * would otherwise hand the array index in as the current time.
+ */
+const isServiceDue = (v) => isServiceDueAt(v, Date.now());
 
 function showMsg(text, kind = 'ok') {
   $('globalMsg').innerHTML = `<div class="msg ${kind}">${esc(text)}</div>`;
@@ -2039,7 +2073,8 @@ function openServiceModal(vehicleId) {
   if (!v) return;
   servicingVehicleId = vehicleId;
   $('svcSub').textContent =
-    `${v.name || v.registrationNumber} · ${v.registrationNumber} · services every ${km(intervalOf(v))}`;
+    `${v.name || v.registrationNumber} · ${v.registrationNumber} · ${
+      intervalOf(v) > 0 ? `services every ${km(intervalOf(v))}` : 'no service interval set'}`;
   $('svcOdo').value = v.currentOdometerKm || 0;
   $('svcDate').value = todayString();
   $('svcProvider').value = v.lastServiceProvider || '';
@@ -2168,11 +2203,17 @@ $('svcBaseline').addEventListener('click', async () => {
   const candidates = data.vehicles.filter(v => (v.lastServiceOdometerKm || 0) <= 0);
   const plan = candidates
     .map(v => {
-      const i = intervalOf(v);
-      const baseline = Math.floor((v.currentOdometerKm || 0) / i) * i;
+      const interval = intervalOf(v);
+      // Guarded rather than relying on the filter below: with no interval this divides
+      // by zero, and NaN happens to fail "> 0" for the right answer by accident. An
+      // accident is not a rule.
+      const baseline = interval > 0
+        ? Math.floor((v.currentOdometerKm || 0) / interval) * interval
+        : 0;
       return { v, baseline };
     })
-    // A vehicle below its first interval genuinely has no service yet — leave it.
+    // A vehicle below its first interval genuinely has no service yet — leave it, as
+    // is one with no interval at all, which has no milestones to baseline against.
     .filter(p => p.baseline > 0);
 
   const skippedLowKm = candidates.length - plan.length;

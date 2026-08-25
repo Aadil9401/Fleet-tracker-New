@@ -25,6 +25,9 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const { randomInt } = require("node:crypto");
 const nodemailer = require("nodemailer");
+// The service rules live in their own module, tested against service-schedule-cases.csv
+// at the repo root — the same table the portal and the phone app are tested against.
+const { nextServiceAtKm, isServiceDueAt } = require("./service-schedule");
 
 initializeApp();
 const db = getFirestore();
@@ -274,29 +277,17 @@ exports.checkServiceReminders = onSchedule(
       const v = doc.data();
       if (v.lastReminderNotifiedDate === today) continue;
 
-      // Must mirror Vehicle.nextServiceAtKm() in the app: milestones are absolute
-      // (every 15 000 km on the clock), and once a service is recorded the schedule
-      // steps on from the milestone that service satisfied.
-      const interval = v.serviceIntervalKm || 15000;
-      const current = v.currentOdometerKm || 0;
-      const lastServiced = v.lastServiceOdometerKm || 0;
-      const nextServiceAtKm = lastServiced > 0
-        ? Math.ceil(lastServiced / interval) * interval + interval
-        : (Math.floor(current / interval) + 1) * interval;
-      const dueByKm = current >= nextServiceAtKm;
+      // Both rules — kilometres and elapsed months — live in ./service-schedule so
+      // this job, the portal and the phone app can be held to one shared table of
+      // cases. They used to be written out here, and had drifted from the app.
+      if (!isServiceDueAt(v, Date.now())) continue;
 
-      // Must mirror Vehicle.isServiceDueByDate on the app side: 0 months means
-      // "kilometres only". Note `|| 6` would wrongly turn an explicit 0 into 6.
-      const months = typeof v.serviceIntervalMonths === "number" ? v.serviceIntervalMonths : 6;
-      let dueByDate = false;
-      if (v.lastServiceDateMillis && months > 0) {
-        const monthsMs = months * 30 * 24 * 60 * 60 * 1000;
-        dueByDate = Date.now() - v.lastServiceDateMillis >= monthsMs;
-      }
-
-      if (dueByKm || dueByDate) {
-        dueVehicles.push({ id: doc.id, ...v, nextServiceAtKm, current });
-      }
+      dueVehicles.push({
+        id: doc.id,
+        ...v,
+        nextServiceAtKm: nextServiceAtKm(v),
+        current: v.currentOdometerKm || 0
+      });
     }
 
     if (dueVehicles.length === 0) return;

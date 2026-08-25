@@ -31,8 +31,19 @@ jobs:
       - name: Portal still renders correctly
         run: node web/render-test.mjs web/index.html
 
+      # The service rules are implemented three times and cannot share code across two
+      # languages and three deploy roots, so all three answer to one table of cases.
+      # The phone app's copy is checked by gradle test in the build-apk workflow.
+      - name: Portal matches the service schedule spec
+        run: node web/service-schedule-test.mjs web/index.html service-schedule-cases.csv
+
+      - name: Reminder job matches the service schedule spec
+        run: node functions/service-schedule-test.mjs service-schedule-cases.csv
+
       - name: Cloud Functions parse
-        run: node --check functions/index.js
+        run: |
+          node --check functions/index.js
+          node --check functions/service-schedule.js
 
       # firebase.json is deliberately left out: the Firebase CLI allows comments in
       # it and ours has them, so it is not strict JSON and JSON.parse would fail.
