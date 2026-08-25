@@ -1,0 +1,42 @@
+name: Checks
+
+# The APK build already runs on every push, but it says nothing about the admin
+# portal or the Cloud Functions — and those are the two things that get deployed by
+# hand. This job is the guard for them, and it finishes in well under a minute.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  web-and-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the "engines" in functions/package.json, so a syntax the
+          # deployed runtime rejects is rejected here too.
+          node-version: '20'
+
+      - name: Portal loads without dying
+        run: node web/smoke-test.mjs web/index.html
+
+      - name: Portal logic is still correct
+        run: node web/parser-test.mjs web/index.html
+
+      - name: Cloud Functions parse
+        run: node --check functions/index.js
+
+      # firebase.json is deliberately left out: the Firebase CLI allows comments in
+      # it and ours has them, so it is not strict JSON and JSON.parse would fail.
+      - name: Config files are valid JSON
+        run: |
+          for f in .firebaserc firestore.indexes.json functions/package.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" \
+              && echo "$f OK" \
+              || { echo "::error file=$f::not valid JSON"; exit 1; }
+          done
