@@ -1,6 +1,6 @@
 {
   "name": "functions",
-  "description": "Cloud Functions for Fleet Tracker",
+  "description": "Cloud Functions for My Daily Work Info",
   "engines": {
     "node": "20"
   },
