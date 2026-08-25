@@ -262,8 +262,12 @@
   .person { display: flex; align-items: center; gap: 10px; }
   /* Captured details are shown in capitals so rows line up regardless of how each
      person typed them. Email keeps its original casing — an uppercased address is
-     hard to read back to someone. */
-  table td, .person .nm, .person .meta, .chip { text-transform: uppercase; }
+     hard to read back to someone.
+
+     Add .caps to anything showing a name or other captured detail outside a table —
+     without it the same person reads as "Sarah Dube" in one place and "SARAH DUBE"
+     in another, which is what made the day view's summary cards look wrong. */
+  table td, .person .nm, .person .meta, .chip, .caps { text-transform: uppercase; }
   .email, a { text-transform: none; }
 
   .person .nm { font-weight: 600; }
@@ -533,7 +537,7 @@
     <div id="svcOverlay" class="overlay hidden">
       <div class="modal">
         <h2 class="section">Record a service</h2>
-        <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)" id="svcSub"></p>
+        <p class="sub caps" style="font-size:.82rem;margin:0 0 var(--s3)" id="svcSub"></p>
         <div class="field">
           <label for="svcOdo">Odometer at service</label>
           <input id="svcOdo" type="number" min="0">
@@ -559,7 +563,7 @@
     <div id="entryOverlay" class="overlay hidden">
       <div class="modal">
         <h2 class="section" id="entryTitle">Edit day</h2>
-        <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)" id="entrySub"></p>
+        <p class="sub caps" style="font-size:.82rem;margin:0 0 var(--s3)" id="entrySub"></p>
         <div class="toolbar">
           <div class="grow"><label for="enStart">Start time</label><input id="enStart" type="time"></div>
           <div class="grow"><label for="enEnd">Knock off time</label><input id="enEnd" type="time"></div>
@@ -606,6 +610,18 @@
 
     <!-- VEHICLES -->
     <section id="tab-vehicles" class="hidden">
+      <div class="card hidden" id="badIntervalCard">
+        <h2 class="section">Service intervals to fix</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          These vehicles carry a service interval too small to be real — from before the
+          upload started refusing them. This portal quietly reads them as
+          15 000 km, but the phone app reads them as not tracked by kilometres at all,
+          so the driver gets no reminder. Setting them straight makes both agree.
+        </p>
+        <div class="msg err" id="badIntervalList"></div>
+        <button id="badIntervalFix">Set these to 15 000 km</button>
+      </div>
+
       <div class="card">
         <h2 class="section">Bulk upload</h2>
         <div class="field">
@@ -845,6 +861,14 @@ const initials = (name, surname) =>
   ((name?.[0] ?? '') + (surname?.[0] ?? '')).toUpperCase() || '?';
 
 const intervalOf = (v) => v.serviceIntervalKm || SERVICE_INTERVAL_KM;
+/**
+ * Whether a vehicle's stored interval is one the upload would accept today.
+ *
+ * intervalOf() above papers over anything unusable, which is what makes these worth
+ * hunting for: nothing in the fleet table ever looks wrong, so a vehicle stored with 0
+ * shows a percentage here while the driver's phone shows nothing at all.
+ */
+const hasUsableInterval = (v) => Number(v.serviceIntervalKm || 0) >= MIN_SERVICE_INTERVAL_KM;
 
 /**
  * Services fall on absolute odometer milestones — every 15 000 km on the clock.
@@ -1066,12 +1090,12 @@ function renderToday() {
     ${notStarted.length === 0 ? '' : `
       <div class="card" style="background:var(--error-container);color:var(--on-error-container)">
         <h2 class="section">No entry ${isToday ? 'yet' : 'that day'} (${notStarted.length})</h2>
-        ${notStarted.map(e => `<div>• ${esc(fullName(e))}</div>`).join('')}
+        ${notStarted.map(e => `<div class="caps">• ${esc(fullName(e))}</div>`).join('')}
       </div>`}
     ${absent.length === 0 ? '' : `
       <div class="card" style="background:var(--secondary-container);color:var(--on-secondary-container)">
         <h2 class="section">Not working (${absent.length})</h2>
-        ${absent.map(l => `<div>• ${esc(l.employeeName)}${
+        ${absent.map(l => `<div class="caps">• ${esc(l.employeeName)}${
           l.notWorkingReason ? ' — ' + esc(l.notWorkingReason) : ''}</div>`).join('')}
       </div>`}`;
 
@@ -1543,7 +1567,7 @@ function openEditModal(uid) {
   const e = data.employees.find(x => x.id === uid);
   if (!e) return;
   editingUid = uid;
-  $('editTitle').textContent = `Edit ${fullName(e)}`;
+  $('editTitle').innerHTML = `Edit <span class="caps">${esc(fullName(e))}</span>`;
   $('eName').value = e.name || '';
   $('eSurname').value = e.surname || '';
   $('eNumber').value = e.employeeNumber || '';
@@ -1809,6 +1833,7 @@ $('autoAssignBtn').addEventListener('click', async () => {
 });
 
 function renderVehicles() {
+  renderIntervalWarning();
   $('vehCount').textContent = data.vehicles.length;
   $('vehRows').innerHTML = data.vehicles.length === 0
     ? `<tr><td colspan="5" class="empty">No vehicles yet. Upload your list above.</td></tr>`
@@ -1869,6 +1894,38 @@ function renderVehicles() {
     btn.addEventListener('click', () => openServiceModal(btn.dataset.serviced));
   });
 }
+
+/** Vehicles whose stored interval the upload would now refuse. */
+function vehiclesWithBadInterval() {
+  return data.vehicles.filter(v => !hasUsableInterval(v));
+}
+
+function renderIntervalWarning() {
+  const bad = vehiclesWithBadInterval();
+  $('badIntervalCard').classList.toggle('hidden', bad.length === 0);
+  if (bad.length === 0) return;
+  // textContent, not innerHTML — these strings carry vehicle names off the database.
+  $('badIntervalList').textContent = `${bad.length} vehicle(s): ` + bad
+    .map(v => `${v.name || v.registrationNumber} (${v.registrationNumber}) — set to `
+      + `${Number(v.serviceIntervalKm || 0)} km`)
+    .join(', ');
+}
+
+$('badIntervalFix').addEventListener('click', async () => {
+  const bad = vehiclesWithBadInterval();
+  if (bad.length === 0) return;
+  if (!confirm(`Set ${bad.length} vehicle(s) to a ${num(SERVICE_INTERVAL_KM)} km service interval?`)) return;
+  try {
+    for (let i = 0; i < bad.length; i += 400) {
+      const batch = writeBatch(db);
+      bad.slice(i, i + 400).forEach(v =>
+        batch.update(doc(db, 'vehicles', v.id), { serviceIntervalKm: SERVICE_INTERVAL_KM }));
+      await batch.commit();
+    }
+    showMsg(`${bad.length} vehicle(s) now service every ${num(SERVICE_INTERVAL_KM)} km.`);
+    await loadAll();
+  } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
+});
 
 /* ---------------- recording a service ---------------- */
 let servicingVehicleId = null;

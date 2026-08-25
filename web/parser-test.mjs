@@ -19,7 +19,8 @@ import { loadPortal } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'parseVehicleLines', 'MIN_SERVICE_INTERVAL_KM', 'SERVICE_INTERVAL_KM',
-  'nextServiceAtKm', 'percentToNextService', 'isServiceDue'
+  'nextServiceAtKm', 'percentToNextService', 'isServiceDue',
+  'hasUsableInterval', 'vehiclesWithBadInterval', 'data'
 ]);
 
 let failures = 0;
@@ -50,6 +51,34 @@ check('nothing is written below the floor',
   everything.vehicles.filter(v => v.serviceIntervalKm < portal.MIN_SERVICE_INTERVAL_KM).length, 0);
 check('a flagged row still carries its registration',
   everything.ignoredIntervals.map(i => i.reg), ['CA333333', 'CA444444']);
+
+/* ---------------- finding intervals already in the database ---------------- */
+// The floor only guards new uploads. Anything stored before it needs finding, and
+// intervalOf() hides it everywhere else in the portal.
+for (const [stored, want, label] of [
+  [15000,     true,  'the fleet standard is usable'],
+  [1000,      true,  'exactly the floor is usable'],
+  [10000,     true,  'a Magnite interval is usable'],
+  [0,         false, '0 is caught'],
+  [5,         false, '5 is caught'],
+  [undefined, false, 'a missing interval is caught'],
+  [null,      false, 'a null interval is caught'],
+]) {
+  check(`stored interval ${JSON.stringify(stored)}: ${label}`,
+    portal.hasUsableInterval({ serviceIntervalKm: stored }), want);
+}
+
+portal.data.vehicles = [
+  { id: 'a', registrationNumber: 'CA111111', serviceIntervalKm: 15000 },
+  { id: 'b', registrationNumber: 'CA222222', serviceIntervalKm: 0 },
+  { id: 'c', registrationNumber: 'CA333333', serviceIntervalKm: 10000 },
+  { id: 'd', registrationNumber: 'CA444444' },
+];
+check('only the unusable ones are listed for fixing',
+  portal.vehiclesWithBadInterval().map(v => v.id), ['b', 'd']);
+
+portal.data.vehicles = [{ id: 'a', registrationNumber: 'CA111111', serviceIntervalKm: 15000 }];
+check('a clean fleet reports nothing to fix', portal.vehiclesWithBadInterval().length, 0);
 
 /* ---------------- service milestones ---------------- */
 const v = (o) => ({ serviceIntervalKm: 15000, currentOdometerKm: 0,
