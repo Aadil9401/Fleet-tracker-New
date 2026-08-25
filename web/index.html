@@ -865,13 +865,13 @@ const kmOf = (log) => Math.max(0, (log.endOdometerKm || 0) - (log.startOdometerK
  * screen, and a parking curfew is a company rule, not a per-admin preference. Moving
  * it is a one-line change here.
  */
-const PARK_BY = '18:00';
+const PARK_BY = '18:30';
 
 /**
  * Minutes past the curfew that someone knocked off — 0 when on time, and 0 when they
  * never knocked off at all (that is a different fault, already flagged on its own).
  *
- * Measured against that day's own 18:00 rather than the hour on the timestamp: a
+ * Measured against that day's own curfew rather than the hour on the timestamp: a
  * knock-off after midnight reads as hour 0, so an hour check would score the very
  * latest case as the earliest of all.
  */

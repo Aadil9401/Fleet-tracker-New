@@ -3,10 +3,11 @@
  *
  *   node web/render-test.mjs web/index.html
  *
- * The day table has three row shapes — a worked day, a reported absence, and no entry
- * at all — and they must all lay out on the same columns as the header. They used to
- * not: the absence and no-entry rows collapsed six columns into one `colspan` cell, so
- * a list of forty people alternated between eight-column and three-column rows.
+ * The day table has several row shapes — a worked day, a day parked late, a reported
+ * absence, and no entry at all — and they must all lay out on the same columns as the
+ * header. They used to not: the absence and no-entry rows collapsed six columns into
+ * one `colspan` cell, so a list of forty people alternated between eight-column and
+ * three-column rows.
  *
  * That is invisible to a syntax check and to logic tests, because the page renders
  * perfectly happily either way. So this drives the real render function against stub
@@ -16,7 +17,7 @@ import { readFileSync } from 'fs';
 import { loadPortal, writes } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
-  'renderToday', 'data'
+  'renderToday', 'data', 'PARK_BY'
 ]);
 
 let failures = 0;
@@ -49,7 +50,9 @@ portal.data.todaysLogs = [
   { uid: 'u2', employeeName: 'John Smith', date: day,
     notWorking: true, notWorkingReason: 'Sick leave' },
   { uid: 'u4', employeeName: 'Lerato Mokoena', date: day,
-    startTimeMillis: at(day, '08:00'), endTimeMillis: at(day, '18:45'),
+    // 45 minutes past whatever the curfew is, so the badge text below is stable
+    // when the curfew moves.
+    startTimeMillis: at(day, '08:00'), endTimeMillis: at(day, portal.PARK_BY) + 45 * 60000,
     startOdometerKm: 200, endOdometerKm: 320, mainAreasWorked: 'Botshabelo' },
 ];
 portal.data.dayFuelLogs = [];
@@ -58,13 +61,13 @@ portal.data.vehicles = [];
 portal.renderToday();
 
 const dayHtml = writes()['dayGroups'] ?? '';
-// Body rows only — the <tr> in <thead> holds <th>, and counting it as a row would
-// make the comparison below meaningless.
-// A cell opens as `<td>`, `<td class=…`, or `<td${…}` — the last is how a figure that
-// needs colouring is written, so the pattern has to allow it or the count comes up short.
+// Body rows only — the <tr> in <thead> holds <th>, and counting it as a row would make
+// the comparison below meaningless.
 const body = dayHtml.slice(dayHtml.indexOf('<tbody>'));
 const rows = body.split('<tr>').slice(1);
 const headerCells = (dayHtml.slice(0, dayHtml.indexOf('<tbody>')).match(/<th[\s>]/g) ?? []).length;
+// A cell opens as `<td>`, `<td class=…`, or `<td${…}` — the last is how a figure that
+// needs colouring is written, so the pattern has to allow it or the count comes up short.
 const cellCounts = rows.map(r => (r.match(/<td[\s>$]/g) ?? []).length);
 
 check('the header defines 8 columns', headerCells, 8);
@@ -83,9 +86,9 @@ check('the name is its own line', dayHtml.includes('<div class="nm">Sarah Dube</
 check('province and team sit under it',
   dayHtml.includes('<div class="meta">Eastern Cape · Mthatha</div>'), true);
 
-/* The 18:00 curfew, flagged on the knock-off itself. */
-check('a knock-off after 18:00 is badged',
-  dayHtml.includes('<span class="badge late" title="45 minutes after 18:00">Parked late</span>'), true);
+/* The curfew, flagged on the knock-off itself. */
+check('a knock-off past the curfew is badged, with how late it was',
+  dayHtml.includes(`<span class="badge late" title="45 minutes after ${portal.PARK_BY}">Parked late</span>`), true);
 check('only the late row is badged', (dayHtml.match(/badge late/g) ?? []).length, 1);
 check('the on-time knock-off still shows its time', dayHtml.includes('17:00'), true);
 

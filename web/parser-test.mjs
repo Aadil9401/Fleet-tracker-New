@@ -81,8 +81,10 @@ check('only the unusable ones are listed for fixing',
 portal.data.vehicles = [{ id: 'a', registrationNumber: 'CA111111', serviceIntervalKm: 15000 }];
 check('a clean fleet reports nothing to fix', portal.vehiclesWithBadInterval().length, 0);
 
-/* ---------------- the 18:00 parking curfew ---------------- */
-check('the curfew is 18:00', portal.PARK_BY, '18:00');
+/* ---------------- the parking curfew ---------------- */
+// Cases are expressed as offsets from PARK_BY rather than against a literal clock
+// time, so moving the curfew stays the one-line change it is meant to be.
+check('the curfew is a HH:MM time', /^\d{1,2}:\d{2}$/.test(portal.PARK_BY), true);
 
 // Local time, matching millisFor() in the page — the admin's clock is the reference.
 const at = (date, hhmm) => {
@@ -92,26 +94,34 @@ const at = (date, hhmm) => {
 };
 const day = '2026-08-25';
 const shift = (o) => ({ date: day, startTimeMillis: at(day, '08:00'), ...o });
+const curfew = at(day, portal.PARK_BY);
+const past = (mins) => curfew + mins * 60000;
 
 for (const [log, want, label] of [
-  [shift({ endTimeMillis: at(day, '17:30') }), 0,   'knocking off at 17:30 is on time'],
-  [shift({ endTimeMillis: at(day, '18:00') }), 0,   'exactly 18:00 is on time, not late'],
-  [shift({ endTimeMillis: at(day, '18:01') }), 1,   'one minute past counts'],
-  [shift({ endTimeMillis: at(day, '18:45') }), 45,  '18:45 is 45 minutes late'],
-  [shift({ endTimeMillis: at(day, '23:59') }), 359, 'just before midnight'],
-  // The case an hour-of-day check gets backwards: 00:30 reads as hour 0, so the
-  // latest knock-off of all would have scored as the earliest.
-  [shift({ endTimeMillis: at('2026-08-26', '00:30') }), 390, 'after midnight is the latest, not the earliest'],
+  [shift({ endTimeMillis: past(-60) }), 0,  'an hour before the curfew is on time'],
+  [shift({ endTimeMillis: past(-1) }),  0,  'a minute before the curfew is on time'],
+  [shift({ endTimeMillis: curfew }),    0,  'exactly on the curfew is on time, not late'],
+  [shift({ endTimeMillis: past(1) }),   1,  'one minute past counts'],
+  [shift({ endTimeMillis: past(45) }),  45, '45 minutes past reads as 45 late'],
   [shift({ endTimeMillis: 0 }), 0, 'never knocking off is a different fault, not lateness'],
-  [{ endTimeMillis: at(day, '19:00') }, 0, 'a log with no date cannot be judged'],
+  [{ endTimeMillis: past(30) }, 0, 'a log with no date cannot be judged'],
 ]) {
   check(label, portal.minutesParkedLate(log), want);
 }
 
+// The case an hour-of-day check gets backwards: 00:30 reads as hour 0, so the latest
+// knock-off of all scores as the earliest. Stated as a comparison rather than a
+// figure, so it tests the ordering instead of restating the arithmetic.
+const afterMidnight = shift({ endTimeMillis: at('2026-08-26', '00:30') });
+const lateEvening = shift({ endTimeMillis: at(day, '23:00') });
+check('a knock-off after midnight is late at all', portal.isParkedLate(afterMidnight), true);
+check('and later than one just before midnight',
+  portal.minutesParkedLate(afterMidnight) > portal.minutesParkedLate(lateEvening), true);
+
 check('isParkedLate agrees with the minutes on time',
-  portal.isParkedLate(shift({ endTimeMillis: at(day, '17:59') })), false);
+  portal.isParkedLate(shift({ endTimeMillis: past(-1) })), false);
 check('isParkedLate agrees with the minutes when late',
-  portal.isParkedLate(shift({ endTimeMillis: at(day, '18:30') })), true);
+  portal.isParkedLate(shift({ endTimeMillis: past(30) })), true);
 
 /* ---------------- service milestones ---------------- */
 const v = (o) => ({ serviceIntervalKm: 15000, currentOdometerKm: 0,
