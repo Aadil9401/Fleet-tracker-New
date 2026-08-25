@@ -20,7 +20,8 @@ import { loadPortal } from './portal-harness.mjs';
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'parseVehicleLines', 'MIN_SERVICE_INTERVAL_KM', 'SERVICE_INTERVAL_KM',
   'nextServiceAtKm', 'percentToNextService', 'isServiceDue',
-  'hasUsableInterval', 'vehiclesWithBadInterval', 'data'
+  'hasUsableInterval', 'vehiclesWithBadInterval', 'data',
+  'PARK_BY', 'minutesParkedLate', 'isParkedLate'
 ]);
 
 let failures = 0;
@@ -79,6 +80,38 @@ check('only the unusable ones are listed for fixing',
 
 portal.data.vehicles = [{ id: 'a', registrationNumber: 'CA111111', serviceIntervalKm: 15000 }];
 check('a clean fleet reports nothing to fix', portal.vehiclesWithBadInterval().length, 0);
+
+/* ---------------- the 18:00 parking curfew ---------------- */
+check('the curfew is 18:00', portal.PARK_BY, '18:00');
+
+// Local time, matching millisFor() in the page — the admin's clock is the reference.
+const at = (date, hhmm) => {
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, min] = hhmm.split(':').map(Number);
+  return new Date(y, m - 1, d, h, min, 0, 0).getTime();
+};
+const day = '2026-08-25';
+const shift = (o) => ({ date: day, startTimeMillis: at(day, '08:00'), ...o });
+
+for (const [log, want, label] of [
+  [shift({ endTimeMillis: at(day, '17:30') }), 0,   'knocking off at 17:30 is on time'],
+  [shift({ endTimeMillis: at(day, '18:00') }), 0,   'exactly 18:00 is on time, not late'],
+  [shift({ endTimeMillis: at(day, '18:01') }), 1,   'one minute past counts'],
+  [shift({ endTimeMillis: at(day, '18:45') }), 45,  '18:45 is 45 minutes late'],
+  [shift({ endTimeMillis: at(day, '23:59') }), 359, 'just before midnight'],
+  // The case an hour-of-day check gets backwards: 00:30 reads as hour 0, so the
+  // latest knock-off of all would have scored as the earliest.
+  [shift({ endTimeMillis: at('2026-08-26', '00:30') }), 390, 'after midnight is the latest, not the earliest'],
+  [shift({ endTimeMillis: 0 }), 0, 'never knocking off is a different fault, not lateness'],
+  [{ endTimeMillis: at(day, '19:00') }, 0, 'a log with no date cannot be judged'],
+]) {
+  check(label, portal.minutesParkedLate(log), want);
+}
+
+check('isParkedLate agrees with the minutes on time',
+  portal.isParkedLate(shift({ endTimeMillis: at(day, '17:59') })), false);
+check('isParkedLate agrees with the minutes when late',
+  portal.isParkedLate(shift({ endTimeMillis: at(day, '18:30') })), true);
 
 /* ---------------- service milestones ---------------- */
 const v = (o) => ({ serviceIntervalKm: 15000, currentOdometerKm: 0,

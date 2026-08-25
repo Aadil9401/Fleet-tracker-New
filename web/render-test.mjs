@@ -12,6 +12,7 @@
  * perfectly happily either way. So this drives the real render function against stub
  * data and counts the cells.
  */
+import { readFileSync } from 'fs';
 import { loadPortal, writes } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
@@ -26,17 +27,30 @@ function check(label, got, want) {
     + (ok ? '' : `  — got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`));
 }
 
-/* One of each row shape: worked, absent, and never turned up. */
+/* Local time, matching millisFor() in the page. */
+const at = (date, hhmm) => {
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, min] = hhmm.split(':').map(Number);
+  return new Date(y, m - 1, d, h, min, 0, 0).getTime();
+};
+const day = '2026-08-25';
+
+/* One of each row shape: worked on time, absent, never turned up, parked late. */
 portal.data.employees = [
   { id: 'u1', name: 'Sarah', surname: 'Dube', province: 'Eastern Cape', teamName: 'Mthatha' },
   { id: 'u2', name: 'John', surname: 'Smith', province: 'Gauteng', teamName: 'Jozi' },
   { id: 'u3', name: 'Thabo', surname: 'Nkosi', province: 'Limpopo', teamName: 'Polokwane' },
+  { id: 'u4', name: 'Lerato', surname: 'Mokoena', province: 'Free State', teamName: 'Bloem' },
 ];
 portal.data.todaysLogs = [
-  { uid: 'u1', employeeName: 'Sarah Dube', startTimeMillis: 1755000000000,
-    endTimeMillis: 1755030000000, startOdometerKm: 100, endOdometerKm: 150,
-    mainAreasWorked: 'Umlazi' },
-  { uid: 'u2', employeeName: 'John Smith', notWorking: true, notWorkingReason: 'Sick leave' },
+  { uid: 'u1', employeeName: 'Sarah Dube', date: day,
+    startTimeMillis: at(day, '08:00'), endTimeMillis: at(day, '17:00'),
+    startOdometerKm: 100, endOdometerKm: 150, mainAreasWorked: 'Umlazi' },
+  { uid: 'u2', employeeName: 'John Smith', date: day,
+    notWorking: true, notWorkingReason: 'Sick leave' },
+  { uid: 'u4', employeeName: 'Lerato Mokoena', date: day,
+    startTimeMillis: at(day, '08:00'), endTimeMillis: at(day, '18:45'),
+    startOdometerKm: 200, endOdometerKm: 320, mainAreasWorked: 'Botshabelo' },
 ];
 portal.data.dayFuelLogs = [];
 portal.data.vehicles = [];
@@ -46,14 +60,16 @@ portal.renderToday();
 const dayHtml = writes()['dayGroups'] ?? '';
 // Body rows only — the <tr> in <thead> holds <th>, and counting it as a row would
 // make the comparison below meaningless.
+// A cell opens as `<td>`, `<td class=…`, or `<td${…}` — the last is how a figure that
+// needs colouring is written, so the pattern has to allow it or the count comes up short.
 const body = dayHtml.slice(dayHtml.indexOf('<tbody>'));
 const rows = body.split('<tr>').slice(1);
 const headerCells = (dayHtml.slice(0, dayHtml.indexOf('<tbody>')).match(/<th[\s>]/g) ?? []).length;
-const cellCounts = rows.map(r => (r.match(/<td[\s>]/g) ?? []).length);
+const cellCounts = rows.map(r => (r.match(/<td[\s>$]/g) ?? []).length);
 
 check('the header defines 8 columns', headerCells, 8);
-check('three rows rendered (worked, absent, no entry)', rows.length, 3);
-check('every row lays out on the header columns', cellCounts, [8, 8, 8]);
+check('four rows rendered (on time, absent, late, no entry)', rows.length, 4);
+check('every row lays out on the header columns', cellCounts, [8, 8, 8, 8]);
 check('no row collapses columns with colspan', /colspan/.test(dayHtml), false);
 
 /* The status of an exceptional row is carried by a badge in the name cell. */
@@ -67,8 +83,16 @@ check('the name is its own line', dayHtml.includes('<div class="nm">Sarah Dube</
 check('province and team sit under it',
   dayHtml.includes('<div class="meta">Eastern Cape · Mthatha</div>'), true);
 
-/* Tiles state: one person of three has no entry, so it must not read as settled. */
+/* The 18:00 curfew, flagged on the knock-off itself. */
+check('a knock-off after 18:00 is badged',
+  dayHtml.includes('<span class="badge late" title="45 minutes after 18:00">Parked late</span>'), true);
+check('only the late row is badged', (dayHtml.match(/badge late/g) ?? []).length, 1);
+check('the on-time knock-off still shows its time', dayHtml.includes('17:00'), true);
+
+/* Tiles state: one person of four has no entry, so it must not read as settled. */
 const tiles = writes()['todayTiles'] ?? '';
+check('parking late is flagged amber, not left in the resting colour',
+  /class="tile warn"[\s\S]*?Parked late/.test(tiles), true);
 check('a shortfall is flagged, not shown in the resting colour',
   /class="tile bad"[\s\S]*?Not started/.test(tiles), true);
 check('nothing due renders calm rather than green',
@@ -79,6 +103,26 @@ const card = writes()['notStartedCard'] ?? '';
 check('the no-entry card names the person', card.includes('Thabo Nkosi'), true);
 check('the no-entry card carries their posting', card.includes('Limpopo · Polokwane'), true);
 check('the no-entry card offers the same action', /data-entry="u3"/.test(card), true);
+
+/* ---------------- the reports table's column grid ---------------- */
+// renderReport can't be driven from here — its rows live in a module-level `let` that
+// an importer is not allowed to assign. So this checks the source instead, which is
+// still enough to catch the way that grid actually drifts: a column added to the
+// header without a matching cell in the row, or a stale colspan on the empty row.
+const src = readFileSync(process.argv[2] ?? 'web/index.html', 'utf8');
+const reportsTab = src.slice(src.indexOf('<section id="tab-reports"'), src.indexOf('<!-- EMPLOYEES'));
+const thead = reportsTab.slice(reportsTab.indexOf('<thead>'), reportsTab.indexOf('</thead>'));
+const repHeaders = (thead.match(/<th[\s>]/g) ?? []).length;
+
+const repRowsAt = src.indexOf("$('repRows').innerHTML");
+const rowStart = src.indexOf('rows.map(r => `<tr>', repRowsAt);
+const rowCells = (src.slice(rowStart, src.indexOf('</tr>', rowStart)).match(/<td[\s>$]/g) ?? []).length;
+const colspan = Number((src.slice(repRowsAt).match(/colspan="(\d+)"/) ?? [])[1]);
+
+check('the report header and its row agree on the column count', rowCells, repHeaders);
+check('the empty-report row spans every column', colspan, repHeaders);
+check('every report column is sortable', (thead.match(/data-sort=/g) ?? []).length, repHeaders);
+check('Parked late is one of them', /data-sort="late"/.test(thead), true);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

@@ -295,6 +295,8 @@
   }
   .badge.off { background: var(--error-container); color: var(--on-error-container); }
   .badge.due { background: var(--error); color: #fff; }
+  /* Amber, not red: parking late is a breach of the curfew, not missing data. */
+  .badge.late { background: var(--secondary-container); color: var(--on-secondary-container); }
 
   .chip {
     display: inline-block; padding: 3px 9px; border-radius: 8px;
@@ -441,6 +443,7 @@
               <option value="done">Knocked off</option>
               <option value="absent">Not working</option>
               <option value="none">No entry at all</option>
+              <option value="late">Parked late</option>
             </select>
           </div>
           <label class="checkline">
@@ -506,6 +509,7 @@
             <th data-sort="days"><span id="repDaysHead">Days</span></th>
             <th data-sort="absent">Absent</th>
             <th data-sort="open">No knock off</th>
+            <th data-sort="late">Parked late</th>
             <th data-sort="minutes">Hours</th>
             <th data-sort="km">Distance</th>
             <th data-sort="fuel">Fuel</th>
@@ -853,6 +857,33 @@ function minutesWorked(log) {
 const hoursLabel = (mins) => mins > 0 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : '—';
 const kmOf = (log) => Math.max(0, (log.endOdometerKm || 0) - (log.startOdometerKm || 0));
 
+/**
+ * Vehicles are meant to be parked by this time. A later knock-off is flagged, never
+ * blocked — the day still counts in full, it just carries a mark.
+ *
+ * A constant rather than a setting in config/settings: this portal has no settings
+ * screen, and a parking curfew is a company rule, not a per-admin preference. Moving
+ * it is a one-line change here.
+ */
+const PARK_BY = '18:00';
+
+/**
+ * Minutes past the curfew that someone knocked off — 0 when on time, and 0 when they
+ * never knocked off at all (that is a different fault, already flagged on its own).
+ *
+ * Measured against that day's own 18:00 rather than the hour on the timestamp: a
+ * knock-off after midnight reads as hour 0, so an hour check would score the very
+ * latest case as the earliest of all.
+ */
+function minutesParkedLate(log) {
+  if (!log.endTimeMillis || !log.date) return 0;
+  const curfew = millisFor(log.date, PARK_BY);
+  return log.endTimeMillis > curfew
+    ? Math.round((log.endTimeMillis - curfew) / 60000)
+    : 0;
+}
+const isParkedLate = (log) => minutesParkedLate(log) > 0;
+
 /** Grouped thousands — 85000 reads as "85 000", which is far easier to scan. */
 const num = (n) => Number(n || 0).toLocaleString('en-ZA').replace(/,/g, ' ');
 const km = (n) => `${num(n)} km`;
@@ -1113,6 +1144,7 @@ function renderToday() {
   const totalKm = data.todaysLogs.reduce((sum, l) => sum + kmOf(l), 0);
   const totalFuel = data.dayFuelLogs.reduce((sum, f) => sum + Number(f.amountSpentRands || 0), 0);
   const servicesDue = data.vehicles.filter(isServiceDue).length;
+  const parkedLate = data.todaysLogs.filter(isParkedLate).length;
 
   // "Not started" gets its own tile because it is the number that needs acting on,
   // and reading it off "12/40" meant doing arithmetic to find it.
@@ -1123,6 +1155,7 @@ function renderToday() {
     ['Hours', hoursLabel(totalMins), ''],
     ['Distance', km(totalKm), ''],
     ['Fuel', rand(totalFuel), ''],
+    ['Parked late', parkedLate, parkedLate ? 'warn' : 'calm'],
     ['Service due', servicesDue, servicesDue ? 'bad' : 'calm']
   ].map(([cap, big, tone]) =>
     `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
@@ -1202,7 +1235,9 @@ function renderToday() {
               <td>${personCell(l)}</td>
               <td>${hhmm(l.startTimeMillis)}</td>
               <td>${l.endTimeMillis
-                ? hhmm(l.endTimeMillis)
+                ? hhmm(l.endTimeMillis) + (isParkedLate(l)
+                    ? `<div><span class="badge late" title="${minutesParkedLate(l)} minutes after ${PARK_BY}">Parked late</span></div>`
+                    : '')
                 : '<em style="color:var(--error)">not knocked off</em>'}</td>
               <td class="hrs">${hoursLabel(minutesWorked(l))}</td>
               <td>${l.endTimeMillis ? km(kmOf(l)) : '—'}</td>
@@ -1363,6 +1398,7 @@ function visibleDayLogs() {
     if (status === 'working' &&
       (l.noEntry || l.notWorking || !l.startTimeMillis || l.endTimeMillis)) return false;
     if (status === 'done' && (l.noEntry || l.notWorking || !l.endTimeMillis)) return false;
+    if (status === 'late' && !isParkedLate(l)) return false;
     if (!q) return true;
     const person = data.employees.find(e => e.id === l.uid);
     return [l.employeeName, person && fullName(person), person?.province, person?.teamName]
@@ -1389,7 +1425,8 @@ $('dayToday').addEventListener('click', () => goToDate(todayString()));
 
 $('exportDay').addEventListener('click', () => {
   const rows = [['Date', 'Employee', 'Province', 'Team', 'Status', 'Start', 'Knock off',
-    'Hours', 'Minutes', 'Distance km', 'Fuel R', 'Areas', 'Reason']];
+    'Parked late', 'Minutes late', 'Hours', 'Minutes', 'Distance km', 'Fuel R',
+    'Areas', 'Reason']];
   // Exports what's on screen, filters included.
   visibleDayLogs().forEach(l => {
     const p = data.employees.find(e => e.id === l.uid);
@@ -1404,6 +1441,8 @@ $('exportDay').addEventListener('click', () => {
       status,
       l.startTimeMillis ? hhmm(l.startTimeMillis) : '',
       l.endTimeMillis ? hhmm(l.endTimeMillis) : '',
+      isParkedLate(l) ? 'Yes' : '',
+      minutesParkedLate(l) || '',
       hoursLabel(minutesWorked(l)), minutesWorked(l),
       l.endTimeMillis ? kmOf(l) : '',
       data.dayFuelLogs
@@ -2381,7 +2420,7 @@ async function runReport() {
           name: p ? fullName(p) : (name || 'Unknown'),
           province: p?.province || '',
           team: p?.teamName || '',
-          days: 0, absent: 0, open: 0, minutes: 0, km: 0, fuel: 0
+          days: 0, absent: 0, open: 0, late: 0, minutes: 0, km: 0, fuel: 0
         };
       }
       return byUid[uid];
@@ -2395,6 +2434,7 @@ async function runReport() {
       if (l.endTimeMillis) {
         b.minutes += minutesWorked(l);
         b.km += kmOf(l);
+        if (isParkedLate(l)) b.late += 1;
       } else {
         // Clocked in but never knocked off. Counted as a day worked, but it can
         // contribute no hours or distance — so it's surfaced rather than quietly
@@ -2458,8 +2498,9 @@ function renderReport() {
   // the table underneath them.
   const totals = rows.reduce((t, r) => ({
     days: t.days + r.days, minutes: t.minutes + r.minutes, open: t.open + r.open,
-    km: t.km + r.km, fuel: t.fuel + r.fuel, absent: t.absent + r.absent
-  }), { days: 0, minutes: 0, open: 0, km: 0, fuel: 0, absent: 0 });
+    late: t.late + r.late, km: t.km + r.km, fuel: t.fuel + r.fuel,
+    absent: t.absent + r.absent
+  }), { days: 0, minutes: 0, open: 0, late: 0, km: 0, fuel: 0, absent: 0 });
 
   $('repRange').innerHTML =
     `${prettyDate(from)} → ${prettyDate(to)}` +
@@ -2481,18 +2522,19 @@ function renderReport() {
   });
 
   $('repTiles').innerHTML = [
-    [singleDay ? 'Number of employees' : 'Days worked', totals.days],
-    [singleDay ? 'Absent' : 'Absences', totals.absent],
-    ['Not knocked off', totals.open],
-    ['Hours', hoursLabel(totals.minutes)],
-    ['Distance', km(totals.km)],
-    ['Fuel', rand(totals.fuel)]
-  ].map(([cap, big]) =>
-    `<div class="tile"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+    [singleDay ? 'Number of employees' : 'Days worked', totals.days, ''],
+    [singleDay ? 'Absent' : 'Absences', totals.absent, ''],
+    ['Not knocked off', totals.open, totals.open ? 'bad' : 'calm'],
+    ['Parked late', totals.late, totals.late ? 'warn' : 'calm'],
+    ['Hours', hoursLabel(totals.minutes), ''],
+    ['Distance', km(totals.km), ''],
+    ['Fuel', rand(totals.fuel), '']
+  ].map(([cap, big, tone]) =>
+    `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
 
   $('repRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="7" class="empty">${reportRows.length === 0
+    ? `<tr><td colspan="8" class="empty">${reportRows.length === 0
         ? 'Nothing recorded in that period.'
         : 'Nobody matches that filter.'}</td></tr>`
     : rows.map(r => `<tr>
@@ -2503,6 +2545,7 @@ function renderReport() {
         <td>${r.days}</td>
         <td>${r.absent}</td>
         <td${r.open > 0 ? ' style="color:var(--error);font-weight:700"' : ''}>${r.open}</td>
+        <td${r.late > 0 ? ' style="color:var(--secondary);font-weight:700"' : ''}>${r.late}</td>
         <td class="hrs">${hoursLabel(r.minutes)}</td>
         <td>${km(r.km)}</td>
         <td>${rand(r.fuel)}</td>
@@ -2538,10 +2581,10 @@ $('exportSummary').addEventListener('click', () => {
   const singleDay = reportRange.from === reportRange.to;
   const rows = [['Employee', 'Province', 'Team',
     singleDay ? 'Worked' : 'Days worked', 'Absences',
-    'Not knocked off', 'Hours', 'Minutes', 'Distance km', 'Fuel R']];
+    'Not knocked off', 'Parked late', 'Hours', 'Minutes', 'Distance km', 'Fuel R']];
   // Exports what's on screen, filters included.
   visibleReportRows().forEach(r => rows.push([
-    r.name, r.province, r.team, r.days, r.absent, r.open,
+    r.name, r.province, r.team, r.days, r.absent, r.open, r.late,
     hoursLabel(r.minutes), r.minutes, r.km, r.fuel.toFixed(2)
   ]));
   downloadCsv(`summary-${reportRange.from}-to-${reportRange.to}.csv`, rows);
