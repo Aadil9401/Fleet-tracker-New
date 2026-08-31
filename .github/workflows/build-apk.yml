@@ -20,6 +20,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Needed by the release step at the end. Everything else here only reads.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -62,3 +65,32 @@ jobs:
       # the two shared tables run in the checks workflow.
       - name: App unit tests, and the shared specs it answers to
         run: gradle testDebugUnitTest --no-daemon
+
+      # The artifact above is the wrong shape for the one thing the APK is for, which is
+      # getting onto a phone: it needs a GitHub login, it expires after 90 days, it
+      # arrives as a zip, and it is found by scrolling to the bottom of a run page. This
+      # publishes the same file to one fixed link instead:
+      #
+      #   .../releases/download/debug-latest/app-debug.apk
+      #
+      # A rolling tag, so each build replaces the file rather than leaving a pile of
+      # releases behind. create-then-upload rather than delete-then-create, so a failed
+      # run cannot leave the link pointing at nothing.
+      #
+      # Deliberately AFTER the tests, unlike the artifact: something failing its own
+      # tests should not become the build that staff install.
+      #
+      # Only on a push — a pull request from a fork has no write permission, and this
+      # would be the step that fails.
+      - name: Publish the APK to one fixed download link
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view debug-latest >/dev/null 2>&1 || gh release create debug-latest \
+            --title "Latest debug APK" \
+            --prerelease \
+            --notes "The current debug build, for installing on staff phones. Replaced by every build, so this link always points at the newest one."
+          gh release upload debug-latest \
+            app/build/outputs/apk/debug/app-debug.apk --clobber
+          echo "APK: ${{ github.server_url }}/${{ github.repository }}/releases/download/debug-latest/app-debug.apk" >> "$GITHUB_STEP_SUMMARY"
