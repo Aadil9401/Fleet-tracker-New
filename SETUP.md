@@ -3,11 +3,15 @@
 Do these in order. It looks long, but it's mostly clicking through free
 Google/GitHub screens — budget about 45–60 minutes the first time.
 
-**Costs:** Firebase Auth and Firestore are free at this scale. The
-scheduled email alerts (Cloud Functions) need Firebase's "Blaze" plan, which
-is pay-as-you-go — but a small team like this will sit comfortably inside
-the free monthly quota, so realistically **R0/month**. Blaze just requires a
-card on file as a safety net.
+**Costs:** Firebase Auth, Firestore and Hosting are free at this scale, on the
+free **Spark** plan, and the app works on them. Everything in `functions/` — the
+two alert emails and the admin screen's "add employee" — needs the pay-as-you-go
+**Blaze** plan, because Cloud Functions are not available on Spark at all.
+
+Blaze on a team this size sits inside the free monthly quota, so realistically
+**R0/month**; it just wants a card on file as a safety net. **Staying on Spark is a
+perfectly good choice** — step 5 says exactly what you give up, and nothing else in
+the setup changes.
 
 ---
 
@@ -19,9 +23,18 @@ card on file as a safety net.
    **Email/Password** sign-in provider.
 4. Go to **Build → Firestore Database → Create database**. Choose **Production mode**
    and pick a region close to South Africa (e.g. `europe-west1`).
-5. Go to **Project settings (gear icon) → Usage and billing → Modify plan** and switch
-   to **Blaze**. You'll add a payment method, but nothing is charged unless you go
-   far beyond free usage limits.
+5. **Optional — only if you want the Cloud Functions.** Go to **Project settings
+   (gear icon) → Usage and billing → Modify plan** and switch to **Blaze**. You'll add
+   a payment method, but nothing is charged unless you go far beyond free usage limits.
+
+   Skip it and stay on Spark, and everything below still works except these three,
+   which are the whole of what `functions/` does:
+
+   | Without Blaze | What happens instead |
+   |---|---|
+   | The "not clocked in by 9am" email | No alert. The portal's day view shows who has no entry, which is the same information, just not pushed to you |
+   | The service-due email | No alert. Both the portal and the driver's phone already show a vehicle as due |
+   | Admin → Add employee (Android) | The button cannot work. Staff self-register on the phone's sign-up screen instead, which the Firestore rules already allow and guard |
 
    Storage is deliberately not set up: nothing in the app uploads a file. Fuel slips
    are scanned on the phone and the photo is discarded. `storage.rules` denies
@@ -92,18 +105,28 @@ Shell**:
    firebase login
    firebase use --add        # pick your Firebase project
    ```
-4. Set your email secrets (from step 4):
+4. **Blaze only.** Set your email secrets (from step 4) — skip this entirely on
+   Spark, since nothing will read them:
    ```
    firebase functions:secrets:set GMAIL_USER
    firebase functions:secrets:set GMAIL_APP_PASSWORD
    ```
    (paste the Gmail address, then the 16-character app password, when prompted)
-5. Deploy everything:
+5. Deploy. **On Spark:**
+   ```
+   firebase deploy --only firestore:rules
+   ```
+
+   **On Blaze**, add the functions:
    ```
    firebase deploy --only firestore:rules,functions
    ```
 
-   No `storage:rules` in that line, and that is deliberate: nothing in the app
+   Do not include `functions` on Spark. Firebase will stop and ask you to upgrade,
+   and the command fails as a whole — so the Firestore rules do not get deployed
+   either, and it looks like the rules are the problem.
+
+   No `storage:rules` in either line, and that is deliberate: nothing in the app
    uploads a file, so step 1 never creates a Storage bucket — and asking Firebase to
    deploy rules to a bucket that does not exist fails the **whole** command, taking
    the Firestore rules and the functions down with it.
@@ -115,8 +138,9 @@ Shell**:
    ```
    `storage.rules` denies everything, so this shuts the door rather than opening one.
 
-That's the backend done — attendance and service-reminder emails will now run
-automatically.
+That's the backend done. On Blaze the attendance and service-reminder emails now run
+automatically; on Spark there is nothing further to deploy, and the portal is where
+you see who has not started and which vehicles are due.
 
 ## 6. Put the code on GitHub and build the APK
 
