@@ -135,7 +135,7 @@ class EmployeeViewModel(
         }
     }
 
-    fun logFuel(amountRands: Double, litres: Double, odometerKm: Long, photoBytes: ByteArray?) {
+    fun logFuel(amountRands: Double, litres: Double, odometerKm: Long) {
         val profile = uiState.profile ?: return
         uiState = uiState.copy(busy = true, message = null)
         viewModelScope.launch {
@@ -148,8 +148,7 @@ class EmployeeViewModel(
                         litres = litres,
                         odometerKm = odometerKm,
                         vehicleId = profile.assignedVehicleId
-                    ),
-                    photoBytes
+                    )
                 )
                 uiState = uiState.copy(busy = false, message = "Fuel logged. Thanks!")
             } catch (e: Exception) {

@@ -168,5 +168,24 @@ check('the empty-report row spans every column', colspan, repHeaders);
 check('every report column is sortable', (thead.match(/data-sort=/g) ?? []).length, repHeaders);
 check('Parked late is one of them', /data-sort="late"/.test(thead), true);
 
+/* ---------------- the fuel table's column grid ---------------- */
+// Checked from source for the same reason as the reports grid above, and worth checking
+// at all because this table lost a column: receipt photos were uploaded and linked here
+// until there turned out to be nowhere to keep the images. Dropping a <th> and leaving
+// the <td> or the colspan behind renders perfectly happily and misaligns every row.
+const logsTab = src.slice(src.indexOf('<section id="tab-logs"'));
+const fuelHead = logsTab.slice(logsTab.indexOf('<thead>'), logsTab.indexOf('</thead>'));
+const fuelHeaders = (fuelHead.match(/<th[\s>]/g) ?? []).length;
+
+const fuelRowsAt = src.indexOf("$('fuelRows').innerHTML");
+const fuelRowStart = src.indexOf('<tr>', src.indexOf('return', fuelRowsAt));
+const fuelCells = (src.slice(fuelRowStart, src.indexOf('</tr>', fuelRowStart)).match(/<td[\s>$]/g) ?? []).length;
+const fuelColspan = Number((src.slice(fuelRowsAt).match(/colspan="(\d+)"/) ?? [])[1]);
+
+check('the fuel header and its row agree on the column count', fuelCells, fuelHeaders);
+check('the empty-fuel row spans every column', fuelColspan, fuelHeaders);
+// The export shared the column, so it had to lose it too.
+check('the receipt column is gone from the fuel export', /'Receipt'/.test(src), false);
+
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

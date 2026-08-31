@@ -3,7 +3,7 @@
 Do these in order. It looks long, but it's mostly clicking through free
 Google/GitHub screens — budget about 45–60 minutes the first time.
 
-**Costs:** Firebase Auth, Firestore and Storage are free at this scale. The
+**Costs:** Firebase Auth and Firestore are free at this scale. The
 scheduled email alerts (Cloud Functions) need Firebase's "Blaze" plan, which
 is pay-as-you-go — but a small team like this will sit comfortably inside
 the free monthly quota, so realistically **R0/month**. Blaze just requires a
@@ -19,10 +19,13 @@ card on file as a safety net.
    **Email/Password** sign-in provider.
 4. Go to **Build → Firestore Database → Create database**. Choose **Production mode**
    and pick a region close to South Africa (e.g. `europe-west1`).
-5. Go to **Build → Storage → Get started**, accept the defaults.
-6. Go to **Project settings (gear icon) → Usage and billing → Modify plan** and switch
+5. Go to **Project settings (gear icon) → Usage and billing → Modify plan** and switch
    to **Blaze**. You'll add a payment method, but nothing is charged unless you go
    far beyond free usage limits.
+
+   Storage is deliberately not set up: nothing in the app uploads a file. Fuel slips
+   are scanned on the phone and the photo is discarded. `storage.rules` denies
+   everything, and is only still deployed in case a bucket was created earlier.
 
 ## 2. Register the Android app in Firebase
 

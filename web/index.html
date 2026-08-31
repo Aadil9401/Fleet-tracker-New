@@ -781,7 +781,7 @@
       <div class="card">
         <h2 class="section">Recent fuel logs</h2>
         <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th>Date</th><th>Amount</th><th>Litres</th><th>R/litre</th><th>Odometer</th><th>Receipt</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Date</th><th>Amount</th><th>Litres</th><th>R/litre</th><th>Odometer</th></tr></thead>
           <tbody id="fuelRows"></tbody>
         </table></div>
       </div>
@@ -2849,7 +2849,7 @@ function renderLogs() {
   const times = data.recentTimeLogs.filter(matchesLogFilter);
 
   $('fuelRows').innerHTML = fuel.length === 0
-    ? `<tr><td colspan="7" class="empty">No fuel logs${logFilter ? ' for that name' : ''} in this period.</td></tr>`
+    ? `<tr><td colspan="6" class="empty">No fuel logs${logFilter ? ' for that name' : ''} in this period.</td></tr>`
     : fuel.map(f => {
         const amount = Number(f.amountSpentRands || 0);
         const litres = Number(f.litres || 0);
@@ -2862,8 +2862,6 @@ function renderLogs() {
           <td>${litres > 0 ? esc(litres) + ' L' : '—'}</td>
           <td>${perLitre}</td>
           <td>${km(f.odometerKm || 0)}</td>
-          <td>${f.receiptPhotoUrl
-            ? `<a href="${esc(f.receiptPhotoUrl)}" target="_blank" rel="noopener">View</a>` : '—'}</td>
         </tr>`;
       }).join('');
 
@@ -2902,14 +2900,14 @@ $('exportLogs').addEventListener('click', () => {
 });
 
 $('exportFuel').addEventListener('click', () => {
-  const rows = [['Date', 'Employee', 'Amount R', 'Litres', 'R per litre', 'Odometer km', 'Receipt']];
+  const rows = [['Date', 'Employee', 'Amount R', 'Litres', 'R per litre', 'Odometer km']];
   data.fuelLogs.filter(matchesLogFilter).forEach(f => {
     const amount = Number(f.amountSpentRands || 0);
     const litres = Number(f.litres || 0);
     rows.push([
       f.date, f.employeeName, amount.toFixed(2), litres || '',
       litres > 0 ? (amount / litres).toFixed(2) : '',
-      f.odometerKm || 0, f.receiptPhotoUrl || ''
+      f.odometerKm || 0
     ]);
   });
   downloadCsv(`fuel-logs-${$('logFrom').value}-to-${$('logTo').value}.csv`, rows);

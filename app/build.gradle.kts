@@ -74,20 +74,22 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
-    implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-functions-ktx")
 
     // Coroutines interop with Firebase Tasks
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Image loading (fuel receipt photos)
-    implementation("io.coil-kt:coil-compose:2.6.0")
+    // Reads the figures off a photographed fuel slip. The bundled model rather than
+    // the Play-Services one: a slip gets scanned on a forecourt, which is exactly where
+    // there is no signal to fetch a model over. Costs a few MB of APK and works offline.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    // Plain JVM unit tests. ServiceSchedule has no Firebase or Android dependency, so
-    // the service rules can be held to service-schedule-cases.csv without an emulator.
+    // Plain JVM unit tests. ServiceSchedule, ParkingCurfew, FuelSlip and DayBreakdown
+    // have no Firebase and no Android dependency, so the rules, the curfew, the slip
+    // parsing and the day view's figures are all checked without an emulator.
     testImplementation("junit:junit:4.13.2")
 }

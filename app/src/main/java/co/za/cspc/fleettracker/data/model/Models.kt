@@ -187,7 +187,13 @@ data class TimeLog(
     val lateLabel: String get() = ParkingCurfew.lateLabel(minutesParkedLate)
 }
 
-/** A fuel purchase logged by an employee. */
+/**
+ * A fuel purchase logged by an employee.
+ *
+ * Carried a receiptPhotoUrl until the upload was removed — there is nowhere to keep the
+ * images. Documents written before then still have the field; nothing reads it, and
+ * Firestore ignores fields absent from this class.
+ */
 data class FuelLog(
     @DocumentId val id: String = "",
     val uid: String = "",
@@ -197,8 +203,7 @@ data class FuelLog(
     val amountSpentRands: Double = 0.0,
     val litres: Double = 0.0,
     val odometerKm: Long = 0L,
-    val vehicleId: String = "",
-    val receiptPhotoUrl: String = ""
+    val vehicleId: String = ""
 )
 
 /** App-wide settings, single doc at config/settings. */

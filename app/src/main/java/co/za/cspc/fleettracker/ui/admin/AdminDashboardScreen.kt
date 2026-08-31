@@ -1903,7 +1903,6 @@ private fun LogsTab(state: AdminUiState) {
                         fontWeight = FontWeight.Bold
                     )
                     Text("${f.date}  •  ${f.odometerKm.km()}" + if (f.litres > 0) "  •  ${f.litres} L" else "")
-                    if (f.receiptPhotoUrl.isNotBlank()) Text("Receipt photo attached", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

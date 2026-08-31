@@ -10,7 +10,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.functions.FirebaseFunctions
-import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -31,13 +30,12 @@ data class NewEmployeeCredentials(
 )
 
 /**
- * Single access point for Firebase Auth / Firestore / Storage / Functions.
+ * Single access point for Firebase Auth / Firestore / Functions.
  * Keeps the rest of the app free of direct Firebase SDK calls.
  */
 class FleetRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
-    private val storage: FirebaseStorage = FirebaseStorage.getInstance(),
     private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
 ) {
     companion object {
@@ -573,13 +571,12 @@ class FleetRepository(
 
     // ---------- Fuel logs ----------
 
-    suspend fun addFuelLog(log: FuelLog, receiptBytes: ByteArray?): String {
-        var photoUrl = ""
-        if (receiptBytes != null) {
-            val ref = storage.reference.child("receipts/${log.uid}/${System.currentTimeMillis()}.jpg")
-            ref.putBytes(receiptBytes).await()
-            photoUrl = ref.downloadUrl.await().toString()
-        }
+    /**
+     * Records a fill. No image goes with it: receipt photos were uploaded to Storage and
+     * kept, which there is nowhere to pay for, so the slip is now scanned on the phone to
+     * fill in these figures and the photo is discarded. See ui/employee/SlipScanner.kt.
+     */
+    suspend fun addFuelLog(log: FuelLog) {
         db.collection("fuelLogs").add(
             mapOf(
                 "uid" to log.uid,
@@ -589,11 +586,9 @@ class FleetRepository(
                 "amountSpentRands" to log.amountSpentRands,
                 "litres" to log.litres,
                 "odometerKm" to log.odometerKm,
-                "vehicleId" to log.vehicleId,
-                "receiptPhotoUrl" to photoUrl
+                "vehicleId" to log.vehicleId
             )
         ).await()
-        return photoUrl
     }
 
     /**
