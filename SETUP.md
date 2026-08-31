@@ -36,9 +36,9 @@ the setup changes.
    | The service-due email | No alert. Both the portal and the driver's phone already show a vehicle as due |
    | Admin → Add employee (Android) | The button cannot work. Staff self-register on the phone's sign-up screen instead, which the Firestore rules already allow and guard |
 
-   Storage is deliberately not set up: nothing in the app uploads a file. Fuel slips
-   are scanned on the phone and the photo is discarded. `storage.rules` denies
-   everything, and is only still deployed in case a bucket was created earlier.
+   Storage is deliberately not set up: nothing in the app uploads a file. Fuel figures
+   are typed in and the paper slip is handed in. `storage.rules` denies everything, and
+   is only still deployed in case a bucket was created earlier.
 
 ## 2. Register the Android app in Firebase
 

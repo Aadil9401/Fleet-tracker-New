@@ -191,8 +191,9 @@ data class TimeLog(
  * A fuel purchase logged by an employee.
  *
  * Carried a receiptPhotoUrl until the upload was removed — there is nowhere to keep the
- * images. Documents written before then still have the field; nothing reads it, and
- * Firestore ignores fields absent from this class.
+ * images, so the figures are typed in and the paper slip is handed in. Documents written
+ * before then still have the field; nothing reads it, and Firestore ignores fields
+ * absent from this class.
  */
 data class FuelLog(
     @DocumentId val id: String = "",

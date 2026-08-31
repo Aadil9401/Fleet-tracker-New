@@ -573,8 +573,8 @@ class FleetRepository(
 
     /**
      * Records a fill. No image goes with it: receipt photos were uploaded to Storage and
-     * kept, which there is nowhere to pay for, so the slip is now scanned on the phone to
-     * fill in these figures and the photo is discarded. See ui/employee/SlipScanner.kt.
+     * kept, and there is nowhere to pay for that. The figures are typed in, and the
+     * paper slip is handed in as it always was.
      */
     suspend fun addFuelLog(log: FuelLog) {
         db.collection("fuelLogs").add(

@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-  Where a photographed fuel slip lands while it is being read. Cache, and deleted the
-  moment the figures are out of it — see ui/employee/SlipScanner.kt. The camera app
-  needs a content:// URI to write to, which is what this provider grants.
--->
-<paths>
-    <cache-path name="fuel_receipts" path="fuel_receipts/" />
-</paths>

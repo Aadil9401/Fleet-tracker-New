@@ -30,10 +30,8 @@ to users changed.
 - **Not working today** — records an absence with a reason (sick, annual,
   family responsibility, unpaid, public holiday, no work allocated, vehicle in
   for service, other), rather than leaving the day looking unaccounted for
-- **Log fuel spent** — amount, litres and odometer. **Scanning the slip fills in the
-  amount and litres**: the camera reads the paper on-device and the photo is deleted
-  straight after, so there is nothing to store and nothing leaves the phone. Every
-  field stays editable, and the figures can be typed in if a slip will not scan.
+- **Log fuel spent** — amount, litres and odometer, typed in. No photo of the slip is
+  taken or stored, so the paper slip is still what gets handed in.
 - **Service reminders** — how far the assigned vehicle is from its next service,
   and a dealership search once it passes 95% of the window
 - **My recent days** — their own history, so they can check what was recorded

@@ -1,9 +1,7 @@
 package co.za.cspc.fleettracker.ui.employee
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,15 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.ABSENCE_REASONS
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.VEHICLE_IN_SERVICE
 import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.km
-import kotlinx.coroutines.launch
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -509,107 +503,15 @@ private fun FuelDialog(
     onConfirm: (amount: Double, litres: Double, odometerKm: Long) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
     var amount by remember { mutableStateOf("") }
     var litres by remember { mutableStateOf("") }
     var odometer by remember { mutableStateOf(if (defaultOdometer > 0) defaultOdometer.toString() else "") }
-
-    var scanning by remember { mutableStateOf(false) }
-    var scanNote by remember { mutableStateOf("") }
-    // Held between launching the camera and its result: it is the only way to know
-    // afterwards which file the camera was pointed at.
-    var pendingPhoto by remember { mutableStateOf<File?>(null) }
-
-    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
-        val photo = pendingPhoto
-        pendingPhoto = null
-        if (!captured || photo == null) {
-            deleteSlipPhoto(photo)
-            return@rememberLauncherForActivityResult
-        }
-        scanning = true
-        scanNote = ""
-        scope.launch {
-            val slip = try {
-                runCatching { scanFuelSlip(context, slipPhotoUri(context, photo)) }.getOrNull()
-            } finally {
-                // The photo has done its job the moment the text is out of it. In a
-                // finally so it goes even if this scope is cancelled: cancelling the
-                // dialog mid-scan otherwise left the slip sitting in the cache, which is
-                // the one thing the note under these fields promises does not happen.
-                deleteSlipPhoto(photo)
-            }
-            scanning = false
-
-            if (slip == null || !slip.readAnything) {
-                scanNote = "Could not read that slip. Type the figures in, or try again in better light."
-                return@launch
-            }
-            // Prefilled, never forced: whatever the slip gave up is filled in and stays
-            // editable, and anything it did not give up is left exactly as it was.
-            slip.amountRands?.let { amount = "%.2f".format(Locale.US, it) }
-            slip.litres?.let { litres = trimTrailingZeros(it) }
-            scanNote = "Read from the slip. Check it against the paper before saving."
-        }
-    }
-
-    fun launchCamera() {
-        val photo = newSlipPhoto(context)
-        pendingPhoto = photo
-        takePhoto.launch(slipPhotoUri(context, photo))
-    }
-
-    // The app declares the CAMERA permission, which makes Android insist it be granted
-    // even though the camera app is the one actually taking the picture.
-    val requestCamera = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) launchCamera()
-        else scanNote = "Camera access is needed to scan a slip. You can still type the figures in."
-    }
-
-    fun scanSlip() {
-        scanNote = ""
-        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
-        if (granted) launchCamera() else requestCamera.launch(Manifest.permission.CAMERA)
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Log fuel spent") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Offered first: it is the point of the dialog now, and the fields below
-                // it are what it fills in.
-                OutlinedButton(
-                    onClick = { scanSlip() },
-                    enabled = !scanning,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (scanning) {
-                        CircularProgressIndicator(
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text("Reading the slip")
-                    } else {
-                        Icon(Icons.Filled.PhotoCamera, contentDescription = null)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Scan the slip")
-                    }
-                }
-                if (scanNote.isNotBlank()) {
-                    Text(
-                        scanNote,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
                 OutlinedTextField(
                     value = amount,
                     onValueChange = { amount = it },
@@ -628,11 +530,10 @@ private fun FuelDialog(
                     label = { Text("Odometer (km)") },
                     singleLine = true
                 )
-                // Said plainly, because the slip is the only proof of the spend and an
-                // employee who bins it on the strength of having scanned it has been
-                // misled by this screen.
+                // No photo of the slip is taken or kept, so the paper is the only record
+                // of the spend and has to reach the office.
                 Text(
-                    "The photo is only read for these figures and is not kept. Hand the slip in as usual.",
+                    "Hand the slip in as usual — the app does not keep a copy.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -647,17 +548,12 @@ private fun FuelDialog(
                         odometer.toLongOrNull() ?: 0L
                     )
                 },
-                enabled = amount.toAmountOrNull() != null && !scanning
+                enabled = amount.toAmountOrNull() != null
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
-
-/** 32.0 reads as "32", 45.67 stays "45.67" — a litre field should not carry noise. */
-private fun trimTrailingZeros(value: Double): String =
-    if (value == Math.floor(value)) value.toLong().toString()
-    else "%.2f".format(Locale.US, value).trimEnd('0').trimEnd('.')
 
 /**
  * Accepts "150.50" and "150,50". South African keyboards commonly produce the comma,

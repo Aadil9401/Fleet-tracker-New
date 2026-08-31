@@ -60,9 +60,8 @@ jobs:
       #
       # This one command runs every unit test in the app, not only the service rules it
       # was named after when it was added: the parking curfew against its own shared
-      # table, the fuel slip parser against the layouts the forecourts print, and the
-      # day view's eight figures with the rows behind each one. The JS counterparts to
-      # the two shared tables run in the checks workflow.
+      # table, and the day view's eight figures with the rows behind each one. The JS
+      # counterparts to the two shared tables run in the checks workflow.
       - name: App unit tests, and the shared specs it answers to
         run: gradle testDebugUnitTest --no-daemon
 

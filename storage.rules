@@ -3,8 +3,8 @@ rules_version = '2';
 // Nothing in this app writes to Storage.
 //
 // Fuel receipt photos used to be uploaded here and kept. That was removed: there is
-// nowhere to pay for the images, and a slip is now scanned on the phone to fill in the
-// figures and then discarded. See ui/employee/SlipScanner.kt.
+// nowhere to pay for the images. The figures are typed into the app and the paper slip
+// is handed in as before.
 //
 // Deny-all rather than deleting this file. If the bucket exists, the permissive rules
 // that were last deployed to it stay live until something replaces them — so the
