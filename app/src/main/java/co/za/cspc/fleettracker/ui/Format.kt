@@ -22,3 +22,18 @@ fun Long.grouped(): String = String.format(Locale.US, "%,d", this).replace(',', 
 
 /** "85 000 km" — the same grouping, with the unit. */
 fun Long.km(): String = "${grouped()} km"
+
+/**
+ * "R1 234,50" — the South African convention, space thousands and a comma decimal,
+ * matching what the admin portal prints for the same figure. Money is always shown to
+ * the cent: a fuel total that rounds to the rand looks like an estimate.
+ */
+fun Double.rand(): String {
+    val formatted = String.format(Locale.US, "%,.2f", this)
+    return "R" + buildString(formatted.length) {
+        formatted.forEach { append(if (it == ',') ' ' else if (it == '.') ',' else it) }
+    }
+}
+
+/** "9h 25m", or a dash for a day with nothing on the clock yet. */
+fun Long.hoursLabel(): String = if (this > 0L) "${this / 60}h ${this % 60}m" else "—"

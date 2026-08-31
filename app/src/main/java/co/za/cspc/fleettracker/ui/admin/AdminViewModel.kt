@@ -30,6 +30,8 @@ data class AdminUiState(
     val selectedDate: String = FleetRepository.todayString(),
     /** Logs for [selectedDate]. */
     val todaysLogs: List<TimeLog> = emptyList(),
+    /** Fuel bought on [selectedDate] — what the day view's fuel figure is made of. */
+    val dayFuelLogs: List<FuelLog> = emptyList(),
     val recentTimeLogs: List<TimeLog> = emptyList(),
     val recentFuelLogs: List<FuelLog> = emptyList(),
     val settings: AppSettings = AppSettings(),
@@ -59,6 +61,7 @@ class AdminViewModel(
                 val admins = repo.listAdmins()
                 val vehicles = repo.listVehicles()
                 val todaysLogs = repo.listTimeLogsForDate(uiState.selectedDate)
+                val dayFuelLogs = repo.listFuelLogsForDate(uiState.selectedDate)
                 val recentTimeLogs = repo.listRecentTimeLogs()
                 val fuelLogs = repo.listRecentFuelLogs()
                 val settings = repo.getSettings()
@@ -68,6 +71,7 @@ class AdminViewModel(
                     admins = admins,
                     vehicles = vehicles,
                     todaysLogs = todaysLogs,
+                    dayFuelLogs = dayFuelLogs,
                     recentTimeLogs = recentTimeLogs,
                     recentFuelLogs = fuelLogs,
                     settings = settings
@@ -89,7 +93,13 @@ class AdminViewModel(
         uiState = uiState.copy(selectedDate = next, busy = true, message = null)
         viewModelScope.launch {
             try {
-                uiState = uiState.copy(busy = false, todaysLogs = repo.listTimeLogsForDate(next))
+                // Both, or the day view would show one day's hours against another
+                // day's fuel.
+                uiState = uiState.copy(
+                    busy = false,
+                    todaysLogs = repo.listTimeLogsForDate(next),
+                    dayFuelLogs = repo.listFuelLogsForDate(next)
+                )
             } catch (e: Exception) {
                 uiState = uiState.copy(busy = false, message = "Could not load that day: ${e.message}")
             }
@@ -105,17 +115,11 @@ class AdminViewModel(
     val viewingToday: Boolean get() = uiState.selectedDate == FleetRepository.todayString()
 
     /**
-     * Who is unaccounted for today: active employees who have neither clocked in nor
-     * marked themselves as not working. Someone who is off is accounted for, so they
-     * don't belong on a chase-up list.
+     * Who is unaccounted for on the day being viewed. The rule itself lives in
+     * [DayBreakdown] so the figure and the list behind it cannot disagree.
      */
-    fun notStartedToday(): List<UserProfile> {
-        val accountedFor = uiState.todaysLogs
-            .filter { it.hasStarted || it.notWorking }
-            .map { it.uid }
-            .toSet()
-        return uiState.employees.filter { it.active && it.uid !in accountedFor }
-    }
+    fun notStartedToday(): List<UserProfile> =
+        DayBreakdown.notStartedEmployees(uiState.employees, uiState.todaysLogs)
 
     /** Active employees who marked themselves absent today. */
     fun notWorkingToday(): List<UserProfile> {

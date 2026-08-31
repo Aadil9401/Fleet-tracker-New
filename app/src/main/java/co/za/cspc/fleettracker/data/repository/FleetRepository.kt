@@ -596,6 +596,19 @@ class FleetRepository(
         return photoUrl
     }
 
+    /**
+     * One day's fuel purchases, the companion to [listTimeLogsForDate]. The day view
+     * needs the fuel spent on the day being viewed, which the recent-50 list cannot
+     * answer once the admin pages back far enough.
+     *
+     * A single equality on one field, so it needs no composite index — same shape as
+     * the time-log query beside it.
+     */
+    suspend fun listFuelLogsForDate(date: String): List<FuelLog> {
+        val snap = db.collection("fuelLogs").whereEqualTo("date", date).get().await()
+        return snap.toObjects(FuelLog::class.java)
+    }
+
     suspend fun listRecentFuelLogs(limit: Long = 50): List<FuelLog> {
         val snap = db.collection("fuelLogs")
             .orderBy("timestampMillis")

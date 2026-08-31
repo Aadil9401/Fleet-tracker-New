@@ -2,6 +2,7 @@ package co.za.cspc.fleettracker.ui.admin
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -38,6 +40,7 @@ import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
 import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
 import co.za.cspc.fleettracker.ui.asCaptured
+import co.za.cspc.fleettracker.ui.hoursLabel
 import co.za.cspc.fleettracker.ui.km
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -114,13 +117,26 @@ fun AdminDashboardScreen(
 private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
     val notStarted = viewModel.notStartedToday()
     val notWorking = viewModel.notWorkingToday()
-    val started = state.todaysLogs.count { it.hasStarted }
-    val activeCount = state.employees.count { it.active }
-    val knockedOff = state.todaysLogs.count { it.hasEnded }
 
-    val totalMinutes = state.todaysLogs.sumOf { it.minutesWorked }
-    val totalKm = state.todaysLogs.sumOf { it.kmTravelled }
-    val servicesDue = state.vehicles.count { it.isServiceDue(System.currentTimeMillis()) }
+    // Read once for the whole tab, so every figure and the rows behind it are judged
+    // against the same instant. A vehicle must not read as due on the tile and not due
+    // in the list because the clock crossed a service date between the two.
+    val now = remember(state.selectedDate, state.vehicles) { System.currentTimeMillis() }
+    val figures = DayBreakdown.figures(
+        state.employees, state.todaysLogs, state.dayFuelLogs, state.vehicles, now
+    )
+
+    var openFigure by rememberSaveable { mutableStateOf<String?>(null) }
+    openFigure?.let { key ->
+        val breakdown = DayBreakdown.of(
+            key, state.employees, state.todaysLogs, state.dayFuelLogs, state.vehicles, now
+        )
+        // A key with nothing behind it is a programming error. Opening an empty dialog
+        // would hide it, so the tile does nothing and DayBreakdownTest catches it instead.
+        if (breakdown != null) {
+            BreakdownDialog(state.selectedDate, breakdown) { openFigure = null }
+        }
+    }
 
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -132,22 +148,15 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                 onToday = { viewModel.jumpToToday() }
             )
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatTile("Started", "$started/$activeCount", Modifier.weight(1f))
-                StatTile("Knocked off", knockedOff.toString(), Modifier.weight(1f))
-                StatTile("Not working", notWorking.size.toString(), Modifier.weight(1f))
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatTile(
-                    "Hours",
-                    if (totalMinutes > 0) "${totalMinutes / 60}h ${totalMinutes % 60}m" else "—",
-                    Modifier.weight(1f)
-                )
-                StatTile("Distance", totalKm.km(), Modifier.weight(1f))
-                StatTile("Service due", servicesDue.toString(), Modifier.weight(1f))
+        // Two to a row rather than three: "R1 234,50" and "85 000 km" need the width, and
+        // a figure that ellipsises is worse than a shorter row of them.
+        figures.chunked(2).forEach { pair ->
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    pair.forEach { figure ->
+                        FigureTile(figure, Modifier.weight(1f)) { openFigure = figure.key }
+                    }
+                }
             }
         }
         if (notWorking.isNotEmpty()) {
@@ -226,8 +235,7 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                         modifier = Modifier.weight(1f)
                     )
                     Text(
-                        "${logs.size} · " +
-                            if (provinceMinutes > 0) "${provinceMinutes / 60}h ${provinceMinutes % 60}m" else "—",
+                        "${logs.size} · " + provinceMinutes.hoursLabel(),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -858,33 +866,131 @@ private fun EditVehicleDialog(
     )
 }
 
-/** Headline number with a caption, used for the at-a-glance row on Today. */
+/**
+ * One figure on the day view, pressable to see the rows behind it.
+ *
+ * A figure on its own says something needs attention without saying who, which meant
+ * reading the number and then scrolling for names in the lists underneath. Service due
+ * in particular named no driver anywhere.
+ */
 @Composable
-private fun StatTile(label: String, value: String, modifier: Modifier = Modifier) {
+private fun FigureTile(figure: DayFigure, modifier: Modifier = Modifier, onOpen: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val container = when (figure.tone) {
+        FigureTone.BAD -> scheme.errorContainer
+        FigureTone.WARN -> scheme.secondaryContainer
+        // Nothing to act on reads as settled rather than as good news.
+        FigureTone.CALM -> scheme.surfaceVariant
+        FigureTone.NEUTRAL -> scheme.primaryContainer
+    }
+    val content = when (figure.tone) {
+        FigureTone.BAD -> scheme.onErrorContainer
+        FigureTone.WARN -> scheme.onSecondaryContainer
+        FigureTone.CALM -> scheme.onSurfaceVariant
+        FigureTone.NEUTRAL -> scheme.onPrimaryContainer
+    }
+
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        ),
-        modifier = modifier
+        colors = CardDefaults.cardColors(containerColor = container),
+        modifier = modifier.clickable(onClickLabel = "See who is behind this figure", onClick = onOpen)
     ) {
         Column(
             Modifier.padding(vertical = 14.dp, horizontal = 10.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                value,
+                figure.value,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                color = content,
+                maxLines = 1,
+                textAlign = TextAlign.Center
             )
             Text(
-                label,
+                figure.caption,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = content,
                 textAlign = TextAlign.Center
             )
         }
     }
+}
+
+/**
+ * The rows behind one figure.
+ *
+ * Scrolls inside a bounded height: on a big fleet "Started" is every employee, and a
+ * dialog that grows past the screen puts Close out of reach.
+ */
+@Composable
+private fun BreakdownDialog(date: String, breakdown: Breakdown, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(breakdown.title) },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "${prettyDate(date)} · ${breakdown.countLabel}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(10.dp))
+
+                if (breakdown.rows.isEmpty()) {
+                    // A figure of zero explains itself rather than showing an empty table.
+                    Text(breakdown.empty, style = MaterialTheme.typography.bodyMedium)
+                    return@Column
+                }
+
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                    breakdown.columns.forEachIndexed { index, column ->
+                        Text(
+                            column,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // The first column carries a name over a posting, so it gets
+                            // the room; the trailing figures share what is left.
+                            modifier = Modifier.weight(if (index == 0) 1.7f else 1f),
+                            textAlign = if (index == 0) TextAlign.Start else TextAlign.End
+                        )
+                    }
+                }
+                HorizontalDivider()
+
+                breakdown.rows.forEach { row ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1.7f)) {
+                            Text(
+                                row.heading.asCaptured(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (row.meta.isNotBlank()) {
+                                Text(
+                                    row.meta.asCaptured(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        row.cells.forEach { cell ->
+                            Text(
+                                cell,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.End
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
 }
 
 /**

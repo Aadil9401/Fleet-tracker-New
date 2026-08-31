@@ -35,6 +35,14 @@ to users changed.
   and a dealership search once it passes 95% of the window
 - **My recent days** — their own history, so they can check what was recorded
 
+### Admins, on the phone
+
+The dashboard's Today tab carries the same eight figures as the portal's day view —
+started, no entry, knocked off, hours, distance, fuel, parked late, service due — and
+**tapping any of them lists what it counted**: who hasn't started, who parked past the
+curfew and by how long, who drove furthest, who spent what on fuel, and which vehicles
+are due with the name of whoever is driving them.
+
 ### Admins, in the browser portal
 
 - **Day view** — who has started, knocked off, is absent, parked after the 18:30
@@ -89,6 +97,10 @@ node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.htm
   perfectly happily, so nothing else would catch it.
 
 Those three share the browser and Firebase stubs in `portal-harness.mjs`.
+
+The phone app's own logic is checked by `gradle testDebugUnitTest`, which the APK
+workflow runs: the service rules, the parking curfew, and the day view's eight figures
+and the rows behind each one.
 
 ## The service schedule
 
