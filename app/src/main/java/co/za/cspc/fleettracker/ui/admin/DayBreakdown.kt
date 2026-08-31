@@ -56,6 +56,26 @@ data class Breakdown(
 }
 
 /**
+ * What one province's day adds up to.
+ *
+ * Counted three ways rather than as one headcount, because "12 people" hides the
+ * difference between a province where everyone worked and one where half of them never
+ * logged in — which is the thing an admin is scanning these for.
+ */
+data class DayTotals(
+    val people: Int,
+    val worked: Int,
+    val notWorking: Int,
+    val noEntry: Int,
+    val minutes: Long,
+    val km: Long,
+    val fuelRands: Double,
+    /** When the first of them started, and when the last knocked off. 0 for neither. */
+    val firstStartMillis: Long,
+    val lastEndMillis: Long
+)
+
+/**
  * What is behind each figure on the day view.
  *
  * A figure on its own says something needs attention without saying who, which meant
@@ -274,6 +294,40 @@ object DayBreakdown {
 
             else -> null
         }
+    }
+
+    /**
+     * The totals for one group of the day's rows — a province, or the whole day.
+     *
+     * Plain summation with no judgement in it, so unlike the service rules and the
+     * curfew this does not get a shared table of its own; the portal computes the same
+     * figures from the same fields, and DayBreakdownTest pins these.
+     *
+     * [employees] is needed because someone with no log at all is still one of the
+     * province's people — they are the no-entry count, and leaving them out would make a
+     * province look smaller on a bad day than on a good one.
+     */
+    fun totalsFor(
+        employees: List<UserProfile>,
+        logs: List<TimeLog>,
+        fuelLogs: List<FuelLog>
+    ): DayTotals {
+        val withEntries = logs.map { it.uid }.toSet()
+        val noEntry = employees.count { it.active && it.uid !in withEntries }
+        val started = logs.filter { it.hasStarted }
+        val ended = logs.filter { it.hasEnded }
+        val uids = logs.map { it.uid }.toSet()
+        return DayTotals(
+            people = logs.size + noEntry,
+            worked = logs.count { !it.notWorking },
+            notWorking = logs.count { it.notWorking },
+            noEntry = noEntry,
+            minutes = logs.sumOf { it.minutesWorked },
+            km = logs.sumOf { it.kmTravelled },
+            fuelRands = fuelLogs.filter { it.uid in uids }.sumOf { it.amountSpentRands },
+            firstStartMillis = started.minOfOrNull { it.startTimeMillis } ?: 0L,
+            lastEndMillis = ended.maxOfOrNull { it.endTimeMillis } ?: 0L
+        )
     }
 
     /**

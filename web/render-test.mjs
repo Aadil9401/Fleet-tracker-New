@@ -63,7 +63,7 @@ portal.renderToday();
 const dayHtml = writes()['dayGroups'] ?? '';
 // Body rows only — the <tr> in <thead> holds <th>, and counting it as a row would make
 // the comparison below meaningless.
-const body = dayHtml.slice(dayHtml.indexOf('<tbody>'));
+const body = dayHtml.slice(dayHtml.indexOf('<tbody>'), dayHtml.indexOf('</tbody>'));
 const rows = body.split('<tr>').slice(1);
 const headerCells = (dayHtml.slice(0, dayHtml.indexOf('<tbody>')).match(/<th[\s>]/g) ?? []).length;
 // A cell opens as `<td>`, `<td class=…`, or `<td${…}` — the last is how a figure that
@@ -74,6 +74,31 @@ check('the header defines 8 columns', headerCells, 8);
 check('four rows rendered (on time, absent, late, no entry)', rows.length, 4);
 check('every row lays out on the header columns', cellCounts, [8, 8, 8, 8]);
 check('no row collapses columns with colspan', /colspan/.test(dayHtml), false);
+
+/* The total line is a row like any other and must sit on the same grid. It is the one
+   row an admin reads figures off without cross-checking, so a shifted column there is
+   worse than a shifted column anywhere else in the table. */
+const foot = dayHtml.slice(dayHtml.indexOf('<tfoot>'), dayHtml.indexOf('</tfoot>'));
+check('the day table carries a total line', foot.length > 0, true);
+check('the total line lays out on the header columns too',
+  (foot.match(/<td[\s>$]/g) ?? []).length, headerCells);
+
+/* The arithmetic on that line, against the four fixture rows above:
+   Sarah 08:00–17:00 (9h, 50km) and Lerato 08:00–19:15 (11h 15m, 120km) worked,
+   John is off, Thabo never logged in. */
+check('the total names the group and its headcount', foot.includes('All provinces — 4 people'), true);
+// "4 people" alone hides the difference between a province where everyone worked and
+// one where half of them never logged in, which is the thing being looked for here.
+check('and splits them by what actually happened', foot.includes('2 worked · 1 off · 1 no entry'), true);
+check('hours are summed across the group', foot.includes('20h 15m'), true);
+check('so is distance', foot.includes('170 km'), true);
+// Nobody logged fuel, and a dash says that more honestly than R0,00 would.
+check('a figure with nothing behind it shows a dash', /<td>—<\/td>/.test(foot), true);
+check('the total shows when the group started', foot.includes('08:00'), true);
+check('and when the last of them knocked off', foot.includes('19:15'), true);
+// An absence has no hours and no distance, so it must not drag the shape of the day
+// earlier or later than anyone actually worked.
+check('an absence does not become a start time', foot.includes('—</td>\n      <td>08:00'), false);
 
 /* The status of an exceptional row is carried by a badge in the name cell. */
 check('the absence row is badged', dayHtml.includes('<span class="badge">Not working</span>'), true);

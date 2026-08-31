@@ -269,6 +269,19 @@
   /* Action cells shouldn't be squeezed or right-aligned into a huddle. */
   td.row-actions { text-align: right; white-space: nowrap; }
 
+  /* The per-province total. Bold and in the primary container colour so it reads as a
+     different KIND of row rather than just another person, and sticky to the bottom of
+     its own scroll box so a province's figures stay put while you read its people. The
+     exception colours are deliberately not reused here — amber and red already mean
+     "something needs attention" on this page, and a total is not an exception. */
+  tfoot td {
+    position: sticky; bottom: 0; z-index: 1;
+    background: var(--primary-container); color: var(--on-primary-container);
+    font-weight: 700; border-top: 2px solid var(--primary); border-bottom: none;
+  }
+  tfoot .who { font-weight: 700; }
+  tfoot .meta { font-weight: 600; opacity: .8; font-size: .78rem; }
+
   .avatar {
     width: 38px; height: 38px; border-radius: 50%;
     background: var(--primary-container); color: var(--on-primary-container);
@@ -1316,7 +1329,54 @@ function renderToday() {
     .filter(f => f.uid === uid)
     .reduce((sum, f) => sum + Number(f.amountSpentRands || 0), 0);
 
-  const dayTable = (logs) => `
+  /**
+   * What one set of rows adds up to. Kept apart from the markup so the arithmetic an
+   * admin acts on can be checked by the render test rather than read off the screen.
+   *
+   * Counts are split three ways because "12 people" hides the difference between a
+   * province where everyone worked and one where half of them never logged in.
+   */
+  const dayTotals = (logs) => {
+    const started = logs.filter(l => l.startTimeMillis > 0);
+    const ended = logs.filter(l => l.endTimeMillis > 0);
+    return {
+      people: logs.length,
+      worked: logs.filter(l => !l.noEntry && !l.notWorking).length,
+      notWorking: logs.filter(l => l.notWorking).length,
+      noEntry: logs.filter(l => l.noEntry).length,
+      minutes: logs.reduce((sum, l) => sum + minutesWorked(l), 0),
+      km: logs.reduce((sum, l) => sum + (l.endTimeMillis ? kmOf(l) : 0), 0),
+      fuel: logs.reduce((sum, l) => sum + fuelFor(l.uid), 0),
+      // The shape of the day: when the province got going and when it finished.
+      firstStart: started.length ? Math.min(...started.map(l => l.startTimeMillis)) : 0,
+      lastEnd: ended.length ? Math.max(...ended.map(l => l.endTimeMillis)) : 0
+    };
+  };
+
+  /** The total line, on the same eight columns as the rows above it. */
+  const totalsRow = (logs, label) => {
+    const t = dayTotals(logs);
+    const breakdown = [
+      t.worked ? `${t.worked} worked` : null,
+      t.notWorking ? `${t.notWorking} off` : null,
+      t.noEntry ? `${t.noEntry} no entry` : null
+    ].filter(Boolean).join(' · ');
+    return `<tfoot><tr>
+      <td>
+        <div class="who">${esc(label)} — ${t.people} ${t.people === 1 ? 'person' : 'people'}</div>
+        ${breakdown ? `<div class="meta">${esc(breakdown)}</div>` : ''}
+      </td>
+      <td>${t.firstStart ? hhmm(t.firstStart) : '—'}</td>
+      <td>${t.lastEnd ? hhmm(t.lastEnd) : '—'}</td>
+      <td class="hrs">${hoursLabel(t.minutes)}</td>
+      <td>${t.km > 0 ? km(t.km) : '—'}</td>
+      <td>${t.fuel > 0 ? rand(t.fuel) : '—'}</td>
+      <td></td>
+      <td></td>
+    </tr></tfoot>`;
+  };
+
+  const dayTable = (logs, totalLabel) => `
     <div class="table-wrap"><table>
       <thead><tr>
         <th>Employee</th><th>Start</th><th>Knock off</th>
@@ -1361,6 +1421,7 @@ function renderToday() {
               </td>
             </tr>`).join('')}
       </tbody>
+      ${totalsRow(logs, totalLabel)}
     </table></div>`;
 
   if (visible.length === 0) {
@@ -1368,7 +1429,7 @@ function renderToday() {
       ? 'No employees on record yet.'
       : 'Nothing matches those filters.'}</div>`;
   } else if (!$('dayGroup').checked) {
-    $('dayGroups').innerHTML = dayTable(visible);
+    $('dayGroups').innerHTML = dayTable(visible, 'All provinces');
   } else {
     // Grouped by province, so a large team reads as regional crews.
     const groups = {};
@@ -1379,15 +1440,15 @@ function renderToday() {
     });
     $('dayGroups').innerHTML = Object.keys(groups).sort().map(province => {
       const logs = groups[province];
-      const mins = logs.reduce((s, l) => s + minutesWorked(l), 0);
-      const provinceFuel = logs.reduce((s, l) => s + fuelFor(l.uid), 0);
+      // The figures live in the total line at the foot of each province's table now,
+      // rather than being written twice and left to drift apart. The heading keeps only
+      // the name and the headcount, which is what you scan for on the way past.
       return `
         <div class="group-head">
           <span>${esc(province)}</span>
-          <span class="tally">${logs.length} · ${hoursLabel(mins)}${
-            provinceFuel > 0 ? ' · ' + rand(provinceFuel) : ''}</span>
+          <span class="tally">${logs.length}</span>
         </div>
-        ${dayTable(logs)}`;
+        ${dayTable(logs, province)}`;
     }).join('');
   }
 

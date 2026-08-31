@@ -43,6 +43,7 @@ import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
 import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.hoursLabel
 import co.za.cspc.fleettracker.ui.km
+import co.za.cspc.fleettracker.ui.rand
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -223,24 +224,15 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
 
         grouped.forEach { (province, logs) ->
             item {
-                val provinceMinutes = logs.sumOf { it.minutesWorked }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                ) {
-                    Text(
-                        province.asCaptured(),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "${logs.size} · " + provinceMinutes.hoursLabel(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                // The people of this province, so someone with no entry at all is still
+                // counted as one of them rather than quietly dropping out of the total.
+                val theirPeople = state.employees.filter { person ->
+                    (person.province.takeIf { it.isNotBlank() } ?: "No province set") == province
                 }
+                ProvinceTotalLine(
+                    province = province,
+                    totals = DayBreakdown.totalsFor(theirPeople, logs, state.dayFuelLogs)
+                )
             }
             items(logs) { log ->
             Card {
@@ -865,6 +857,65 @@ private fun EditVehicleDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+/**
+ * A province's day in one line: bold, and in the primary container colour so it reads as
+ * a different kind of row than the people underneath it.
+ *
+ * The exception colours are deliberately not reused — amber and red already mean
+ * "something needs attention" on this screen, and a total is not an exception.
+ */
+@Composable
+private fun ProvinceTotalLine(province: String, totals: DayTotals) {
+    val breakdown = listOfNotNull(
+        totals.worked.takeIf { it > 0 }?.let { "$it worked" },
+        totals.notWorking.takeIf { it > 0 }?.let { "$it off" },
+        totals.noEntry.takeIf { it > 0 }?.let { "$it no entry" }
+    ).joinToString(" · ")
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    province.asCaptured(),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "${totals.people} " + if (totals.people == 1) "person" else "people",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            if (breakdown.isNotBlank()) {
+                Text(
+                    breakdown,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                listOf(
+                    totals.minutes.hoursLabel(),
+                    totals.km.km(),
+                    if (totals.fuelRands > 0.0) totals.fuelRands.rand() else "—"
+                ).joinToString("  •  "),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
 }
 
 /**

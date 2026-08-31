@@ -241,6 +241,55 @@ class DayBreakdownTest {
         assertEquals("BC 45 DF GP", service.rows.single().meta)
     }
 
+    // ---------- what a province's day adds up to ----------
+
+    @Test
+    fun totalsCountEveryoneAndSumTheDay() {
+        val t = DayBreakdown.totalsFor(employees, logs, fuelLogs)
+
+        // Thabo has no log at all and is still one of the province's people — dropping
+        // him would make a bad day look like a smaller province rather than a worse one.
+        assertEquals("people", 4, t.people)
+        assertEquals("worked", 2, t.worked)
+        assertEquals("off", 1, t.notWorking)
+        assertEquals("no entry", 1, t.noEntry)
+        assertEquals("minutes", 1245L, t.minutes)   // 10h 00m + 10h 45m
+        assertEquals("km", 140L, t.km)              // 80 + 60
+        assertEquals("fuel", 550.50, t.fuelRands, 0.001)
+
+        // The shape of the day: first in, last out.
+        assertEquals(curfew(-630), t.firstStartMillis)
+        assertEquals(curfew(45), t.lastEndMillis)
+    }
+
+    /** An absence has no hours and no distance, and must not set either end of the day. */
+    @Test
+    fun anAbsenceDoesNotShapeTheDay() {
+        val t = DayBreakdown.totalsFor(listOf(naledi), listOf(naledisAbsence), emptyList())
+        assertEquals(1, t.people)
+        assertEquals(0, t.worked)
+        assertEquals(1, t.notWorking)
+        assertEquals(0L, t.minutes)
+        assertEquals(0L, t.firstStartMillis)
+        assertEquals(0L, t.lastEndMillis)
+    }
+
+    /** A province where nobody logged in is still a province with people in it. */
+    @Test
+    fun aProvinceWithNoEntriesStillHasItsPeople() {
+        val t = DayBreakdown.totalsFor(listOf(sarah, lerato), emptyList(), emptyList())
+        assertEquals(2, t.people)
+        assertEquals(2, t.noEntry)
+        assertEquals(0, t.worked)
+    }
+
+    /** Another province's fuel must not land on this one's total. */
+    @Test
+    fun fuelIsCountedOnlyForThePeopleInTheGroup() {
+        val t = DayBreakdown.totalsFor(listOf(sarah), listOf(sarahsDay), fuelLogs)
+        assertEquals(450.50, t.fuelRands, 0.001)
+    }
+
     /** A figure of zero should explain itself rather than open an empty table. */
     @Test
     fun aFigureOfZeroExplainsItself() {
