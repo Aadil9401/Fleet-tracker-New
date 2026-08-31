@@ -880,7 +880,13 @@ const kmOf = (log) => Math.max(0, (log.endOdometerKm || 0) - (log.startOdometerK
  *
  * A constant rather than a setting in config/settings: this portal has no settings
  * screen, and a parking curfew is a company rule, not a per-admin preference. Moving
- * it is a one-line change here.
+ * it is a one-line change here and a one-line change in the app's ParkingCurfew.
+ *
+ * The same rule exists once more, in the phone app, because a self-contained HTML file
+ * with no build step cannot reach Kotlin. The specification both answer to is
+ * `parking-curfew-cases.csv` at the repo root; web/parking-curfew-test.mjs runs this
+ * copy against it. No case there needs touching when the curfew moves — they are all
+ * written as offsets from whatever this says.
  */
 const PARK_BY = '18:30';
 

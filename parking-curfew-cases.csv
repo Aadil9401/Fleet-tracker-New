@@ -1,0 +1,55 @@
+# The parking curfew contract. THIS FILE IS THE SPECIFICATION.
+#
+# Vehicles are meant to be parked by the curfew. A later knock-off is flagged, never
+# blocked — the day still counts in full, it just carries a mark.
+#
+# The rule is implemented twice, because the two places that need it cannot share code:
+# the admin portal is a single self-contained HTML file with no build step, and the
+# Android app is Kotlin. Nothing else stops those two drifting apart, so both are tested
+# against this table:
+#
+#   web/parking-curfew-test.mjs                                the portal   (node)
+#   app/src/test/.../data/model/ParkingCurfewTest.kt            the app      (gradle)
+#
+# Change the rule here, change it in both, and CI tells you if you missed one.
+#
+# Cases are offsets in whole minutes from that day's own curfew, not clock times. Two
+# reasons: moving the curfew (18:00 to 18:30 already happened once) leaves every case
+# below still correct; and the two implementations resolve a date to a timestamp in
+# different zones — the portal in the browser's, the app pinned to SAST — which an
+# offset sidesteps because it is measured from whatever curfew that side computed.
+#
+# offsetMinutes  minutes after the curfew that they knocked off. Negative is early;
+#                "none" means they never knocked off at all.
+# minutesLate    what the rule must report.
+# label          how that figure must be written out.
+#
+name,offsetMinutes,minutesLate,label
+early-in-the-afternoon,-600,0,—
+an-hour-before-the-curfew,-60,0,—
+one-minute-before-the-curfew,-1,0,—
+on-the-curfew-exactly-is-on-time,0,0,—
+one-minute-after-is-late,1,1,1 min
+three-quarters-of-an-hour,45,45,45 min
+fifty-nine-minutes-still-reads-in-minutes,59,59,59 min
+an-hour-exactly-pads-its-minutes,60,60,1h 00m
+an-hour-and-five,65,65,1h 05m
+knocked-off-after-midnight,330,330,5h 30m
+never-knocked-off-is-not-late,none,0,—
+#
+# Notes on the cases that are here for a reason:
+#
+# 1. on-the-curfew-exactly-is-on-time. Parked AT 18:30 has met the rule; the comparison
+#    is strictly greater than, not greater-or-equal. A rule people are judged against
+#    should not fail them on the boundary it names.
+#
+# 2. never-knocked-off-is-not-late. An unfinished day is a different fault, already
+#    flagged on its own. Scoring it as late too would double-count one person and
+#    inflate the figure the admin acts on.
+#
+# 3. knocked-off-after-midnight. Measured against that day's own curfew rather than the
+#    hour on the timestamp: a knock-off after midnight reads as hour 0, so an hour check
+#    would score the very latest case as the earliest of all.
+#
+# 4. an-hour-exactly-pads-its-minutes. "1h 00m", not "1h 0m", so a column of these lines
+#    up. And three quarters of an hour is "45 min", not "0h 45m".

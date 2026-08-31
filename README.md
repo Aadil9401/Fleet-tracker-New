@@ -74,7 +74,7 @@ The portal is one file of plain JavaScript with no build step, so these run
 straight from a checkout with nothing installed:
 
 ```bash
-node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.html && node web/render-test.mjs web/index.html && node web/service-schedule-test.mjs web/index.html service-schedule-cases.csv && node functions/service-schedule-test.mjs service-schedule-cases.csv && node --check functions/index.js
+node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.html && node web/render-test.mjs web/index.html && node web/service-schedule-test.mjs web/index.html service-schedule-cases.csv && node web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv && node functions/service-schedule-test.mjs service-schedule-cases.csv && node --check functions/index.js
 ```
 
 - `smoke-test.mjs` evaluates the portal's module against stubbed browser and
@@ -111,3 +111,21 @@ against the table and names the one that disagrees. That table was written after
 finding three real divergences between the copies — they are documented at the
 bottom of the CSV, including one where the portal and the phone showed different
 service percentages for the same vehicle.
+
+## The parking curfew
+
+Vehicles are meant to be parked by **18:30**. A later knock-off is flagged, never
+blocked — the day still counts in full, it just carries a mark.
+
+The same arrangement, for the same reason: the portal and the phone app both need the
+rule and cannot share code.
+
+| | |
+|---|---|
+| **The specification** | `parking-curfew-cases.csv` — a table of cases, at the repo root |
+| Phone app | `ParkingCurfew.kt`, checked by `ParkingCurfewTest` (`gradle testDebugUnitTest`) |
+| Admin portal | inline in `index.html`, checked by `web/parking-curfew-test.mjs` |
+
+Cases are written as offsets from the curfew rather than as clock times, so **moving the
+curfew needs no change to the table** — only the two one-line constants. It has moved
+once already, from 18:00 to 18:30.

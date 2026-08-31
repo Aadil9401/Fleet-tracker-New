@@ -173,6 +173,18 @@ data class TimeLog(
     /** "9h 25m", or a dash while the day is still open. */
     val durationLabel: String
         get() = if (minutesWorked <= 0L) "—" else "${minutesWorked / 60}h ${minutesWorked % 60}m"
+
+    // The curfew rule itself lives in ParkingCurfew, free of any Firebase import so it
+    // can be unit tested against the shared specification. What is left here is the
+    // mapping from this document's fields onto it.
+
+    /** Minutes past the parking curfew. Zero when on time, and zero for an open day. */
+    val minutesParkedLate: Long get() = ParkingCurfew.minutesParkedLate(date, endTimeMillis)
+
+    val isParkedLate: Boolean get() = minutesParkedLate > 0L
+
+    /** "45 min", "1h 05m", or a dash when they were parked in time. */
+    val lateLabel: String get() = ParkingCurfew.lateLabel(minutesParkedLate)
 }
 
 /** A fuel purchase logged by an employee. */

@@ -40,6 +40,11 @@ jobs:
       - name: Reminder job matches the service schedule spec
         run: node functions/service-schedule-test.mjs service-schedule-cases.csv
 
+      # Same arrangement for the parking curfew, which the portal and the phone app both
+      # implement. The phone's copy is checked by gradle test in the build-apk workflow.
+      - name: Portal matches the parking curfew spec
+        run: node web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv
+
       - name: Cloud Functions parse
         run: |
           node --check functions/index.js
