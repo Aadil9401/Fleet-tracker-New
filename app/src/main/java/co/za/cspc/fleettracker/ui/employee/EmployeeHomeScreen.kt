@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.ABSENCE_REASONS
@@ -84,6 +85,29 @@ fun EmployeeHomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { StatusCard(state) }
+
+            // Directly under the status card rather than at the foot of the screen. The
+            // result of what you just pressed — a greeting, or a failure — belongs where
+            // you are already looking, not below the service reminders.
+            state.message?.let { msg ->
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(14.dp)
+                        )
+                    }
+                }
+            }
 
             val absent = state.todaysLog?.notWorking == true
 
@@ -229,14 +253,6 @@ fun EmployeeHomeScreen(
                 }
             }
 
-            state.message?.let { msg ->
-                item {
-                    LaunchedEffect(msg) {
-                        // auto shown via Snackbar-less simple text; cleared on next action
-                    }
-                    Text(msg, color = MaterialTheme.colorScheme.primary)
-                }
-            }
         }
     }
 

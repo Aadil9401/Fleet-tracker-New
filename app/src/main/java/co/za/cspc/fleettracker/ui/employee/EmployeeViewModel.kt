@@ -22,6 +22,13 @@ data class EmployeeUiState(
     val busy: Boolean = false
 )
 
+/**
+ * What an employee sees the moment they start their day. Kept as a named constant
+ * rather than buried in clockIn(), because it is the one string in this file that
+ * someone will want to reword without reading the rest of the class.
+ */
+const val CLOCKED_IN_GREETING = "Have a lovely day, stay blessed, be safe, do your BEST"
+
 class EmployeeViewModel(
     private val repo: FleetRepository = FleetRepository()
 ) : ViewModel() {
@@ -109,7 +116,7 @@ class EmployeeViewModel(
                     busy = false,
                     todaysLog = repo.todaysTimeLog(profile.uid),
                     vehicle = if (profile.assignedVehicleId.isNotBlank()) repo.getVehicle(profile.assignedVehicleId) else null,
-                    message = "Clocked in. Have a safe day!"
+                    message = CLOCKED_IN_GREETING
                 )
             } catch (e: Exception) {
                 uiState = uiState.copy(busy = false, message = "Could not clock in: ${e.message}")
