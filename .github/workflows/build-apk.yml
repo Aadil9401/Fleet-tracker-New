@@ -1,8 +1,20 @@
 name: Build APK
 
+# This job is the only thing that compiles the app and runs its unit tests, and it
+# used to run only after a change had already landed on main — so the Kotlin was
+# never verified until it was too late to not merge it. Two more triggers:
+#
+#   pull_request   the app compiles before a merge, the way checks.yml already does
+#                  for the portal and the Cloud Functions.
+#   verify/**      push to a branch named verify/something to compile it on demand,
+#                  without a pull request and without going near main.
+#
+# A pull request from a fork gets no secrets, so the google-services.json step will
+# fail on one by design — there is no way to build a Firebase app from a fork anyway.
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'verify/**' ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
