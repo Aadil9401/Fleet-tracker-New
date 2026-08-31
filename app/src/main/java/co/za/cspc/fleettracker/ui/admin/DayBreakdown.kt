@@ -2,6 +2,7 @@ package co.za.cspc.fleettracker.ui.admin
 
 import co.za.cspc.fleettracker.data.model.FuelLog
 import co.za.cspc.fleettracker.data.model.ParkingCurfew
+import co.za.cspc.fleettracker.data.model.PlateFormat
 import co.za.cspc.fleettracker.data.model.TimeLog
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
@@ -246,8 +247,8 @@ object DayBreakdown {
                 // Who is driving it matters more than the vehicle on its own — somebody
                 // has to be told to take it in.
                 val holderByReg = employees
-                    .filter { normReg(it.vehicleRegistration).isNotEmpty() }
-                    .associateBy { normReg(it.vehicleRegistration) }
+                    .filter { PlateFormat.key(it.vehicleRegistration).isNotEmpty() }
+                    .associateBy { PlateFormat.key(it.vehicleRegistration) }
                 Breakdown(
                     title = "Due for a service",
                     columns = listOf("Vehicle", "Next service", "Assigned to"),
@@ -256,11 +257,12 @@ object DayBreakdown {
                     rows = vehicles.filter { it.isServiceDue(nowMillis) }
                         .sortedBy { it.nextServiceAtKm() }
                         .map { vehicle ->
-                            val holder = holderByReg[normReg(vehicle.registrationNumber)]
+                            val holder = holderByReg[PlateFormat.key(vehicle.registrationNumber)]
                             val nextAt = vehicle.nextServiceAtKm()
                             BreakdownRow(
-                                heading = vehicle.name.ifBlank { vehicle.registrationNumber },
-                                meta = vehicle.registrationNumber,
+                                heading = vehicle.name
+                                    .ifBlank { PlateFormat.display(vehicle.registrationNumber) },
+                                meta = PlateFormat.display(vehicle.registrationNumber),
                                 cells = listOf(
                                     if (nextAt > 0L) nextAt.km() else "—",
                                     holder?.fullName ?: "nobody"
@@ -288,11 +290,4 @@ object DayBreakdown {
             .sortedBy { it.fullName.lowercase(Locale.ROOT) }
     }
 
-    /**
-     * A registration reduced to letters and digits, so "ND 123-456" and "nd123456" are
-     * one vehicle. Employees type their own registration as free text, and that is what
-     * has to be matched against the fleet record.
-     */
-    private fun normReg(registration: String): String =
-        registration.uppercase(Locale.ROOT).filter { it.isLetterOrDigit() }
 }

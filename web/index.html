@@ -747,7 +747,11 @@
 
       <div class="card">
         <div class="toolbar">
-          <h2 class="section grow" style="margin:0">Fleet (<span id="vehCount">0</span>)</h2>
+          <h2 class="section" style="margin:0">Fleet (<span id="vehCount">0</span>)</h2>
+          <div class="grow">
+            <label for="vehSearch">Search</label>
+            <input id="vehSearch" type="search" placeholder="Registration or vehicle name">
+          </div>
           <button id="deleteAllBtn" class="danger">Delete all</button>
         </div>
         <div class="table-wrap"><table>
@@ -953,6 +957,50 @@ function downloadCsv(filename, rows) {
 }
 
 const normReg = (s) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/**
+ * How a registration plate is written out: every Gauteng plate reads XX 77 XX GP.
+ *
+ * Registrations are typed by hand in three places — the vehicle upload, the admin's
+ * vehicle form and the employee's own sign-up — so the same car arrives as "BC45DFGP",
+ * "bc 45 df gp" and "BC-45-DF-GP", and a column of those does not read as a column of
+ * the same kind of thing.
+ *
+ * DISPLAY ONLY, like the capitals applied to names: the stored value keeps whatever was
+ * typed, and matching a plate to a vehicle still goes through normReg(), because spacing
+ * has never been part of identity here and must not become part of it.
+ *
+ * The same rule exists once more in the phone app's PlateFormat.kt. The specification
+ * both answer to is `plate-format-cases.csv` at the repo root; web/plate-format-test.mjs
+ * runs this copy against it.
+ *
+ * An unrecognised shape is only tidied, never reshaped — guessing at a shape this does
+ * not know would turn a plate that was merely untidy into one that is wrong, with
+ * nothing to show the admin it had happened.
+ */
+function plate(registration) {
+  const stripped = normReg(registration);
+  // Two letters, two or three digits, two letters, province — the current shape.
+  const current = /^([A-Z]{2})(\d{2,3})([A-Z]{2})([A-Z]{2})$/.exec(stripped);
+  if (current) return `${current[1]} ${current[2]} ${current[3]} ${current[4]}`;
+  // Three letters, three digits, province — the one before it.
+  const older = /^([A-Z]{3})(\d{3})([A-Z]{2})$/.exec(stripped);
+  if (older) return `${older[1]} ${older[2]} ${older[3]}`;
+  // Two letters and six digits, no province code — older still, and still on the road.
+  const oldest = /^([A-Z]{2})(\d{3})(\d{3})$/.exec(stripped);
+  if (oldest) return `${oldest[1]} ${oldest[2]} ${oldest[3]}`;
+  return String(registration ?? '').toUpperCase().trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Whether a plate matches what was typed into a search box, ignoring spacing and
+ * punctuation on both sides — so "xx77" and "XX 77" both find "XX 77 XX GP". Typing the
+ * plate as displayed has to work, and so does typing it as it was stored.
+ */
+const plateMatches = (registration, query) => {
+  const needle = normReg(query);
+  return needle !== '' && normReg(registration).includes(needle);
+};
 
 const initials = (name, surname) =>
   ((name?.[0] ?? '') + (surname?.[0] ?? '')).toUpperCase() || '?';
@@ -1452,8 +1500,8 @@ function tileDetail(key) {
         rows: rows.map(v => {
           const holder = holderByReg[normReg(v.registrationNumber)];
           return [
-            `<div class="nm">${esc(v.name || v.registrationNumber)}</div>`
-              + `<div class="meta">${esc(v.registrationNumber)}</div>`,
+            `<div class="nm">${esc(v.name || plate(v.registrationNumber))}</div>`
+              + `<div class="meta">${esc(plate(v.registrationNumber))}</div>`,
             nextServiceAtKm(v) > 0 ? km(nextServiceAtKm(v)) : '—',
             holder ? esc(fullName(holder)) : '<span class="meta">nobody</span>'
           ];
@@ -1744,7 +1792,7 @@ function renderEmployees() {
             </div>
           </div></td>
           <td>${e.province ? `<span class="chip">${esc(e.province)}</span>` : '—'}</td>
-          <td>${esc(e.vehicleRegistration || '—')}</td>
+          <td>${e.vehicleRegistration ? esc(plate(e.vehicleRegistration)) : '—'}</td>
           <td><select data-assign="${esc(e.id)}">${vehicleOptions(e.assignedVehicleId)}</select></td>
           <td>${lastActiveCell(e.id)}</td>
           <td><span class="badge ${active ? '' : 'off'}">${active ? 'Active' : 'Inactive'}</span></td>
@@ -1932,6 +1980,11 @@ $('editSave').addEventListener('click', async () => {
   } finally {
     $('editSave').disabled = false;
   }
+});
+
+$('vehSearch').addEventListener('input', (e) => {
+  vehFilter = e.target.value.trim();
+  renderVehicles();
 });
 
 $('empSearch').addEventListener('input', (e) => {
@@ -2129,12 +2182,27 @@ $('autoAssignBtn').addEventListener('click', async () => {
   } catch (err) { showMsg('Auto-assign failed: ' + err.message, 'err'); }
 });
 
+/** What is typed in the fleet search box. Empty means show everything. */
+let vehFilter = '';
+
 function renderVehicles() {
   renderIntervalWarning();
-  $('vehCount').textContent = data.vehicles.length;
-  $('vehRows').innerHTML = data.vehicles.length === 0
-    ? `<tr><td colspan="5" class="empty">No vehicles yet. Upload your list above.</td></tr>`
-    : data.vehicles.map(v => {
+  // Spacing is not part of identity, so "bc45" and "BC 45" both find BC 45 DF GP —
+  // see plateMatches(). The name is searched too, since half the fleet is known by one.
+  const visible = !vehFilter ? data.vehicles : data.vehicles.filter(v =>
+    plateMatches(v.registrationNumber, vehFilter) ||
+    String(v.name || '').toLowerCase().includes(vehFilter.toLowerCase()));
+
+  // The count follows the filter, so it always describes what is on screen.
+  $('vehCount').textContent = vehFilter
+    ? `${visible.length} of ${data.vehicles.length}`
+    : data.vehicles.length;
+
+  $('vehRows').innerHTML = visible.length === 0
+    ? `<tr><td colspan="5" class="empty">${data.vehicles.length === 0
+        ? 'No vehicles yet. Upload your list above.'
+        : 'No vehicle matches that search.'}</td></tr>`
+    : visible.map(v => {
         const due = isServiceDue(v);
         const pct = percentToNextService(v);
         const remaining = kmUntilService(v);
@@ -2146,8 +2214,8 @@ function renderVehicles() {
           v.lastServiceProvider || null
         ].filter(Boolean).join(' · ');
         return `<tr>
-          <td><div class="nm">${esc(v.name || v.registrationNumber)}</div>
-              <div class="meta">${esc(v.registrationNumber)}</div>
+          <td><div class="nm">${esc(v.name || plate(v.registrationNumber))}</div>
+              <div class="meta">${esc(plate(v.registrationNumber))}</div>
               ${due ? '<span class="badge due">SERVICE DUE</span>' : ''}
               ${lastServiced ? `<div class="meta">Last: ${esc(lastServiced)}</div>` : ''}</td>
           <td>${km(v.currentOdometerKm || 0)}</td>

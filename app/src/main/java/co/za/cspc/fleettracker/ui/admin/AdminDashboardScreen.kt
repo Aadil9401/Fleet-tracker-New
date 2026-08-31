@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.AppSettings
+import co.za.cspc.fleettracker.data.model.PlateFormat
 import co.za.cspc.fleettracker.data.model.SA_PROVINCES
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
@@ -1116,7 +1117,7 @@ private fun EmployeeCard(
                     InfoChip(employee.province.asCaptured(), Icons.Filled.Place)
                 }
                 if (employee.vehicleRegistration.isNotBlank()) {
-                    InfoChip(employee.vehicleRegistration.asCaptured(), Icons.Filled.DirectionsCar)
+                    InfoChip(PlateFormat.display(employee.vehicleRegistration), Icons.Filled.DirectionsCar)
                 }
             }
             if (possibleDuplicate) {
@@ -1409,6 +1410,7 @@ private fun AddEmployeeDialog(
 
 @Composable
 private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
+    var query by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
     var showBulkDialog by remember { mutableStateOf(false) }
     var vehicleToDelete by remember { mutableStateOf<Vehicle?>(null) }
@@ -1456,9 +1458,50 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 )
             }
         }
+        if (state.vehicles.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search the fleet") },
+                placeholder = { Text("Registration or vehicle name") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear the search")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        // Spacing is not part of identity, so "bc45" and "BC 45" both find BC 45 DF GP.
+        // The name is searched too, since half a fleet is known by one rather than a plate.
+        val visible = remember(state.vehicles, query) {
+            val trimmed = query.trim()
+            if (trimmed.isEmpty()) state.vehicles
+            else state.vehicles.filter { v ->
+                PlateFormat.matches(v.registrationNumber, trimmed) ||
+                    v.name.contains(trimmed, ignoreCase = true)
+            }
+        }
+
         Spacer(Modifier.height(12.dp))
+
+        // A search that matches nothing must say so, or it reads as an empty fleet.
+        if (visible.isEmpty() && state.vehicles.isNotEmpty()) {
+            Text(
+                "No vehicle matches that search.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.vehicles) { v ->
+            items(visible) { v ->
                 val due = v.isServiceDue(System.currentTimeMillis())
                 Card(colors = CardDefaults.cardColors(
                     containerColor = if (due) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface
@@ -1467,12 +1510,13 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    v.name.ifBlank { v.registrationNumber }.asCaptured(),
+                                    v.name.ifBlank { PlateFormat.display(v.registrationNumber) }
+                                        .asCaptured(),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    v.registrationNumber.asCaptured(),
+                                    PlateFormat.display(v.registrationNumber),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

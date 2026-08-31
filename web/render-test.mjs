@@ -17,7 +17,7 @@ import { readFileSync } from 'fs';
 import { loadPortal, writes } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
-  'renderToday', 'data', 'PARK_BY', 'openTileModal'
+  'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles'
 ]);
 
 let failures = 0;
@@ -186,6 +186,41 @@ check('the fuel header and its row agree on the column count', fuelCells, fuelHe
 check('the empty-fuel row spans every column', fuelColspan, fuelHeaders);
 // The export shared the column, so it had to lose it too.
 check('the receipt column is gone from the fuel export', /'Receipt'/.test(src), false);
+
+/* ---------------- the fleet table ---------------- */
+// Registrations are typed by hand in three places, so the same car arrives spelt three
+// ways. The fleet list is where that shows most, and it is the list an admin scans.
+portal.data.vehicles = [
+  { id: 'v1', registrationNumber: 'bc45dfgp', name: '', currentOdometerKm: 30000,
+    lastServiceOdometerKm: 15000, serviceIntervalKm: 15000, serviceIntervalMonths: 0 },
+  { id: 'v2', registrationNumber: 'XY-67-ZW-GP', name: 'Bakkie 2', currentOdometerKm: 20000,
+    lastServiceOdometerKm: 15000, serviceIntervalKm: 15000, serviceIntervalMonths: 0 }
+];
+portal.renderVehicles();
+const fleet = writes()['vehRows'] ?? '';
+
+check('a run-together plate is spaced out', fleet.includes('BC 45 DF GP'), true);
+check('and so is a dashed one', fleet.includes('XY 67 ZW GP'), true);
+check('the raw spelling is not what gets shown',
+  [fleet.includes('bc45dfgp'), fleet.includes('XY-67-ZW-GP')], [false, false]);
+// A vehicle with no name falls back to its plate, which should be the tidy one.
+check('an unnamed vehicle is titled by its formatted plate',
+  /class="nm">BC 45 DF GP</.test(fleet), true);
+check('the fleet count is shown', writes()['vehCount'], 2);
+
+// The grid, checked the same way as the other two tables.
+const fleetTab = src.slice(src.indexOf('<section id="tab-vehicles"'), src.indexOf('<!-- LOGS'));
+const fleetHead = fleetTab.slice(fleetTab.lastIndexOf('<thead>'), fleetTab.lastIndexOf('</thead>'));
+const fleetHeaders = (fleetHead.match(/<th[\s>]/g) ?? []).length;
+const fleetRowStart = fleet.indexOf('<tr>');
+const fleetCells = (fleet.slice(fleetRowStart, fleet.indexOf('</tr>', fleetRowStart)).match(/<td[\s>]/g) ?? []).length;
+check('the fleet header and its rows agree on the column count', fleetCells, fleetHeaders);
+
+// An empty result must say why, or a search that matches nothing reads as an empty fleet.
+portal.data.vehicles = [];
+portal.renderVehicles();
+check('an empty fleet explains itself',
+  (writes()['vehRows'] ?? '').includes('No vehicles yet'), true);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

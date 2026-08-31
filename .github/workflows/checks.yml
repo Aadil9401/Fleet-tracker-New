@@ -45,6 +45,11 @@ jobs:
       - name: Portal matches the parking curfew spec
         run: node web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv
 
+      # And for how a registration plate is written out — the third rule implemented on
+      # both sides, so the third table they both answer to.
+      - name: Portal matches the plate format spec
+        run: node web/plate-format-test.mjs web/index.html plate-format-cases.csv
+
       - name: Cloud Functions parse
         run: |
           node --check functions/index.js

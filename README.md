@@ -53,6 +53,8 @@ are due with the name of whoever is driving them.
 - **Every headline figure opens** — tap any of the eight tiles on the day view and
   it lists the people behind that number: who hasn't started, who parked late and
   by how long, who drove furthest, which vehicles are due and who's driving them.
+- **Fleet search** — find a vehicle by registration or name. Spacing is ignored, so
+  `bc45` and `BC 45` both find `BC 45 DF GP`, and the count follows the filter
 - **Reports** — any date range (or today / last 7 / last 30), filtered by
   employee, province or team, with totals that follow the filter
 - **Employees** — add staff (the app generates a username and password and emails
@@ -83,7 +85,7 @@ The portal is one file of plain JavaScript with no build step, so these run
 straight from a checkout with nothing installed:
 
 ```bash
-node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.html && node web/render-test.mjs web/index.html && node web/service-schedule-test.mjs web/index.html service-schedule-cases.csv && node web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv && node functions/service-schedule-test.mjs service-schedule-cases.csv && node --check functions/index.js
+node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.html && node web/render-test.mjs web/index.html && node web/service-schedule-test.mjs web/index.html service-schedule-cases.csv && node web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv && node web/plate-format-test.mjs web/index.html plate-format-cases.csv && node functions/service-schedule-test.mjs service-schedule-cases.csv && node --check functions/index.js
 ```
 
 - `smoke-test.mjs` evaluates the portal's module against stubbed browser and
@@ -142,3 +144,26 @@ rule and cannot share code.
 Cases are written as offsets from the curfew rather than as clock times, so **moving the
 curfew needs no change to the table** — only the two one-line constants. It has moved
 once already, from 18:00 to 18:30.
+
+## Registration plates
+
+Registrations are typed by hand in three places — the vehicle upload, the admin's
+vehicle form and the employee's own sign-up — so the same car arrives as `BC45DFGP`,
+`bc 45 df gp` and `BC-45-DF-GP`. Every Gauteng plate is **displayed** as
+`XX 77 XX GP`.
+
+Display only. The stored value keeps whatever was typed, and matching a plate to a
+vehicle still strips everything that is not a letter or digit — spacing has never been
+part of a plate's identity and must not become part of it. A shape the rule does not
+recognise is tidied but never reshaped, because guessing would turn a plate that was
+merely untidy into one that is wrong.
+
+| | |
+|---|---|
+| **The specification** | `plate-format-cases.csv` — a table of cases, at the repo root |
+| Phone app | `PlateFormat.kt`, checked by `PlateFormatTest` (`gradle testDebugUnitTest`) |
+| Admin portal | inline in `index.html`, checked by `web/plate-format-test.mjs` |
+
+Both tests also assert that formatting a plate never changes what it reduces to — if it
+did, a vehicle would stop matching the employee who drives it and the day view would
+report it as having no driver.

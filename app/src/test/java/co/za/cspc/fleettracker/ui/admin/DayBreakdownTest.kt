@@ -213,11 +213,32 @@ class DayBreakdownTest {
         val service = opened("service")
         assertEquals(listOf("Suzuki Magnite", "Bakkie 2"), service.rows.map { it.heading })
         // The registration typed by the employee is free text: "ND 111-111" is the
-        // same vehicle as "ND111111".
+        // same vehicle as "ND111111". Spacing is not part of what a plate is.
         assertEquals(listOf("30 000 km", "Sarah Dube"), service.rows.first().cells)
         assertEquals(listOf("60 000 km", "nobody"), service.rows.last().cells)
-        assertEquals("ND 111-111", service.rows.first().meta)
+        // Shown through PlateFormat, so a plate reads the same here as in the fleet
+        // list, whichever of the three ways it happened to be typed.
+        assertEquals("ND 111 111", service.rows.first().meta)
+        assertEquals("XY 999 999", service.rows.last().meta)
         assertEquals("2 vehicles", service.countLabel)
+    }
+
+    /**
+     * The driver types their own registration and the admin uploads the fleet's, so the
+     * same Gauteng plate routinely arrives spelt two ways. It must still be one vehicle,
+     * or a car shows as due with nobody to send in with it.
+     */
+    @Test
+    fun aGautengPlateMatchesItsDriverHoweverItWasTyped() {
+        val driver = employee("u9", "Sipho", "Ndlovu", "Gauteng", "Midrand", "bc45dfgp")
+        val theirCar = vehicle("Magnite", "BC 45 DF GP", lastServiceKm = 15000L, currentKm = 30000L)
+
+        val service = DayBreakdown.of(
+            "service", listOf(driver), emptyList(), emptyList(), listOf(theirCar), NOW
+        )!!
+
+        assertEquals(listOf("Sipho Ndlovu"), service.rows.map { it.cells.last() })
+        assertEquals("BC 45 DF GP", service.rows.single().meta)
     }
 
     /** A figure of zero should explain itself rather than open an empty table. */

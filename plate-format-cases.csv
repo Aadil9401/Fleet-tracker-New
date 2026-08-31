@@ -1,0 +1,50 @@
+# The registration plate display contract. THIS FILE IS THE SPECIFICATION.
+#
+# Registrations are typed by hand in three places — the vehicle upload, the admin's
+# vehicle form, and the employee's own sign-up — so the same car arrives as "BC45DFGP",
+# "bc 45 df gp" and "BC-45-DF-GP". A list of those does not read as a list of the same
+# kind of thing, which is what this fixes. Every Gauteng plate is shown as XX 77 XX GP.
+#
+# DISPLAY ONLY. The stored value keeps whatever was typed, exactly like asCaptured()
+# for names — so this can be changed or dropped later without touching any data, and
+# matching a plate to a vehicle still goes through the strip-to-alphanumerics
+# comparison it always did.
+#
+# The rule is implemented twice, because the two places that need it cannot share code:
+# the admin portal is a self-contained HTML file with no build step, and the Android app
+# is Kotlin. Both are tested against this table:
+#
+#   web/plate-format-test.mjs                              the portal   (node)
+#   app/src/test/.../data/model/PlateFormatTest.kt          the app      (gradle)
+#
+# input        what was typed or stored.
+# display      what must be shown.
+#
+name,input,display
+gauteng-run-together,BC45DFGP,BC 45 DF GP
+gauteng-already-spaced,BC 45 DF GP,BC 45 DF GP
+gauteng-lowercase,bc45dfgp,BC 45 DF GP
+gauteng-with-dashes,BC-45-DF-GP,BC 45 DF GP
+gauteng-ragged-spacing,BC  45DF  GP,BC 45 DF GP
+gauteng-three-digit-block,BC456DFGP,BC 456 DF GP
+gauteng-older-three-letter,XYZ123GP,XYZ 123 GP
+another-province-keeps-its-own-shape,ZN45DFZN,ZN 45 DF ZN
+old-style-two-letters-six-digits,CA123456,CA 123 456
+old-style-already-spaced,ND 123 456,ND 123 456
+not-a-plate-is-left-alone,FLEET 1,FLEET 1
+unrecognised-shape-is-only-tidied,ABCDEFGH,ABCDEFGH
+blank-stays-blank,,
+#
+# Notes on the cases that are here for a reason:
+#
+# 1. unrecognised-shape-is-only-tidied and not-a-plate-is-left-alone. Anything the rule
+#    does not recognise is uppercased and has its spacing collapsed, and is otherwise
+#    handed back untouched. Guessing at a shape it does not know would turn a plate that
+#    was merely untidy into one that is wrong, and the admin would have no way to tell.
+#
+# 2. another-province-keeps-its-own-shape. The fleet is Gauteng today, but forcing GP
+#    onto a plate that is not Gauteng would be a fabrication. The province code is
+#    whatever was typed; only the spacing is this rule's business.
+#
+# 3. old-style-two-letters-six-digits. The older provincial format groups as
+#    CA 123 456, not CA 12 34 56. It predates the current shape and is still on the road.
