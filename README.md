@@ -9,6 +9,17 @@ The repo folder, the Gradle package (`co.za.cspc.fleettracker`) and the Firebase
 project still carry the app's original name, Fleet Tracker. Only the name shown
 to users changed.
 
+**Installing the phone app:** every build publishes the APK to one fixed link, which
+needs no sign-in and can be opened on the phone itself.
+
+```
+https://github.com/Aadil9401/Fleet-tracker-New/releases/download/debug-latest/app-debug.apk
+```
+
+**The admin portal** is deployed by hand with `firebase deploy --only hosting`. There is
+no workflow for it, so the live site sits on whatever was last deployed rather than on
+whatever is on `main` — worth checking first if the portal seems to be missing a change.
+
 ## What's in this project
 
 | Folder | What it is |

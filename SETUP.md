@@ -158,9 +158,20 @@ you see who has not started and which vehicles are due.
    - Paste the long output as the secret's value and save.
 5. Go to the **Actions** tab of your repo — a build should already be running
    (or click **Run workflow** on "Build APK" to start one).
-6. When it finishes (green tick, a few minutes), click into the run, scroll to
-   **Artifacts**, and download `fleet-tracker-debug-apk` — it's a zip containing
-   `app-debug.apk`.
+6. When it finishes (green tick, a few minutes), download the APK from the
+   **Releases** page of your repo — the `debug-latest` release always holds the newest
+   build:
+
+   ```
+   https://github.com/Aadil9401/Fleet-tracker-New/releases/download/debug-latest/app-debug.apk
+   ```
+
+   That link is plain, permanent and needs no sign-in, so it can be opened on the phone
+   itself. Every build replaces the file behind it.
+
+   The same APK is also attached to the run under **Artifacts**, but that route needs a
+   GitHub login, arrives as a zip, expires after 90 days, and is found by scrolling to
+   the bottom of the run page. Use the link above unless you have a reason not to.
 
 ## 7. Install the app on phones
 
