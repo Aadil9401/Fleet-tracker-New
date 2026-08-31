@@ -532,9 +532,15 @@ private fun FuelDialog(
         scanning = true
         scanNote = ""
         scope.launch {
-            val slip = runCatching { scanFuelSlip(context, slipPhotoUri(context, photo)) }.getOrNull()
-            // The photo has done its job the moment the text is out of it.
-            deleteSlipPhoto(photo)
+            val slip = try {
+                runCatching { scanFuelSlip(context, slipPhotoUri(context, photo)) }.getOrNull()
+            } finally {
+                // The photo has done its job the moment the text is out of it. In a
+                // finally so it goes even if this scope is cancelled: cancelling the
+                // dialog mid-scan otherwise left the slip sitting in the cache, which is
+                // the one thing the note under these fields promises does not happen.
+                deleteSlipPhoto(photo)
+            }
             scanning = false
 
             if (slip == null || !slip.readAnything) {

@@ -100,8 +100,20 @@ Shell**:
    (paste the Gmail address, then the 16-character app password, when prompted)
 5. Deploy everything:
    ```
-   firebase deploy --only firestore:rules,storage:rules,functions
+   firebase deploy --only firestore:rules,functions
    ```
+
+   No `storage:rules` in that line, and that is deliberate: nothing in the app
+   uploads a file, so step 1 never creates a Storage bucket — and asking Firebase to
+   deploy rules to a bucket that does not exist fails the **whole** command, taking
+   the Firestore rules and the functions down with it.
+
+   **Only if you set this project up before fuel receipt uploads were removed**, you
+   have a bucket with permissive rules still live on it. Close it once with:
+   ```
+   firebase deploy --only storage:rules
+   ```
+   `storage.rules` denies everything, so this shuts the door rather than opening one.
 
 That's the backend done — attendance and service-reminder emails will now run
 automatically.

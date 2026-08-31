@@ -23,9 +23,17 @@ import java.io.File
  * forecourt with no signal. Nothing about the photo or the text leaves the phone.
  */
 
-/** Where this capture will be written. A fresh name per scan, so two never collide. */
+/**
+ * Where this capture will be written. A fresh name per scan, so two never collide.
+ *
+ * Sweeps the directory first. Anything still in it is a leftover from a scan that could
+ * not clean up after itself — Android kills the app while the camera app is in the
+ * foreground often enough, and that loses the reference the delete depends on. Swept
+ * here rather than trusted to a lifecycle, so "the photo is not kept" stays true.
+ */
 fun newSlipPhoto(context: Context): File {
     val dir = File(context.cacheDir, "fuel_receipts").apply { mkdirs() }
+    dir.listFiles()?.forEach { deleteSlipPhoto(it) }
     return File(dir, "slip-${System.currentTimeMillis()}.jpg")
 }
 

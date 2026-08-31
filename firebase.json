@@ -24,6 +24,12 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  // Kept although nothing in the app uploads any more. A project set up after fuel
+  // receipt uploads were removed has no bucket at all, and deploying storage rules to
+  // it fails — so storage:rules is deliberately NOT in the deploy command in SETUP.md.
+  // It stays here so a project that DOES have a bucket from an earlier setup can be
+  // locked down with one "firebase deploy --only storage:rules"; storage.rules denies
+  // everything. Withdrawing the file instead would leave the old permissive rules live.
   "storage": {
     "rules": "storage.rules"
   },
