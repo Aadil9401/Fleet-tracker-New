@@ -236,12 +236,17 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
 
         provinces.forEach { province ->
             val logs = logsByProvince[province].orEmpty()
+            // The people of this province, so someone with no entry at all is still
+            // counted as one of them rather than quietly dropping out of the total.
+            val theirPeople = state.employees.filter { person ->
+                (person.province.takeIf { it.isNotBlank() } ?: NO_PROVINCE) == province
+            }
+            // Listed under the province they belong to, the way the portal has always
+            // listed them. A province could otherwise show "4 no entry" on its total line
+            // with nothing underneath saying which four.
+            val noEntry = theirPeople.filter { it.active && logs.none { log -> log.uid == it.uid } }
+
             item {
-                // The people of this province, so someone with no entry at all is still
-                // counted as one of them rather than quietly dropping out of the total.
-                val theirPeople = state.employees.filter { person ->
-                    (person.province.takeIf { it.isNotBlank() } ?: "No province set") == province
-                }
                 ProvinceTotalLine(
                     province = province,
                     totals = DayBreakdown.totalsFor(theirPeople, logs, state.dayFuelLogs)
@@ -300,6 +305,31 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
                     }
                 }
             }
+            }
+
+            items(noEntry) { person ->
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            listOfNotNull(
+                                person.fullName,
+                                person.teamName.takeIf { it.isNotBlank() }
+                            ).joinToString(", ").asCaptured(),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            "No entry",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
         }
     }
@@ -386,9 +416,28 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Button(onClick = { showAddDialog = true }, modifier = Modifier.fillMaxWidth()) {
+        // Disabled rather than removed. This calls the createEmployee Cloud Function, and
+        // Cloud Functions need Firebase's paid plan, which this project deliberately does
+        // not use — so pressing it could only ever produce an error. Left visible with the
+        // reason underneath, because "how do I add someone?" is answered here, which is
+        // where an admin looks for it.
+        //
+        // If the project ever moves to the Blaze plan, delete the `enabled = false` line
+        // and the note below it. Nothing else needs changing.
+        Button(
+            onClick = { showAddDialog = true },
+            enabled = false,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Text("+ Add employee")
         }
+        Text(
+            "Staff add themselves on the app's sign-up screen. Adding someone from here " +
+                "needs Firebase's paid plan, which this project does not use.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp)
+        )
         Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = { viewModel.autoAssignVehiclesByRegistration() },

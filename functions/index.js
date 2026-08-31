@@ -1,4 +1,22 @@
 /**
+ * NOTHING IN THIS FILE IS DEPLOYED.
+ *
+ * Cloud Functions require Firebase's paid Blaze plan, and this project stays on the free
+ * Spark plan by choice. So createEmployee, the "not clocked in by 9am" email and the
+ * service-due email are all complete, tested against the shared service-schedule spec,
+ * and have never run in production.
+ *
+ * Two consequences worth knowing before reading further:
+ *   - The Android admin's "Add employee" button is disabled, because it calls
+ *     createEmployee. Staff self-register on the app's sign-up screen instead, which the
+ *     Firestore rules allow and guard.
+ *   - There are no automatic alert emails. The portal's day view shows who has no entry
+ *     and which vehicles are due, which is the same information un-pushed.
+ *
+ * See SETUP.md for what switching to Blaze would turn on, and what it would cost.
+ */
+
+/**
  * My Daily Work Info Cloud Functions
  * ----------------------------------
  * 1. createEmployee   - callable, admin-only. Creates a Firebase Auth account

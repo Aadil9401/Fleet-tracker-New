@@ -1,0 +1,17 @@
+# Line endings: LF in the repository, LF in the working tree, on every machine.
+#
+# Without this, core.autocrlf=true on Windows rewrote the entire working tree to CRLF on
+# each checkout while the repository itself kept LF. Harmless to git, and quietly
+# confusing to everything else: a scripted edit matching on "\n" stops matching after a
+# checkout, and every commit prints a "LF will be replaced by CRLF" warning per file.
+#
+# Content-neutral to add — every text file in the index was already LF when this landed.
+* text=auto eol=lf
+
+# Binary, so line endings are never touched and diffs are never attempted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.apk binary
+*.jks binary
+*.keystore binary
