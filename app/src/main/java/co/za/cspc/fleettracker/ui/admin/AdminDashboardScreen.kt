@@ -55,6 +55,9 @@ private val dayLabelFormat = SimpleDateFormat("EEE d MMM yyyy", Locale.US).apply
 }
 private val tabs = listOf("Today", "Employees", "Vehicles", "Logs", "Settings")
 
+/** What a person with no province recorded is grouped under on the day view. */
+private const val NO_PROVINCE = "No province set"
+
 /** Sentinel for "don't filter by province". */
 private const val ALL_PROVINCES = "All provinces"
 
@@ -213,16 +216,26 @@ private fun TodayTab(state: AdminUiState, viewModel: AdminViewModel) {
         }
         // Grouped by province so a big team reads as regional crews rather than one
         // long undifferentiated list.
-        val grouped = state.todaysLogs
-            .groupBy { log ->
-                state.employees.firstOrNull { it.uid == log.uid }
-                    ?.province
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "No province set"
-            }
-            .toSortedMap()
+        //
+        // Built from every province that HAS people, not only the ones with a log today.
+        // Grouping by log alone meant a province where nobody clocked in had no group at
+        // all, so the province having the worst day was the one that disappeared — and
+        // its total line, which is the thing that would have said so, went with it.
+        val logsByProvince = state.todaysLogs.groupBy { log ->
+            state.employees.firstOrNull { it.uid == log.uid }
+                ?.province
+                ?.takeIf { it.isNotBlank() }
+                ?: NO_PROVINCE
+        }
+        val provinces = (
+            state.employees
+                .filter { it.active }
+                .map { person -> person.province.takeIf { it.isNotBlank() } ?: NO_PROVINCE } +
+                logsByProvince.keys
+            ).distinct().sorted()
 
-        grouped.forEach { (province, logs) ->
+        provinces.forEach { province ->
+            val logs = logsByProvince[province].orEmpty()
             item {
                 // The people of this province, so someone with no entry at all is still
                 // counted as one of them rather than quietly dropping out of the total.

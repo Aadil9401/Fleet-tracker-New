@@ -316,7 +316,11 @@ object DayBreakdown {
         val noEntry = employees.count { it.active && it.uid !in withEntries }
         val started = logs.filter { it.hasStarted }
         val ended = logs.filter { it.hasEnded }
-        val uids = logs.map { it.uid }.toSet()
+        // The group's people, not just those with a log. Someone can have a fuel log and
+        // no time log — a day recorded then removed, or fuel entered before clocking in —
+        // and filtering on logs alone would drop that spend out of every province total,
+        // so the totals would not add up to the day view's own Fuel figure.
+        val uids = (logs.map { it.uid } + employees.map { it.uid }).toSet()
         return DayTotals(
             people = logs.size + noEntry,
             worked = logs.count { !it.notWorking },

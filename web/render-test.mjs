@@ -96,9 +96,8 @@ check('so is distance', foot.includes('170 km'), true);
 check('a figure with nothing behind it shows a dash', /<td>—<\/td>/.test(foot), true);
 check('the total shows when the group started', foot.includes('08:00'), true);
 check('and when the last of them knocked off', foot.includes('19:15'), true);
-// An absence has no hours and no distance, so it must not drag the shape of the day
-// earlier or later than anyone actually worked.
-check('an absence does not become a start time', foot.includes('—</td>\n      <td>08:00'), false);
+// The absent-only case is checked properly at the foot of this file, by rendering it,
+// rather than by asserting a whitespace pattern here that could never have matched.
 
 /* The status of an exceptional row is carried by a badge in the name cell. */
 check('the absence row is badged', dayHtml.includes('<span class="badge">Not working</span>'), true);
@@ -246,6 +245,31 @@ portal.data.vehicles = [];
 portal.renderVehicles();
 check('an empty fleet explains itself',
   (writes()['vehRows'] ?? '').includes('No vehicles yet'), true);
+
+/* ---------------- a day with nothing but an absence ---------------- */
+// Last, because it replaces the fixtures the checks above read from. An absence has no
+// hours and no distance, and must not set either end of the day: a total claiming a
+// start time nobody worked would be inventing the shape of the day.
+portal.data.employees = [{ id: 'x1', name: 'Solo', surname: 'Absent', province: 'Gauteng' }];
+portal.data.todaysLogs = [{ uid: 'x1', employeeName: 'Solo Absent', date: day,
+  notWorking: true, notWorkingReason: 'Sick leave' }];
+portal.data.dayFuelLogs = [];
+portal.renderToday();
+const absentFoot = (writes()['dayGroups'] ?? '').slice(
+  (writes()['dayGroups'] ?? '').indexOf('<tfoot>'));
+
+check('an absence still counts as one of the group', absentFoot.includes('1 person'), true);
+check('and is reported as off rather than as worked', absentFoot.includes('1 off'), true);
+
+// By position, not by counting dashes: the row has four dashes in it either way, so a
+// count passes even when the start cell is wrong. The columns are
+// [who, start, knock off, hours, distance, fuel, areas, actions].
+const footCells = [...absentFoot.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1].trim());
+check('the absent-only total still fills every column', footCells.length, 8);
+check('an absence sets no start time', footCells[1], '—');
+check('nor a knock-off time', footCells[2], '—');
+check('and contributes no hours', footCells[3], '—');
+check('nor any distance', footCells[4], '—');
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

@@ -290,6 +290,20 @@ class DayBreakdownTest {
         assertEquals(450.50, t.fuelRands, 0.001)
     }
 
+    /**
+     * Somebody can have a fuel log and no time log — a day recorded and then removed, or
+     * fuel entered before clocking in. Counting fuel against the logs alone dropped that
+     * spend out of every province, so the totals stopped adding up to the day view's own
+     * Fuel figure and neither number could be trusted.
+     */
+    @Test
+    fun fuelCountsEvenWhenThatPersonHasNoTimeLog() {
+        val t = DayBreakdown.totalsFor(listOf(sarah), emptyList(), fuelLogs)
+        assertEquals(450.50, t.fuelRands, 0.001)
+        assertEquals("she is still one of the province's people", 1, t.people)
+        assertEquals(1, t.noEntry)
+    }
+
     /** A figure of zero should explain itself rather than open an empty table. */
     @Test
     fun aFigureOfZeroExplainsItself() {
