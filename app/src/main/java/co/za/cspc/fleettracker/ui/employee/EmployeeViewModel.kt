@@ -29,6 +29,10 @@ data class EmployeeUiState(
  */
 const val CLOCKED_IN_GREETING = "Have a lovely day, stay blessed, be safe, do your BEST"
 
+/** And what they see when the day is done. Same reasoning as the greeting above. */
+const val KNOCKED_OFF_MESSAGE =
+    "Thank you for being part of a great team, tomorrow we push again"
+
 class EmployeeViewModel(
     private val repo: FleetRepository = FleetRepository()
 ) : ViewModel() {
@@ -134,7 +138,7 @@ class EmployeeViewModel(
                     busy = false,
                     todaysLog = repo.todaysTimeLog(profile.uid),
                     vehicle = if (profile.assignedVehicleId.isNotBlank()) repo.getVehicle(profile.assignedVehicleId) else null,
-                    message = "Knocked off. See you tomorrow!"
+                    message = KNOCKED_OFF_MESSAGE
                 )
             } catch (e: Exception) {
                 uiState = uiState.copy(busy = false, message = "Could not knock off: ${e.message}")
