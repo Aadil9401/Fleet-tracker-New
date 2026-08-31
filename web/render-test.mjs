@@ -17,7 +17,8 @@ import { readFileSync } from 'fs';
 import { loadPortal, writes } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
-  'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles'
+  'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
+  'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES'
 ]);
 
 let failures = 0;
@@ -270,6 +271,59 @@ check('an absence sets no start time', footCells[1], '—');
 check('nor a knock-off time', footCells[2], '—');
 check('and contributes no hours', footCells[3], '—');
 check('nor any distance', footCells[4], '—');
+
+/* ---------------- the employee CSV export ---------------- */
+// This is the copy of the staff list that leaves the system, so what it contains and
+// who it covers both matter more than usual.
+portal.data.employees = [
+  { id: 'e2', name: 'Zanele', surname: 'Buthelezi', province: 'Gauteng', teamName: 'Midrand',
+    employeeNumber: '1002', cellNumber: '0821234567', contactEmail: 'z@example.com',
+    email: 'zanele.buthelezi@cspc.local', vehicleRegistration: 'bc45dfgp',
+    assignedVehicleId: 'v9', active: true, createdAt: 1756000000000 },
+  { id: 'e1', name: 'Andile', surname: 'Adams', province: 'Western Cape', teamName: 'Cape Town',
+    employeeNumber: '1001', cellNumber: '', contactEmail: '', email: 'andile.adams@cspc.local',
+    vehicleRegistration: '', assignedVehicleId: '', active: false, createdAt: 0 }
+];
+portal.data.vehicles = [{ id: 'v9', registrationNumber: 'BC 45 DF GP', name: 'Magnite' }];
+portal.data.lastActive = { e2: '2026-08-30' };
+portal.filters.province = portal.ALL_PROVINCES;
+portal.filters.query = '';
+
+const exported = portal.employeeExportRows();
+const exportHeader = exported[0];
+
+check('the export has a header and a row per employee', exported.length, 3);
+check('every row has as many fields as the header',
+  exported.slice(1).map(r => r.length), [exportHeader.length, exportHeader.length]);
+// Sorted by name, so two exports of the same list are comparable rather than arriving in
+// whatever order Firestore handed them over.
+check('rows are ordered by name', [exported[1][1], exported[2][1]], ['Andile', 'Zanele']);
+
+// A Firestore document id means nothing in a spreadsheet; the vehicle's name does.
+const zanele = exported[2];
+check('the assigned vehicle is named, not given as an id',
+  zanele[exportHeader.indexOf('Assigned vehicle')], 'Magnite');
+check('the registration is spaced as it is shown everywhere else',
+  zanele[exportHeader.indexOf('Vehicle registration')], 'BC 45 DF GP');
+check('last active comes through', zanele[exportHeader.indexOf('Last active')], '2026-08-30');
+check('an inactive account says so', exported[1][exportHeader.indexOf('Status')], 'Inactive');
+// createdAt of 0 means it was never recorded, which is not the same as 1970.
+check('a missing sign-up date is left blank, not dated 1970',
+  exported[1][exportHeader.indexOf('Signed up')], '');
+
+// Nothing secret should ever be in here. No password is stored anywhere — a generated one
+// is shown once and discarded — so this guards against a future column reintroducing it.
+check('no secret is exported',
+  exportHeader.some(h => /password|secret|token|otp/i.test(h)), false);
+
+// The export must cover exactly the list on screen. Exporting a different set than the
+// table shows would be invisible to the person doing it.
+portal.filters.province = 'Gauteng';
+const filteredExport = portal.employeeExportRows();
+check('the export follows the province filter', filteredExport.length, 2);
+check('and covers exactly who the table shows',
+  filteredExport.length - 1, portal.filteredEmployees().length);
+portal.filters.province = portal.ALL_PROVINCES;
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

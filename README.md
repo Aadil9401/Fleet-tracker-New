@@ -64,6 +64,11 @@ are due with the name of whoever is driving them.
 - **Every headline figure opens** — tap any of the eight tiles on the day view and
   it lists the people behind that number: who hasn't started, who parked late and
   by how long, who drove furthest, which vehicles are due and who's driving them.
+- **Export the staff list** — the Employees tab exports to CSV: who they are, how to
+  reach them, where they are posted, what they drive, and when they were last seen
+  working. Follows whatever filter is on screen, and the row count is in the filename so
+  a partial export cannot later be mistaken for the whole list. No passwords — none are
+  stored
 - **Fleet search** — find a vehicle by registration or name. Spacing is ignored, so
   `bc45` and `BC 45` both find `BC 45 DF GP`, and the count follows the filter
 - **Reports** — any date range (or today / last 7 / last 30), filtered by

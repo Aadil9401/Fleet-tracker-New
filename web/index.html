@@ -550,6 +550,7 @@
             <select id="provinceFilter"></select>
           </div>
           <button id="autoAssignBtn" class="outline">Auto-assign vehicles</button>
+          <button id="exportEmployees" class="outline">Export CSV</button>
         </div>
         <div class="count" id="empCount"></div>
         <div class="table-wrap"><table>
@@ -1789,6 +1790,73 @@ function lastActiveCell(uid) {
   return `<span style="${colour}" title="${esc(date)}">${esc(label)}</span>`;
 }
 
+/**
+ * The employees currently on screen: the province filter and the search box applied.
+ *
+ * Extracted so the table and the CSV export cannot disagree about who is included. An
+ * export that quietly covered a different set than the list above it would be worse than
+ * no export, because there would be nothing on screen to reveal it.
+ */
+function filteredEmployees() {
+  const q = filters.query.trim().toLowerCase();
+  return data.employees.filter(e => {
+    const okProvince = filters.province === ALL_PROVINCES || e.province === filters.province;
+    const haystack = [fullName(e), e.employeeNumber, e.teamName, e.vehicleRegistration]
+      .map(v => String(v ?? '').toLowerCase());
+    return okProvince && (!q || haystack.some(h => h.includes(q)));
+  });
+}
+
+/**
+ * The employee list as CSV rows, header first.
+ *
+ * Everything an admin would need if this project went away: who they are, how to reach
+ * them, where they are posted, what they drive, and when they were last seen working.
+ *
+ * Two things deliberately resolved rather than dumped raw — the assigned vehicle is
+ * given by name instead of its Firestore document id, which means nothing in a
+ * spreadsheet, and the registration is spaced the way it is shown everywhere else. It
+ * still reduces to the same key, so it can be read back in.
+ *
+ * No passwords: none are stored. A generated password is shown once when an employee is
+ * created and never kept, so there is nothing here to leak.
+ */
+function employeeExportRows() {
+  const header = [
+    'Employee number', 'First name', 'Surname', 'Province', 'Team',
+    'Cell number', 'Contact email', 'Login username',
+    'Vehicle registration', 'Assigned vehicle', 'Status', 'Role',
+    'Last active', 'Signed up'
+  ];
+  const vehicleName = (id) => {
+    const v = data.vehicles.find(x => x.id === id);
+    return v ? (v.name || plate(v.registrationNumber)) : '';
+  };
+  const asDate = (millis) => millis ? new Date(millis).toISOString().slice(0, 10) : '';
+
+  const rows = filteredEmployees()
+    .slice()
+    .sort((a, b) => fullName(a).localeCompare(fullName(b)))
+    .map(e => [
+      e.employeeNumber || '',
+      e.name || '',
+      e.surname || '',
+      e.province || '',
+      e.teamName || '',
+      e.cellNumber || '',
+      e.contactEmail || '',
+      e.email || '',
+      e.vehicleRegistration ? plate(e.vehicleRegistration) : '',
+      vehicleName(e.assignedVehicleId),
+      e.active === false ? 'Inactive' : 'Active',
+      e.role || 'employee',
+      (data.lastActive || {})[e.id] || '',
+      asDate(e.createdAt)
+    ]);
+
+  return [header, ...rows];
+}
+
 function renderEmployees() {
   const counts = {};
   data.employees.forEach(e => { counts[e.province] = (counts[e.province] || 0) + 1; });
@@ -1811,13 +1879,7 @@ function renderEmployees() {
     dupKeys[fullName(e).toLowerCase()] > 1 ||
     dupKeys[(e.employeeNumber || '').trim().toLowerCase()] > 1;
 
-  const q = filters.query.trim().toLowerCase();
-  const filtered = data.employees.filter(e => {
-    const okProvince = filters.province === ALL_PROVINCES || e.province === filters.province;
-    const haystack = [fullName(e), e.employeeNumber, e.teamName, e.vehicleRegistration]
-      .map(v => String(v ?? '').toLowerCase());
-    return okProvince && (!q || haystack.some(h => h.includes(q)));
-  });
+  const filtered = filteredEmployees();
 
   $('empCount').textContent = filtered.length === data.employees.length
     ? `${data.employees.length} employee(s)`
@@ -3026,6 +3088,13 @@ $('exportLogs').addEventListener('click', () => {
     l.mainAreasWorked || '', l.notWorking ? 'Yes' : 'No', l.notWorkingReason || ''
   ]));
   downloadCsv(`work-days-${$('logFrom').value}-to-${$('logTo').value}.csv`, rows);
+});
+
+$('exportEmployees').addEventListener('click', () => {
+  const rows = employeeExportRows();
+  // The count is in the filename, so a filtered export cannot be mistaken later for the
+  // whole staff list once it is sitting in a downloads folder.
+  downloadCsv(`employees-${rows.length - 1}-${todayString()}.csv`, rows);
 });
 
 $('exportFuel').addEventListener('click', () => {
