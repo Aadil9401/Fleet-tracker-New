@@ -770,7 +770,7 @@
           <button id="deleteAllBtn" class="danger">Delete all</button>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Vehicle</th><th>Odometer</th><th>Next service</th><th>Progress</th><th></th></tr></thead>
+          <thead><tr><th>Vehicle</th><th>Odometer</th><th>Cost/km</th><th>Next service</th><th>Progress</th><th></th></tr></thead>
           <tbody id="vehRows"></tbody>
         </table></div>
       </div>
@@ -854,7 +854,7 @@ const db = getFirestore(app);
 
 // Everything loaded for the signed-in admin.
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
-  recentTimeLogs: [], fuelLogs: [], roster: [] };
+  recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -952,6 +952,59 @@ const costPerKmLabel = (fuelRands, distanceKm) => {
   const value = costPerKm(fuelRands, distanceKm);
   return value === null ? '—' : rand(value) + '/km';
 };
+
+/**
+ * How far apart two fills can plausibly be. Beyond this the odometer was mistyped —
+ * a dropped or added digit — and the interval is thrown away rather than averaged in,
+ * because one bad reading swamps every good one around it.
+ */
+/**
+ * How far back to read fuel for the per-vehicle figure. Long enough that a vehicle
+ * filling a few times a month has several intervals behind its number, short enough
+ * that the read stays small — a forty-vehicle fleet is roughly a thousand documents.
+ */
+const FUEL_HISTORY_DAYS = 180;
+
+const MAX_KM_BETWEEN_FILLS = 5000;
+
+/**
+ * What a kilometre costs a particular VEHICLE, measured tank to tank.
+ *
+ * The fill at B pays for the distance A→B, because filling up replaces exactly what
+ * was burned getting there. Using the fill at A instead is the classic error and shifts
+ * every figure by one interval.
+ *
+ * The first fill on record can never be used: there is no earlier odometer to measure
+ * it against. Its money is excluded along with its distance, which is why this can
+ * differ from the Reports figure over the same period — that one counts every rand.
+ *
+ * Only intervals that survive the plausibility check contribute, and an interval's
+ * money is dropped whenever its distance is: keeping the spend while discarding the
+ * kilometres it bought would quietly inflate every remaining one.
+ *
+ * Takes one vehicle's fills. Returns the rate, and the number of intervals behind it so
+ * the reader can judge how much to trust it — this method only tells the truth when
+ * fills are full ones, and it only averages out over several.
+ */
+function vehicleCostPerKm(fills) {
+  const ordered = [...fills]
+    .filter(f => Number(f.odometerKm) > 0)
+    // Chronological, not by odometer: sorting by the reading would quietly repair a
+    // typo into a plausible-looking ordering and hide the very thing being guarded.
+    .sort((a, b) => Number(a.timestampMillis || 0) - Number(b.timestampMillis || 0));
+
+  let distance = 0, spend = 0, intervals = 0, discarded = 0;
+  for (let i = 1; i < ordered.length; i++) {
+    const km = Number(ordered[i].odometerKm) - Number(ordered[i - 1].odometerKm);
+    const amount = Number(ordered[i].amountSpentRands || 0);
+    if (km <= 0 || km > MAX_KM_BETWEEN_FILLS || amount <= 0) { discarded++; continue; }
+    distance += km;
+    spend += amount;
+    intervals++;
+  }
+
+  return { rate: costPerKm(spend, distance), intervals, discarded, distance, spend };
+}
 
 /** Grouped thousands — 85000 reads as "85 000", which is far easier to scan. */
 const num = (n) => Number(n || 0).toLocaleString('en-ZA').replace(/,/g, ' ');
@@ -1202,7 +1255,7 @@ async function loadAll() {
   $('appView').classList.add('busy');
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
-      activityWindow, roster] = await Promise.all([
+      activityWindow, fuelHistory, roster] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -1215,6 +1268,11 @@ async function loadAll() {
         // A bounded window, used only to work out when each person was last active.
         getDocs(query(collection(db, 'timeLogs'),
           where('date', '>=', shiftDate(todayString(), -60)))),
+        // Fuel far enough back to measure a vehicle tank to tank. data.fuelLogs cannot
+        // be used for this: it is the last 50 fills FLEET-wide, which for a fleet this
+        // size is a few days and gives most vehicles one fill or none.
+        getDocs(query(collection(db, 'fuelLogs'),
+          where('date', '>=', shiftDate(todayString(), -FUEL_HISTORY_DAYS)))),
         getDocs(collection(db, 'roster'))
       ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1228,6 +1286,12 @@ async function loadAll() {
       fuelLogs: rows(fuelLogs),
       roster: rows(roster),
       // uid → the most recent date that person has any entry for.
+      // Every fill in the window, grouped by vehicle, for the tank-to-tank figure.
+      fuelByVehicle: rows(fuelHistory).reduce((acc, f) => {
+        if (!f.vehicleId) return acc;   // nothing to attribute it to
+        (acc[f.vehicleId] = acc[f.vehicleId] || []).push(f);
+        return acc;
+      }, {}),
       lastActive: rows(activityWindow).reduce((acc, l) => {
         if (l.uid && (!acc[l.uid] || l.date > acc[l.uid])) acc[l.uid] = l.date;
         return acc;
@@ -2331,6 +2395,30 @@ $('autoAssignBtn').addEventListener('click', async () => {
 /** What is typed in the fleet search box. Empty means show everything. */
 let vehFilter = '';
 
+/**
+ * The tank-to-tank cost per kilometre for one vehicle, with what it rests on.
+ *
+ * The interval count is shown deliberately. This method only tells the truth when fills
+ * are full ones, and one or two intervals is not enough for the splashes and the
+ * catch-up fills to cancel out — so a figure standing on two intervals says so, rather
+ * than looking as solid as one standing on twelve.
+ */
+function vehicleCostCell(vehicle) {
+  const fills = (data.fuelByVehicle || {})[vehicle.id] || [];
+  const { rate, intervals, discarded } = vehicleCostPerKm(fills);
+  if (rate === null) {
+    // Told apart on purpose: nothing logged is an admin problem, one fill is only a
+    // matter of waiting, and a discarded interval means a reading needs looking at.
+    const why = fills.length === 0 ? 'no fuel logged'
+      : discarded > 0 && intervals === 0 ? 'odometer readings do not add up'
+      : 'needs a second fill';
+    return `<span class="meta">—<div class="meta">${esc(why)}</div></span>`;
+  }
+  return `${rand(rate)}/km<div class="meta">${intervals} ${
+    intervals === 1 ? 'interval' : 'intervals'}${
+    discarded > 0 ? ` · ${discarded} skipped` : ''}</div>`;
+}
+
 function renderVehicles() {
   renderIntervalWarning();
   // Spacing is not part of identity, so "bc45" and "BC 45" both find BC 45 DF GP —
@@ -2345,7 +2433,7 @@ function renderVehicles() {
     : data.vehicles.length;
 
   $('vehRows').innerHTML = visible.length === 0
-    ? `<tr><td colspan="5" class="empty">${data.vehicles.length === 0
+    ? `<tr><td colspan="6" class="empty">${data.vehicles.length === 0
         ? 'No vehicles yet. Upload your list above.'
         : 'No vehicle matches that search.'}</td></tr>`
     : visible.map(v => {
@@ -2365,6 +2453,7 @@ function renderVehicles() {
               ${due ? '<span class="badge due">SERVICE DUE</span>' : ''}
               ${lastServiced ? `<div class="meta">Last: ${esc(lastServiced)}</div>` : ''}</td>
           <td>${km(v.currentOdometerKm || 0)}</td>
+          <td>${vehicleCostCell(v)}</td>
           <td>Next at ${km(nextServiceAtKm(v))}<div class="meta">${
             pct === null ? '<span style="color:var(--secondary)">no service recorded</span>'
               : remaining >= 0 ? km(remaining) + ' to go'

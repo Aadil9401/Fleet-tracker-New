@@ -28,7 +28,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'nextServiceAtKm', 'percentToNextService', 'isServiceDue',
   'hasUsableInterval', 'vehiclesWithBadInterval', 'data',
   'PARK_BY', 'minutesParkedLate', 'isParkedLate',
-  'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort'
+  'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort',
+  'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS'
 ]);
 
 let failures = 0;
@@ -175,6 +176,63 @@ check('descending puts the dearest first and STILL the unknown last',
   portal.sortReportRows(rows).map(r => r.name), ['Known dear', 'Known cheap', 'Unknown']);
 portal.reportSort.key = 'name';
 portal.reportSort.dir = 1;
+
+/* ---------------- tank to tank, per vehicle ---------------- */
+// The fill at B pays for the distance A→B. Getting that backwards shifts every figure
+// by one interval and is completely invisible in the output.
+const fill = (t, odo, amount) => ({ timestampMillis: t, odometerKm: odo, amountSpentRands: amount });
+
+const fourFills = [
+  fill(1, 100000, 1200),   // the first is unusable: nothing earlier to measure from
+  fill(2, 100620, 1150),   // 620 km
+  fill(3, 101250, 300),    // 630 km on a splash
+  fill(4, 101900, 1900)    // 650 km, the catch-up fill
+];
+const tank = portal.vehicleCostPerKm(fourFills);
+check('three intervals from four fills', tank.intervals, 3);
+check('the first fill is not counted as distance', tank.distance, 1900);
+check('nor is its money counted', tank.spend, 3350);
+check('the rate averages the splash and the catch-up out', tank.rate.toFixed(2), '1.76');
+
+// Order comes from the clock, not the odometer: sorting by the reading would repair a
+// typo into a plausible-looking order and hide the very thing being guarded against.
+check('fills out of time order are still read in time order',
+  portal.vehicleCostPerKm([fourFills[3], fourFills[0], fourFills[2], fourFills[1]]).rate.toFixed(2),
+  '1.76');
+
+check('one fill gives no rate', portal.vehicleCostPerKm([fill(1, 100000, 1000)]).rate, null);
+check('no fills gives no rate', portal.vehicleCostPerKm([]).rate, null);
+
+/* A mistyped odometer has to take its own money out with it. Keeping the spend while
+   discarding the kilometres it bought would inflate every interval that remains. */
+const withTypo = portal.vehicleCostPerKm([
+  fill(1, 100000, 1000),
+  fill(2, 100500, 900),    // 500 km, good
+  fill(3, 900000, 800),    // a dropped digit: 799 500 km is not a month's driving
+  fill(4, 901000, 700)     // 1000 km on from the bad reading, plausible on its own
+]);
+check('the impossible jump is discarded', withTypo.discarded, 1);
+check('and its money goes with it', withTypo.spend, 1600);
+check('leaving only the intervals that stand up', withTypo.intervals, 2);
+
+check('an odometer that goes backwards is discarded too',
+  portal.vehicleCostPerKm([fill(1, 100000, 900), fill(2, 99000, 900)]).discarded, 1);
+check('and a fill with no amount on it',
+  portal.vehicleCostPerKm([fill(1, 100000, 900), fill(2, 100400, 0)]).discarded, 1);
+
+// A reading of 0 is "not recorded", not "the odometer is at zero", so it cannot anchor
+// an interval. This is why the boundary cases below start from a real reading.
+check('a fill with no odometer reading anchors nothing',
+  portal.vehicleCostPerKm([fill(1, 0, 100), fill(2, 500, 100)]).intervals, 0);
+
+// The boundary itself, so moving the constant cannot quietly change what is accepted.
+const base = 100000;
+check('exactly at the limit is still accepted',
+  portal.vehicleCostPerKm([fill(1, base, 100),
+    fill(2, base + portal.MAX_KM_BETWEEN_FILLS, 100)]).intervals, 1);
+check('one kilometre past it is not',
+  portal.vehicleCostPerKm([fill(1, base, 100),
+    fill(2, base + portal.MAX_KM_BETWEEN_FILLS + 1, 100)]).intervals, 0);
 
 console.log(failures === 0
   ? '\nPARSER TESTS OK'
