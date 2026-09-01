@@ -452,12 +452,29 @@ class FleetRepository(
      * (current - lastService), that silently reset the vehicle's service countdown
      * — the reminder would just never fire.
      */
+    /**
+     * Moves the vehicle's reading forward to what the driver just typed, which is what
+     * keeps the service countdown honest — the app is otherwise measuring "km to next
+     * service" against whatever an admin last entered by hand.
+     *
+     * Only ever upwards. An odometer does not run backwards, and a lower reading is a
+     * typo or somebody else's vehicle. The security rule enforces the same thing, so
+     * this check is not the only thing standing between a mistake and the data.
+     *
+     * Never fatal to the caller. Clocking in is the thing the driver came to do and the
+     * time log is already written by the time this runs; the reading is a derived
+     * convenience that the next clock in or out will set right anyway. Failing the whole
+     * clock-in over it — which is what happened while the rules denied this write —
+     * tells a driver their day was not recorded when it was.
+     */
     private suspend fun updateVehicleOdometer(vehicleId: String, odometerKm: Long) {
         if (vehicleId.isBlank()) return
-        val ref = db.collection("vehicles").document(vehicleId)
-        val current = ref.get().await().getLong("currentOdometerKm") ?: 0L
-        if (odometerKm > current) {
-            ref.update("currentOdometerKm", odometerKm).await()
+        runCatching {
+            val ref = db.collection("vehicles").document(vehicleId)
+            val current = ref.get().await().getLong("currentOdometerKm") ?: 0L
+            if (odometerKm > current) {
+                ref.update("currentOdometerKm", odometerKm).await()
+            }
         }
     }
 

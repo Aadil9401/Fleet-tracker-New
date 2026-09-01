@@ -63,9 +63,34 @@ service cloud.firestore {
     }
 
     // Vehicles: everyone signed in can see fleet info, only admin edits it.
+    // Vehicles are the admin's to create, edit and delete. The one exception is the
+    // odometer, and it has to be an exception.
+    //
+    // The app calls updateVehicleOdometer() on every clock in and clock out, so the
+    // reading a driver types keeps the vehicle current and the service countdown
+    // honest. Under an admin-only write rule that call was denied every time, so
+    // currentOdometerKm only ever moved when an admin edited a vehicle by hand — and
+    // "km to next service" was measured from a reading that could be months old, on
+    // the driver's phone and in the portal alike.
+    //
+    // So: a signed-in driver may update ONE field, on ONE vehicle — the one assigned to
+    // them — and only ever upwards. An odometer does not run backwards, and a reading
+    // that would lower it is a typo or a different vehicle, neither of which should be
+    // written. Everything else about a vehicle stays admin-only.
+    function advancesOwnOdometer(vehicleId) {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid))
+             .data.assignedVehicleId == vehicleId
+        && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly(['currentOdometerKm'])
+        && request.resource.data.currentOdometerKm is int
+        && request.resource.data.currentOdometerKm > resource.data.currentOdometerKm;
+    }
+
     match /vehicles/{vehicleId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || advancesOwnOdometer(vehicleId);
     }
 
     // Time logs: an employee can create/update and read only their own; admin can
