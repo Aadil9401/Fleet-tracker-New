@@ -531,6 +531,7 @@
             <th data-sort="minutes">Hours</th>
             <th data-sort="km">Distance</th>
             <th data-sort="fuel">Fuel</th>
+            <th data-sort="cpk">Cost/km</th>
           </tr></thead>
           <tbody id="repRows"></tbody>
         </table></div>
@@ -929,6 +930,28 @@ const isParkedLate = (log) => minutesParkedLate(log) > 0;
 const lateLabel = (mins) => mins <= 0 ? '—'
   : mins < 60 ? `${mins} min`
   : `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
+
+/**
+ * What it cost to cover a kilometre: fuel spent over distance driven, both taken over
+ * the same period.
+ *
+ * Null rather than zero when it cannot be worked out. Zero fuel against real distance
+ * does not mean the driving was free, it means nobody logged a fill — and a column of
+ * R0,00 would read as the cheapest fleet in the country. The same for zero distance:
+ * money spent going nowhere has no per-kilometre cost, it has a problem.
+ *
+ * Distance comes from the odometer readings on the time logs, not from the fuel logs,
+ * so this needs no assumption that anyone filled to full. The tank-to-tank method is
+ * more precise per vehicle but only honest when every fill is a full one.
+ */
+const costPerKm = (fuelRands, distanceKm) =>
+  distanceKm > 0 && fuelRands > 0 ? fuelRands / distanceKm : null;
+
+/** "R2,33/km", or a dash when there is nothing to divide. */
+const costPerKmLabel = (fuelRands, distanceKm) => {
+  const value = costPerKm(fuelRands, distanceKm);
+  return value === null ? '—' : rand(value) + '/km';
+};
 
 /** Grouped thousands — 85000 reads as "85 000", which is far easier to scan. */
 const num = (n) => Number(n || 0).toLocaleString('en-ZA').replace(/,/g, ' ');
@@ -2811,7 +2834,11 @@ async function runReport() {
           name: p ? fullName(p) : (name || 'Unknown'),
           province: p?.province || '',
           team: p?.teamName || '',
-          days: 0, absent: 0, open: 0, late: 0, minutes: 0, km: 0, fuel: 0
+          days: 0, absent: 0, open: 0, late: 0, minutes: 0, km: 0, fuel: 0,
+          // Filled in once the totals are known — see below. Held on the row rather
+          // than recomputed in three places, so the column cannot sort by one number
+          // and display another.
+          cpk: null
         };
       }
       return byUid[uid];
@@ -2835,6 +2862,7 @@ async function runReport() {
     });
     fuelLogs.forEach(f => { bucket(f.uid, f.employeeName).fuel += Number(f.amountSpentRands || 0); });
 
+    Object.values(byUid).forEach(b => { b.cpk = costPerKm(b.fuel, b.km); });
     reportRows = Object.values(byUid).sort((a, b) => a.name.localeCompare(b.name));
     reportRange = { from, to };
     renderReport();
@@ -2852,9 +2880,21 @@ let reportSort = { key: 'name', dir: 1 };
 
 function sortReportRows(rows) {
   const { key, dir } = reportSort;
-  return [...rows].sort((a, b) => key === 'name'
-    ? dir * String(a.name || '').localeCompare(String(b.name || ''))
-    : dir * ((Number(a[key]) || 0) - (Number(b[key]) || 0)));
+  return [...rows].sort((a, b) => {
+    if (key === 'name') {
+      return dir * String(a.name || '').localeCompare(String(b.name || ''));
+    }
+    // A row with no cost per kilometre is unknown, not cheap. Sorting it as zero would
+    // park everyone who logged no fuel at the top of "cheapest", which is the opposite
+    // of the truth. Unknowns sink to the bottom whichever way the column is pointed.
+    if (key === 'cpk') {
+      if (a.cpk === null && b.cpk === null) return 0;
+      if (a.cpk === null) return 1;
+      if (b.cpk === null) return -1;
+      return dir * (a.cpk - b.cpk);
+    }
+    return dir * ((Number(a[key]) || 0) - (Number(b[key]) || 0));
+  });
 }
 
 /** Rows currently visible, after the search and dropdowns. */
@@ -2919,13 +2959,17 @@ function renderReport() {
     ['Parked late', totals.late, totals.late ? 'warn' : 'calm'],
     ['Hours', hoursLabel(totals.minutes), ''],
     ['Distance', km(totals.km), ''],
-    ['Fuel', rand(totals.fuel), '']
+    ['Fuel', rand(totals.fuel), ''],
+    // Recomputed from the two totals, NEVER averaged from the rows: the mean of
+    // everybody's cost per kilometre is not the fleet's cost per kilometre, and it
+    // flatters whoever drove least.
+    ['Cost per km', costPerKmLabel(totals.fuel, totals.km), '']
   ].map(([cap, big, tone]) =>
     `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
 
   $('repRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="8" class="empty">${reportRows.length === 0
+    ? `<tr><td colspan="9" class="empty">${reportRows.length === 0
         ? 'Nothing recorded in that period.'
         : 'Nobody matches that filter.'}</td></tr>`
     : rows.map(r => `<tr>
@@ -2940,6 +2984,7 @@ function renderReport() {
         <td class="hrs">${hoursLabel(r.minutes)}</td>
         <td>${km(r.km)}</td>
         <td>${rand(r.fuel)}</td>
+        <td>${costPerKmLabel(r.fuel, r.km)}</td>
       </tr>`).join('');
 }
 
@@ -2972,11 +3017,15 @@ $('exportSummary').addEventListener('click', () => {
   const singleDay = reportRange.from === reportRange.to;
   const rows = [['Employee', 'Province', 'Team',
     singleDay ? 'Worked' : 'Days worked', 'Absences',
-    'Not knocked off', 'Parked late', 'Hours', 'Minutes', 'Distance km', 'Fuel R']];
+    'Not knocked off', 'Parked late', 'Hours', 'Minutes', 'Distance km', 'Fuel R',
+    'Cost per km R']];
   // Exports what's on screen, filters included.
   visibleReportRows().forEach(r => rows.push([
     r.name, r.province, r.team, r.days, r.absent, r.open, r.late,
-    hoursLabel(r.minutes), r.minutes, r.km, r.fuel.toFixed(2)
+    hoursLabel(r.minutes), r.minutes, r.km, r.fuel.toFixed(2),
+    // Blank rather than 0 for the same reason the column shows a dash: a spreadsheet
+    // averaging a column of zeroes would be averaging in "we don't know".
+    r.cpk === null ? '' : r.cpk.toFixed(2)
   ]));
   downloadCsv(`summary-${reportRange.from}-to-${reportRange.to}.csv`, rows);
 });

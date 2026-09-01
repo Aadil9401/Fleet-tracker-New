@@ -73,6 +73,11 @@ are due with the name of whoever is driving them.
   `bc45` and `BC 45` both find `BC 45 DF GP`, and the count follows the filter
 - **Reports** — any date range (or today / last 7 / last 30), filtered by
   employee, province or team, with totals that follow the filter
+- **Cost per kilometre** — fuel spent over distance driven, per person and for the
+  fleet. Distance comes from the odometer readings on the time logs, so it needs no
+  assumption that anyone filled to full. Blank rather than zero when nobody logged a
+  fill: that means unknown, not free. The fleet figure divides the two totals rather
+  than averaging everyone's rate, which would flatter whoever drove least
 - **Employees** — add staff (the app generates a username and password and emails
   it to them), edit details, see who was last active to spot dormant and
   duplicate accounts, upload an authoritative staff list and fill details from it

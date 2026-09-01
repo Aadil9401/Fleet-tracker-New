@@ -192,6 +192,14 @@ check('the report header and its row agree on the column count', rowCells, repHe
 check('the empty-report row spans every column', colspan, repHeaders);
 check('every report column is sortable', (thead.match(/data-sort=/g) ?? []).length, repHeaders);
 check('Parked late is one of them', /data-sort="late"/.test(thead), true);
+check('and so is cost per km', /data-sort="cpk"/.test(thead), true);
+
+// The headline cost-per-km tile must divide the two totals, not average the rows'
+// rates — the mean of everybody's rate is not the fleet's rate, and it flatters whoever
+// drove least. Checked at source because renderReport cannot be driven from here, and
+// this is the one figure where the wrong method still looks perfectly plausible.
+check('the fleet cost per km divides the totals rather than averaging the rows',
+  /\['Cost per km', costPerKmLabel\(totals\.fuel, totals\.km\)/.test(src), true);
 
 /* ---------------- the fuel table's column grid ---------------- */
 // Checked from source for the same reason as the reports grid above, and worth checking

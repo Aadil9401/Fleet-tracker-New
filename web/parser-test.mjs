@@ -13,6 +13,11 @@
  *
  * 2. The 18:30 parking curfew.
  *
+ * 3. Cost per kilometre. Not written anywhere, but it is a money figure an admin would
+ *    act on, and the two ways of getting it wrong are both silent: dividing by a zero
+ *    that means "unknown", and averaging everybody's rate instead of dividing the
+ *    totals.
+ *
  * The service milestone rules are deliberately absent: those belong to
  * service-schedule-cases.csv, which all three implementations are tested against.
  */
@@ -22,7 +27,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'parseVehicleLines', 'MIN_SERVICE_INTERVAL_KM', 'SERVICE_INTERVAL_KM',
   'nextServiceAtKm', 'percentToNextService', 'isServiceDue',
   'hasUsableInterval', 'vehiclesWithBadInterval', 'data',
-  'PARK_BY', 'minutesParkedLate', 'isParkedLate'
+  'PARK_BY', 'minutesParkedLate', 'isParkedLate',
+  'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort'
 ]);
 
 let failures = 0;
@@ -129,6 +135,46 @@ check('isParkedLate agrees with the minutes when late',
    portal, the reminder job and the phone app — by their own tests. A second copy of
    those cases here would have made this a fourth place the rules are written down,
    which is the whole problem that file exists to solve. */
+
+/* ---------------- cost per kilometre ---------------- */
+
+check('fuel over distance', portal.costPerKm(4550, 1950).toFixed(2), '2.33');
+check('and written out with the unit', portal.costPerKmLabel(4550, 1950), 'R2,33/km');
+
+/* Zero is not an answer. Nobody logging a fill does not make the driving free, and
+   money spent going nowhere has no per-kilometre cost — it has a problem. Returning 0
+   for either would put whoever logged no fuel at the top of "cheapest". */
+check('no fuel logged is unknown, not free', portal.costPerKm(0, 1200), null);
+check('no distance is unknown, not infinite', portal.costPerKm(900, 0), null);
+check('and both show a dash rather than a number',
+  [portal.costPerKmLabel(0, 1200), portal.costPerKmLabel(900, 0)], ['—', '—']);
+
+/* THE fleet figure must be total fuel over total distance, never the mean of the rows.
+   Two people, wildly different mileage: the mean of their rates says R5,50/km and the
+   fleet actually spent R1,09/km. The mean flatters whoever drove least. */
+const heavy = { fuel: 1000, km: 1000 };   // R1,00/km over a long month
+const light = { fuel: 100, km: 10 };      // R10,00/km over almost no driving
+const meanOfRates =
+  (portal.costPerKm(heavy.fuel, heavy.km) + portal.costPerKm(light.fuel, light.km)) / 2;
+const fleetRate = portal.costPerKm(heavy.fuel + light.fuel, heavy.km + light.km);
+check('the mean of the rates is not the fleet rate', meanOfRates.toFixed(2), '5.50');
+check('the fleet rate divides the totals', fleetRate.toFixed(2), '1.09');
+
+/* Sorting by the column must not treat "unknown" as cheap. */
+const rows = [
+  { name: 'Known dear', cpk: 3.0 },
+  { name: 'Unknown', cpk: null },
+  { name: 'Known cheap', cpk: 1.0 }
+];
+portal.reportSort.key = 'cpk';
+portal.reportSort.dir = 1;
+check('ascending puts the cheapest first and the unknown last',
+  portal.sortReportRows(rows).map(r => r.name), ['Known cheap', 'Known dear', 'Unknown']);
+portal.reportSort.dir = -1;
+check('descending puts the dearest first and STILL the unknown last',
+  portal.sortReportRows(rows).map(r => r.name), ['Known dear', 'Known cheap', 'Unknown']);
+portal.reportSort.key = 'name';
+portal.reportSort.dir = 1;
 
 console.log(failures === 0
   ? '\nPARSER TESTS OK'
