@@ -3757,42 +3757,55 @@ async function savePerformance(kind) {
   const knownTeams = new Set(data.employees.map(e => teamKey(e.teamName)).filter(Boolean));
 
   try {
-    const batch = writeBatch(db);
+    // Chunked for Firestore's 500-write batch cap, the same way the bulk vehicle delete
+    // is. Eight months of commission for eighty staff is 648 rows, and a single batch of
+    // that size fails outright — with an error about the batch, not about the file, so
+    // there would be nothing on screen to say the upload was simply too big.
+    //
+    // A chunk that fails leaves earlier chunks written. That is the right way round for
+    // this: every row is keyed on its own team-or-person and month, so re-uploading the
+    // same file finishes the job rather than doubling anything.
     let matched = 0;
-    rows.forEach(r => {
-      const id = `${r.key}_${r.month}`;
-      if (r.keyedOn === 'team') {
-        if (knownTeams.has(r.key)) matched++;
-        batch.set(doc(db, 'perfTeams', id), {
-          team: r.keyAsTyped,
-          teamKey: r.key,
-          month: r.month,
-          [r.field]: r.value,
-          uploadedAtMillis: Date.now()
-        }, { merge: true });
-      } else {
-        const person = byNumber[r.key];
-        if (person) matched++;
-        batch.set(doc(db, 'perfMonthly', id), {
-          employeeNumber: r.keyAsTyped,
-          numberKey: r.key,
-          // The uid is what lets that person read their own commission: a security rule
-          // cannot normalise an employee number to compare it.
-          uid: person ? person.id : '',
-          employeeName: person ? fullName(person) : '',
-          month: r.month,
-          [r.field]: r.value,
-          uploadedAtMillis: Date.now()
-        }, { merge: true });
-      }
-    });
-    await batch.commit();
+    for (let start = 0; start < rows.length; start += 400) {
+      const batch = writeBatch(db);
+      rows.slice(start, start + 400).forEach(r => {
+        const id = `${r.key}_${r.month}`;
+        if (r.keyedOn === 'team') {
+          if (knownTeams.has(r.key)) matched++;
+          batch.set(doc(db, 'perfTeams', id), {
+            team: r.keyAsTyped,
+            teamKey: r.key,
+            month: r.month,
+            [r.field]: r.value,
+            uploadedAtMillis: Date.now()
+          }, { merge: true });
+        } else {
+          const person = byNumber[r.key];
+          if (person) matched++;
+          batch.set(doc(db, 'perfMonthly', id), {
+            employeeNumber: r.keyAsTyped,
+            numberKey: r.key,
+            // The uid is what lets that person read their own commission: a security
+            // rule cannot normalise an employee number to compare it.
+            uid: person ? person.id : '',
+            employeeName: person ? fullName(person) : '',
+            month: r.month,
+            [r.field]: r.value,
+            uploadedAtMillis: Date.now()
+          }, { merge: true });
+        }
+      });
+      await batch.commit();
+    }
 
+    const months = [...new Set(rows.map(r => r.month))].sort();
     $('perfUploadStatus').innerHTML =
       `<span style="color:var(--primary)">Saved ${rows.length} row(s) of ${
         esc(spec.label.toLowerCase())}. ${matched} matched ${
         spec.keyedOn === 'team' ? 'a team on the staff list' : 'an employee'}${
-        matched < rows.length ? `, ${rows.length - matched} did not` : ''}.</span>` +
+        matched < rows.length ? `, ${rows.length - matched} did not` : ''}. ${
+        months.length === 1 ? `Month ${months[0]}.` : `${months.length} months: ${months.join(', ')}.`
+      }</span>` +
       (errors.length
         ? `<div class="meta" style="color:var(--error)">${errors.length} line(s) skipped:</div>` +
           errors.slice(0, 8).map(e => `<div class="meta">${esc(e.why)} — ${esc(e.line)}</div>`).join('')

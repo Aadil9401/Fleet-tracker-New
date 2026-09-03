@@ -21,6 +21,7 @@
  * The service milestone rules are deliberately absent: those belong to
  * service-schedule-cases.csv, which all three implementations are tested against.
  */
+import { readFileSync } from 'fs';
 import { loadPortal } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
@@ -329,6 +330,40 @@ Object.keys(portal.PERF_UPLOADS).forEach(kind => {
   check(`the ${kind} template parses cleanly through its own parser`, back.errors.length, 0);
   check(`and yields its sample rows`, back.rows.length, portal.PERF_UPLOADS[kind].sample.length);
 });
+
+/* ---------------- several months in one file ---------------- */
+// Eight months of history is one file with a Month column that changes per row, not
+// eight files. The parser reads the month per row, so nothing has to be split up.
+const eightMonths = [];
+for (let m = 1; m <= 8; m++) {
+  const month = `2026-0${m}`;
+  ['SOWETO', 'TEMBISA', 'PMB'].forEach(t => eightMonths.push(`${t},${month},100`));
+}
+const many = portal.parsePerformanceLines(eightMonths.join(String.fromCharCode(10)), 'connections');
+check('every row of a multi-month file loads', many.rows.length, 24);
+check('with no errors', many.errors.length, 0);
+check('and eight distinct months come through',
+  [...new Set(many.rows.map(r => r.month))].length, 8);
+check('each row keeping its own month', many.rows[3].month, '2026-02');
+
+// A row's document id is its key AND its month, which is what makes eight months eight
+// records rather than one overwritten eight times.
+const ids = new Set(many.rows.map(r => `${r.key}_${r.month}`));
+check('each team-and-month is its own record', ids.size, 24);
+
+// Firestore commits at most 500 writes per batch. Eight months across 39 teams is 312
+// rows, which fits — but a single batch is a cliff rather than a slope: one row over and
+// the whole upload fails with an error about batch size, saying nothing about the file.
+// So the upload chunks, and the chunk size has to stay under the cap.
+const CHUNK = 400;
+const chunkCount = (n) => Math.ceil(n / CHUNK);
+check('the chunk size is under Firestore\'s cap', CHUNK < 500, true);
+check('eight months of team figures fits in one chunk', chunkCount(39 * 8), 1);
+check('and a file that would breach the cap is split', chunkCount(648), 2);
+// Checked against the source, because the number that matters is the one in the code.
+check('the upload really does chunk at that size',
+  readFileSync(process.argv[2] ?? 'web/index.html', 'utf8')
+    .includes(`rows.slice(start, start + ${CHUNK})`), true);
 
 console.log(failures === 0
   ? '\nPARSER TESTS OK'
