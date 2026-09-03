@@ -17,7 +17,7 @@ const rankSpec = process.argv[4] ?? 'performance-rank-cases.csv';
 
 const portal = await loadPortal(portalPath, [
   'data', 'teamFiguresFor', 'leaderboardRows', 'teamKey', 'networkKey',
-  'ratioPercent', 'percentLabel'
+  'ratioPercent', 'percentLabel', 'PAY_DISCLAIMER'
 ]);
 
 let failures = 0;
@@ -138,6 +138,27 @@ check('and a normal one reads with a comma decimal',
    portal.percentLabel(portal.ratioPercent(380, 600))],
   ['75,0%', '63,3%']);
 check('not capped at a hundred', portal.percentLabel(portal.ratioPercent(120, 100)), '120,0%');
+
+/* ---------------- the pay disclaimer, on both surfaces ---------------- */
+/* The same sentence appears on the portal and on the phone. It is a statement about
+   somebody's money, so the two must not drift: a person reading "before tax" on one
+   screen and nothing on the other has been told two different things by one system.
+   Compared against the phone's source, since that is the only way this side can see it. */
+const KOTLIN = 'app/src/main/java/co/za/cspc/fleettracker/ui/employee/PerformanceScreen.kt';
+const kotlin = readFileSync(KOTLIN, 'utf8');
+const onPhone = (kotlin.match(/const val PAY_DISCLAIMER = "([^"]*)"/) ?? [])[1];
+
+check('the phone declares a pay disclaimer', typeof onPhone, 'string');
+check('the portal declares one too', typeof portal.PAY_DISCLAIMER, 'string');
+check('and it is the same sentence on both', portal.PAY_DISCLAIMER, onPhone);
+check('it says what it needs to say',
+  /before tax/i.test(portal.PAY_DISCLAIMER ?? ''), true);
+// Shown, not merely declared: a constant nothing renders is worse than no constant,
+// because it reads as done.
+check('the portal actually renders it',
+  readFileSync(portalPath, 'utf8').includes("\$('payDisclaimer').textContent = PAY_DISCLAIMER"),
+  true);
+check('and the phone does too', kotlin.includes('PAY_DISCLAIMER,'), true);
 
 console.log(failures === 0
   ? `\nPERFORMANCE SPEC OK — ${networkCases.length} network case(s), ${rankCases.length} ranking case(s)`

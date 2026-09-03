@@ -816,6 +816,8 @@
           <tbody id="perfRows"></tbody>
         </table></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          <b id="payDisclaimer" style="color:var(--on-surface)"></b>
+          <br><br>
           <b>Stock, connections and activations are uploaded per team, per network</b>, so
           everyone in a team shows the same three figures — they are the team's. The tiles
           count each team once, not once per member. Commission is uploaded per employee
@@ -3834,6 +3836,15 @@ function unmatchedPerformance(month) {
  * Commission is not among them: it is each person's own pay, and two people in a team
  * who both earned R5 000 earned R10 000 between them.
  */
+/**
+ * What is said wherever pay is shown.
+ *
+ * The same sentence as PAY_DISCLAIMER in the phone app's PerformanceScreen.kt. Named on
+ * both sides rather than typed into a layout twice, so rewording one surface and not the
+ * other is a visible omission instead of a quiet one.
+ */
+const PAY_DISCLAIMER = 'Please note these amounts are before tax deductions';
+
 const TEAM_LEVEL_FIELDS = ['stock', 'connections', 'activations'];
 
 /**
@@ -4111,6 +4122,10 @@ $('perfProvince').addEventListener('change', (e) => {
   perfFilters.province = e.target.value;
   renderPerformance();
 });
+// Written in rather than hard-coded in the markup, so the constant is the single place
+// the sentence lives on this side.
+$('payDisclaimer').textContent = PAY_DISCLAIMER;
+
 $('perfNetwork').addEventListener('change', (e) => {
   perfFilters.network = e.target.value;
   renderPerformance();
