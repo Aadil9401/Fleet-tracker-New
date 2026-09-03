@@ -875,7 +875,8 @@
 import { firebaseConfig } from './firebase-config.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
-  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged,
+  sendPasswordResetEmail
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore, collection, doc, getDoc, getDocs, query, where,
@@ -1931,6 +1932,53 @@ function personCell(log) {
  * and red for never — but only ever as information: a quiet week is a holiday as
  * often as it is a dead account, so this is a prompt to look, not a verdict.
  */
+/**
+ * Sends Firebase's own password-reset email to one employee.
+ *
+ * This is the only way an employee's password can be changed from here, and it is
+ * enough. A password is never stored anywhere — Firebase keeps a one-way hash — so
+ * there is nothing to look up and show, and no API returns one to an admin or to the
+ * project owner. Setting a password on somebody's behalf needs the Admin SDK, which
+ * needs a Cloud Function, which needs the paid plan.
+ *
+ * It works because everybody signed themselves up, and a self-registered login IS the
+ * person's own email address. An admin-created login would be the generated
+ * "@cspc.local" address, which cannot receive mail — so that case is refused with the
+ * reason rather than sent into a void and reported as success.
+ */
+async function sendResetTo(uid) {
+  const person = data.employees.find(e => e.id === uid);
+  if (!person) return;
+
+  const loginEmail = String(person.email || '').trim();
+  if (!loginEmail) {
+    showMsg(`${fullName(person)} has no login email on record, so no reset can be sent.`, 'err');
+    return;
+  }
+  if (loginEmail.toLowerCase().endsWith('@cspc.local')) {
+    showMsg(`${fullName(person)}'s login is a generated address that cannot receive mail, `
+      + 'so a reset email would go nowhere. They need to sign up on the app with their '
+      + 'own email address.', 'err');
+    return;
+  }
+
+  // Confirmed because it puts mail in somebody's inbox, and because the old password
+  // stops being the one they know the moment they follow it.
+  if (!confirm(`Send a password reset email to ${fullName(person)} at ${loginEmail}?`
+    + '\n\nThey follow the link in it and choose their own new password. '
+    + 'Nothing else about their account changes, and none of their history is affected.')) {
+    return;
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, loginEmail);
+    showMsg(`Reset email sent to ${fullName(person)} at ${loginEmail}. `
+      + 'It can take a few minutes, and it may land in spam.', 'ok');
+  } catch (err) {
+    showMsg('Could not send the reset email: ' + err.message, 'err');
+  }
+}
+
 function lastActiveCell(uid) {
   const date = (data.lastActive || {})[uid];
   if (!date) return `<span style="color:var(--error)">never</span>`;
@@ -2072,6 +2120,7 @@ function renderEmployees() {
           <td><span class="badge ${active ? '' : 'off'}">${active ? 'Active' : 'Inactive'}</span></td>
           <td class="row-actions">
             <button class="ghost" data-edit="${esc(e.id)}">Edit</button>
+            <button class="ghost" data-reset="${esc(e.id)}">Reset password</button>
             <button class="ghost" data-promote="${esc(e.id)}">Make admin</button>
             <button class="ghost ${active ? 'danger' : ''}" data-toggle="${esc(e.id)}"
               data-active="${active}">${active ? 'Deactivate' : 'Reactivate'}</button>
@@ -2098,6 +2147,10 @@ function renderEmployees() {
         await loadAll();
       } catch (err) { showMsg('Could not remove: ' + err.message, 'err'); }
     });
+  });
+
+  $('empRows').querySelectorAll('[data-reset]').forEach(btn => {
+    btn.addEventListener('click', () => sendResetTo(btn.dataset.reset));
   });
 
   $('empRows').querySelectorAll('[data-edit]').forEach(btn => {
