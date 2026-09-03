@@ -35,6 +35,15 @@ private val monthLabelFormat = SimpleDateFormat("MMMM yyyy", Locale.US).apply {
     timeZone = TimeZone.getTimeZone("Africa/Johannesburg")
 }
 
+/**
+ * What is said under a person's pay.
+ *
+ * Named rather than buried in the layout, for the same reason the clock-in greeting is:
+ * it is a sentence about somebody's money, and whoever wants to reword it should not
+ * have to read a Compose tree to find it.
+ */
+const PAY_DISCLAIMER = "Please note these amounts are before tax deductions"
+
 /** "2026-09" as "September 2026", falling back to the key if it will not parse. */
 private fun monthLabel(month: String): String =
     runCatching { monthLabelFormat.format(monthKeyFormat.parse(month)!!) }.getOrDefault(month)
@@ -166,6 +175,14 @@ fun PerformanceScreen(
             if (state.basicSalaryRands != null && state.commissionRands != null) {
                 MoneyRow("Total", state.basicSalaryRands + state.commissionRands, strong = true)
             }
+            // Stated where the amounts are, not in a footnote at the bottom of the
+            // screen: somebody reading their own commission stops at the number.
+            Text(
+                PAY_DISCLAIMER,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Text("Yours, not the team's. The same on every network.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
