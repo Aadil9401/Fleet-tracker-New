@@ -1098,17 +1098,12 @@ const FUEL_HISTORY_DAYS = 180;
 const MAX_KM_BETWEEN_FILLS = 5000;
 
 /**
- * How far back performance figures are read.
+ * How far back the month pickers go.
  *
- * Both collections used to be read whole on every page load. At eight months of history
- * that is around a thousand documents each time, growing by roughly a hundred and twenty
- * a month and never shrinking — so in two years every visit to the portal would read
- * several thousand, against the free plan's fifty thousand reads a day, and the day view
- * has not even loaded yet at that point.
- *
- * Two years of history is more than anyone reads off a monthly figure, and the month
- * pickers are given this as their minimum so the page cannot offer a month it has no
- * data for.
+ * Two years, which is more than anyone reads off a monthly figure. It is a limit on the
+ * PICKERS, not on a query: the figures are fetched one month at a time, so how far back
+ * they are kept costs nothing until somebody asks for that month. See loadPerfMonth for
+ * why they are not all read at once.
  */
 const PERF_HISTORY_MONTHS = 24;
 
@@ -1407,7 +1402,7 @@ async function loadAll() {
   $('appView').classList.add('busy');
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
-      activityWindow, fuelHistory, roster, perfMonthly, perfTeams] = await Promise.all([
+      activityWindow, fuelHistory, roster] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -1425,13 +1420,10 @@ async function loadAll() {
         // size is a few days and gives most vehicles one fill or none.
         getDocs(query(collection(db, 'fuelLogs'),
           where('date', '>=', shiftDate(todayString(), -FUEL_HISTORY_DAYS)))),
-        getDocs(collection(db, 'roster')),
-        // Bounded rather than the whole collection — see PERF_HISTORY_MONTHS. A single
-        // inequality on one field needs no composite index.
-        getDocs(query(collection(db, 'perfMonthly'),
-          where('month', '>=', monthsBack(PERF_HISTORY_MONTHS)))),
-        getDocs(query(collection(db, 'perfTeams'),
-          where('month', '>=', monthsBack(PERF_HISTORY_MONTHS))))
+        getDocs(collection(db, 'roster'))
+        // Performance figures are NOT loaded here — see loadPerfMonth. Both tabs show
+        // one month at a time, and reading two years of them on every page load is the
+        // single most expensive thing this portal could do.
       ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
     data = {
@@ -1443,8 +1435,10 @@ async function loadAll() {
       recentTimeLogs: rows(recentTimeLogs),
       fuelLogs: rows(fuelLogs),
       roster: rows(roster),
-      perfMonthly: rows(perfMonthly),
-      perfTeams: rows(perfTeams),
+      // Not part of the bulk load: fetched a month at a time by loadPerfMonth. Emptied
+      // here so the month on screen is re-read rather than kept from the load before.
+      perfMonthly: [],
+      perfTeams: [],
       // uid → the most recent date that person has any entry for.
       // Every fill in the window, grouped by vehicle, for the tank-to-tank figure.
       fuelByVehicle: rows(fuelHistory).reduce((acc, f) => {
@@ -1457,9 +1451,69 @@ async function loadAll() {
         return acc;
       }, {})
     };
+    // Anything already fetched belongs to the load before this one, and an upload calls
+    // loadAll to show what it just wrote.
+    perfMonthsLoaded.clear();
     renderAll();
   } catch (err) {
     showMsg('Could not load data: ' + err.message, 'err');
+  } finally {
+    $('appView').classList.remove('busy');
+  }
+}
+
+/* ---------------- performance figures, a month at a time ---------------- */
+/**
+ * Which months of figures have been fetched.
+ *
+ * Both tabs show ONE month, so fetching more is waste — and with the figures split four
+ * ways by network it is expensive waste. Eighty-eight teams on four networks is around
+ * 350 documents a month, so two years of history would be over eight thousand reads
+ * before the day view had even drawn, against the free plan's fifty thousand a day.
+ * That is six page loads.
+ *
+ * Fetched per month and kept, so paging back and forth over a few months costs each of
+ * them once. Cleared by loadAll, which is what an upload calls to show its own writes.
+ */
+const perfMonthsLoaded = new Set();
+
+/** Fetches one month's figures unless they are already in hand. */
+async function loadPerfMonth(month) {
+  if (!month || perfMonthsLoaded.has(month)) return;
+  const [teams, monthly] = await Promise.all([
+    getDocs(query(collection(db, 'perfTeams'), where('month', '==', month))),
+    getDocs(query(collection(db, 'perfMonthly'), where('month', '==', month)))
+  ]);
+  const rows = (snap) => snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  // Replaced rather than appended, so re-reading a month after an upload cannot leave
+  // the figure it corrected sitting alongside the correction.
+  data.perfTeams = data.perfTeams.filter(r => r.month !== month).concat(rows(teams));
+  data.perfMonthly = data.perfMonthly.filter(r => r.month !== month).concat(rows(monthly));
+  perfMonthsLoaded.add(month);
+}
+
+/** Fetch then draw, for each of the two tabs that read figures. */
+async function showPerformance() {
+  const month = $('perfMonth').value || todayString().slice(0, 7);
+  $('appView').classList.add('busy');
+  try {
+    await loadPerfMonth(month);
+    renderPerformance();
+  } catch (err) {
+    showMsg('Could not load the figures: ' + err.message, 'err');
+  } finally {
+    $('appView').classList.remove('busy');
+  }
+}
+
+async function showLeaderboard() {
+  const month = $('lbMonth').value || todayString().slice(0, 7);
+  $('appView').classList.add('busy');
+  try {
+    await loadPerfMonth(month);
+    renderLeaderboard();
+  } catch (err) {
+    showMsg('Could not load the leaderboard: ' + err.message, 'err');
   } finally {
     $('appView').classList.remove('busy');
   }
@@ -1482,12 +1536,12 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
     }
     if (btn.dataset.tab === 'performance' && !$('perfMonth').value) {
       $('perfMonth').value = todayString().slice(0, 7);
-      renderPerformance();
     }
+    if (btn.dataset.tab === 'performance') showPerformance();
     if (btn.dataset.tab === 'logs' && !$('lbMonth').value) {
       $('lbMonth').value = todayString().slice(0, 7);
-      renderLeaderboard();
     }
+    if (btn.dataset.tab === 'logs') showLeaderboard();
     // Logs open on the last week — a single day is often empty of fuel entries.
     if (btn.dataset.tab === 'logs' && !$('logFrom').value) {
       setLogRange(shiftDate(todayString(), -6), todayString());
@@ -4007,7 +4061,7 @@ async function savePerformance(kind) {
 // So a month with no data loaded cannot be selected and read as "nothing happened".
 $('perfMonth').min = monthsBack(PERF_HISTORY_MONTHS);
 $('perfMonth').max = todayString().slice(0, 7);
-$('perfMonth').addEventListener('change', renderPerformance);
+$('perfMonth').addEventListener('change', showPerformance);
 $('perfProvince').addEventListener('change', (e) => {
   perfFilters.province = e.target.value;
   renderPerformance();
@@ -4194,7 +4248,7 @@ $('lbMetric').addEventListener('change', (e) => {
 });
 $('lbMonth').min = monthsBack(PERF_HISTORY_MONTHS);
 $('lbMonth').max = todayString().slice(0, 7);
-$('lbMonth').addEventListener('change', renderLeaderboard);
+$('lbMonth').addEventListener('change', showLeaderboard);
 $('lbProvince').addEventListener('change', (e) => {
   lbFilters.province = e.target.value;
   renderLeaderboard();

@@ -419,6 +419,26 @@ check('the upload writes a team document per team, month AND network',
 check('and commission per person and month, which has no network',
   source.includes('const id = `${r.key}_${r.month}`;'), true);
 
+/* Reads, which networks made four times as expensive.
+   Eighty-eight team names on four networks is around 350 documents a month. Reading two
+   years of that on every page load would be over eight thousand reads before the day
+   view had drawn, against the free plan's fifty thousand a day — six page loads. Both
+   tabs show ONE month, so one month is what is fetched. Asserted against the source
+   because the harness stubs Firestore, so nothing here can observe the real query. */
+check('the figures are read one month at a time',
+  source.includes("collection(db, 'perfTeams'), where('month', '==', month)"), true);
+check('and commission likewise',
+  source.includes("collection(db, 'perfMonthly'), where('month', '==', month)"), true);
+check('so neither is part of the bulk load',
+  /getDocs\(query\(collection\(db, 'perf(Teams|Monthly)'\),\s*where\('month', '>='/.test(source),
+  false);
+// A month already fetched is not fetched again, and an upload clears that so the figures
+// it just wrote are the ones shown.
+check('a month already in hand is not read twice',
+  source.includes('if (!month || perfMonthsLoaded.has(month)) return;'), true);
+check('and an upload invalidates what was cached',
+  source.includes('perfMonthsLoaded.clear();'), true);
+
 /* Firestore commits at most 500 writes per batch, and a batch is a cliff rather than a
    slope: one row over and the whole upload fails with an error about batch size, saying
    nothing about the file. So the upload chunks, and the chunk size has to stay under the
