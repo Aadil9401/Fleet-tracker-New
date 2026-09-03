@@ -812,11 +812,13 @@
           <tbody id="perfRows"></tbody>
         </table></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
-          <b>The tiles count a team's figure once.</b> Stock, connections and activations
-          arrive as a team's numbers and are written onto every member, so adding the rows
-          up would count a team with two people twice. Two members carrying the same
-          number are one figure entered twice; two carrying different numbers are two real
-          figures and both count. Commission is each person's own and is always summed.
+          <b>Stock, connections and activations are uploaded per team</b>, so everyone in a
+          team shows the same three figures — they are the team's. The tiles count each
+          team once, not once per member. Commission is uploaded per employee number and
+          is each person's own, so it is always summed.
+          <br>
+          Somebody with no team on their record can carry no team figures and will show
+          dashes until a team is set on the Employees tab.
           <br><br>
           A percentage is shown only where both of its figures have been uploaded. It is
           not capped at 100% — more connections than stock means the stock figure is
@@ -960,7 +962,7 @@ const db = getFirestore(app);
 // Everything loaded for the signed-in admin.
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
   recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [],
-  perfMonthly: [] };
+  perfMonthly: [], perfTeams: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -1361,7 +1363,7 @@ async function loadAll() {
   $('appView').classList.add('busy');
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
-      activityWindow, fuelHistory, roster, perfMonthly] = await Promise.all([
+      activityWindow, fuelHistory, roster, perfMonthly, perfTeams] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -1380,7 +1382,8 @@ async function loadAll() {
         getDocs(query(collection(db, 'fuelLogs'),
           where('date', '>=', shiftDate(todayString(), -FUEL_HISTORY_DAYS)))),
         getDocs(collection(db, 'roster')),
-        getDocs(collection(db, 'perfMonthly'))
+        getDocs(collection(db, 'perfMonthly')),
+        getDocs(collection(db, 'perfTeams'))
       ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
     data = {
@@ -1393,6 +1396,7 @@ async function loadAll() {
       fuelLogs: rows(fuelLogs),
       roster: rows(roster),
       perfMonthly: rows(perfMonthly),
+      perfTeams: rows(perfTeams),
       // uid → the most recent date that person has any entry for.
       // Every fill in the window, grouped by vehicle, for the tank-to-tank figure.
       fuelByVehicle: rows(fuelHistory).reduce((acc, f) => {
@@ -2969,40 +2973,63 @@ const digits = (s) => {
 /**
  * The four performance uploads, described once.
  *
- * Stock, connections, activations and commission — four separate files with one figure
- * each, all keyed on employee number and month. Four narrow files rather than one wide
- * one because they arrive at different times from different places, and a wide file
- * would be mostly blank columns waiting on whoever had not sent theirs yet.
+ * Stock, connections and activations are a TEAM's figures and are keyed on team name.
+ * Commission is a person's own pay and is keyed on employee number. Four narrow files
+ * rather than one wide one because they arrive at different times from different places.
+ *
+ * Keying the team figures on the team is what removed a whole class of error. They used
+ * to arrive against each employee number, which meant the same figure written once per
+ * member and a rule to work out which repetitions were duplicates and which were two
+ * real figures that happened to match. Stored once per team, there is nothing to guess.
  *
  * Describing them in a table rather than writing four parsers means the columns an admin
  * is handed and the columns the parser reads cannot drift apart. The templates are
  * generated from this, and a test feeds each one back through its own parser.
  *
- * All four share a single document per person per month, written with a merge, so
- * uploading any one of them never wipes the others.
+ * Team figures live in perfTeams, one document per team per month; commission lives in
+ * perfMonthly, one per person per month. Both are merged, so uploading one figure never
+ * wipes another.
  */
 const PERF_UPLOADS = {
   stock: {
-    label: 'Stock', field: 'stock', kind: 'count',
-    sample: [['T042', '2026-09', '600'], ['T099', '2026-09', '500']]
+    label: 'Stock', field: 'stock', kind: 'count', keyedOn: 'team',
+    sample: [['SOWETO', '2026-09', '600'], ['TEMBISA', '2026-09', '500']]
   },
   connections: {
-    label: 'Connections', field: 'connections', kind: 'count',
-    sample: [['T042', '2026-09', '450'], ['T099', '2026-09', '380']]
+    label: 'Connections', field: 'connections', kind: 'count', keyedOn: 'team',
+    sample: [['SOWETO', '2026-09', '450'], ['TEMBISA', '2026-09', '380']]
   },
   activations: {
-    label: 'Activations', field: 'activations', kind: 'count',
-    sample: [['T042', '2026-09', '380'], ['T099', '2026-09', '310']]
+    label: 'Activations', field: 'activations', kind: 'count', keyedOn: 'team',
+    sample: [['SOWETO', '2026-09', '380'], ['TEMBISA', '2026-09', '310']]
   },
   commission: {
-    label: 'Commission', field: 'commissionRands', kind: 'money',
+    label: 'Commission', field: 'commissionRands', kind: 'money', keyedOn: 'employee',
     sample: [['T042', '2026-09', '12500.00'], ['T099', '2026-09', '9800.50']]
   }
 };
 
+/** What the first column of an upload is called, and therefore what it is matched on. */
+const perfKeyLabel = (kind) =>
+  PERF_UPLOADS[kind].keyedOn === 'team' ? 'Team name' : 'Employee number';
+
 /** The template for one upload, header first — what the Download template button gives. */
 const perfTemplateRows = (kind) =>
-  [['Employee number', 'Month', PERF_UPLOADS[kind].label], ...PERF_UPLOADS[kind].sample];
+  [[perfKeyLabel(kind), 'Month', PERF_UPLOADS[kind].label], ...PERF_UPLOADS[kind].sample];
+
+/**
+ * A team name reduced to something comparable: uppercased, punctuation dropped, runs of
+ * space collapsed. "Soweto East", "SOWETO  EAST" and "soweto-east" are one team.
+ *
+ * Team names are typed by hand in the staff list and again in the figures file, so they
+ * will not match on the nose. Deliberately keeps the single spaces, so SOWETO and
+ * SOWETO EAST stay two teams rather than collapsing into one.
+ */
+const teamKey = (s) => String(s ?? '')
+  .toUpperCase()
+  .replace(/[^A-Z0-9 ]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
 
 /**
  * The delimiter, worked out per file.
@@ -3059,14 +3086,18 @@ function parsePerformanceLines(text, kind) {
     const parts = line.split(delimiter).map(x => x.trim());
     // Trailing empties are how a spreadsheet writes a row, and mean nothing.
     while (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
-    const employeeNumber = parts[0] || '';
+    const key = parts[0] || '';
     const period = parts[1] || '';
 
     // The header, however they capitalised it.
-    const first = employeeNumber.toLowerCase();
-    if (first.startsWith('employee') || first.startsWith('emp no') || first === 'no.') return;
+    const first = key.toLowerCase();
+    if (first.startsWith('employee') || first.startsWith('emp no') || first === 'no.'
+      || first.startsWith('team')) return;
 
-    if (!numberKey(employeeNumber)) return errors.push({ line, why: 'no employee number' });
+    const onTeam = spec.keyedOn === 'team';
+    if (onTeam ? !teamKey(key) : !numberKey(key)) {
+      return errors.push({ line, why: onTeam ? 'no team name' : 'no employee number' });
+    }
 
     // An extra column means the row is not the shape this file is supposed to be, and
     // the commonest cause is a comma decimal splitting the figure in two. That used to
@@ -3094,8 +3125,11 @@ function parsePerformanceLines(text, kind) {
     }
 
     rows.push({
-      employeeNumber,
-      numberKey: numberKey(employeeNumber),
+      // Kept as typed for display, and normalised for matching — the same split the
+      // roster and the plate formatting already use.
+      keyAsTyped: key,
+      key: onTeam ? teamKey(key) : numberKey(key),
+      keyedOn: spec.keyedOn,
       month: period,
       field: spec.field,
       value
@@ -3463,53 +3497,52 @@ $('exportSummary').addEventListener('click', () => {
 const perfFilters = { province: '', team: '', query: '' };
 
 /**
- * One row per person for the chosen month: stock, connections, activations, commission.
+ * One row per person for the chosen month: their team's stock, connections and
+ * activations, and their own commission.
  *
- * Built from the employee list rather than from the figures, so somebody with nothing
- * uploaded still appears with dashes. A person missing from the month's figures is the
- * thing worth seeing — leaving them out would make an incomplete upload look complete.
+ * Built from the employee list, so somebody with nothing uploaded still appears with
+ * dashes. A person missing from the figures is the thing worth seeing — leaving them out
+ * would make an incomplete upload look complete.
  *
- * A field only becomes a number once something has been uploaded for it. Defaulting to
- * 0 would make a file nobody has sent yet indistinguishable from a month where somebody
- * genuinely converted nothing.
+ * The team figures are LOOKED UP, not summed: they belong to the team, and every member
+ * of a team shows the same three numbers because that is what they are. Nothing here
+ * has to work out whether two equal numbers are one figure written twice.
  */
 function performanceRows(month) {
-  const byKey = {};
-  const bucket = (key, employeeNumber, name) => {
-    if (!byKey[key]) {
-      byKey[key] = {
-        numberKey: key, employeeNumber, name, province: '', team: '',
-        stock: null, connections: null, activations: null, commissionRands: null
-      };
-    }
-    return byKey[key];
-  };
-
-  data.employees.forEach(e => {
-    const key = numberKey(e.employeeNumber);
-    if (!key) return;
-    const row = bucket(key, e.employeeNumber || '', fullName(e));
-    // From the employee record, not the upload: the figures arrive with an employee
-    // number and nothing else, and a posting typed into a spreadsheet would go stale
-    // the moment somebody moved province.
-    row.province = e.province || '';
-    row.team = e.teamName || '';
+  const teamFigures = {};
+  data.perfTeams.filter(r => r.month === month).forEach(r => {
+    teamFigures[r.teamKey] = r;
+  });
+  const commissionByNumber = {};
+  data.perfMonthly.filter(r => r.month === month).forEach(r => {
+    commissionByNumber[r.numberKey] = r;
   });
 
-  data.perfMonthly
-    .filter(r => r.month === month)
-    .forEach(r => {
-      // Only onto a person who exists. A number matching nobody is reported by
-      // unmatchedPerformance() instead — a table row with no one behind it cannot be
-      // acted on from the table, and reads as a phantom employee.
-      const b = byKey[r.numberKey];
-      if (!b) return;
-      ['stock', 'connections', 'activations', 'commissionRands'].forEach(field => {
-        if (r[field] !== undefined && r[field] !== null) b[field] = Number(r[field]);
-      });
-    });
+  const figure = (row, field) => {
+    const value = row ? row[field] : undefined;
+    return value === undefined || value === null ? null : Number(value);
+  };
 
-  return Object.values(byKey).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return data.employees
+    .filter(e => numberKey(e.employeeNumber))
+    .map(e => {
+      const team = e.teamName || '';
+      const theirTeam = teamFigures[teamKey(team)];
+      const theirs = commissionByNumber[numberKey(e.employeeNumber)];
+      return {
+        numberKey: numberKey(e.employeeNumber),
+        employeeNumber: e.employeeNumber || '',
+        name: fullName(e),
+        province: e.province || '',
+        team,
+        teamKey: teamKey(team),
+        stock: figure(theirTeam, 'stock'),
+        connections: figure(theirTeam, 'connections'),
+        activations: figure(theirTeam, 'activations'),
+        commissionRands: figure(theirs, 'commissionRands')
+      };
+    })
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
 /** Rows on screen, after the dropdowns and the search box. */
@@ -3530,6 +3563,8 @@ function visiblePerformanceRows() {
 function unmatchedPerformance() {
   const known = new Set(data.employees.map(e => numberKey(e.employeeNumber)).filter(Boolean));
   const seen = {};
+  // Commission only. A team name that matches nobody is reported on the leaderboard,
+  // where a team with no people on it is the useful thing to see.
   data.perfMonthly.forEach(r => {
     if (r.numberKey && !known.has(r.numberKey)) {
       seen[r.numberKey] = (seen[r.numberKey] || 0) + 1;
@@ -3539,64 +3574,39 @@ function unmatchedPerformance() {
 }
 
 /**
- * Figures that arrive as a TEAM's number, written onto every member of that team.
+ * Figures that belong to a TEAM rather than to a person.
  *
- * Two people in one team therefore carry the same stock, connections and activations,
- * and summing the rows would count that team's work twice. Commission is not here: it
- * is each person's own pay, and two people in a team who both earned R5 000 earned
- * R10 000 between them.
+ * Commission is not among them: it is each person's own pay, and two people in a team
+ * who both earned R5 000 earned R10 000 between them.
  */
 const TEAM_LEVEL_FIELDS = ['stock', 'connections', 'activations'];
 
 /**
- * What one group carries for one figure: the sum of the DISTINCT values in it.
+ * The totals for the Performance tab.
  *
- * Two rows with the same number are one team figure written twice; two with different
- * numbers are two real figures and both count. Null when the group has nothing
- * uploaded at all, which is not the same as zero.
+ * A team's figure is counted once because it is counted once per TEAM present, not once
+ * per row — every member of a team carries the same three numbers, so adding the rows up
+ * would count a team as many times as it has people.
  *
- * Shared by the totals and the leaderboard on purpose — ranking teams on one number
- * while totalling them on another would have the board and the tiles disagreeing.
- */
-function distinctSum(values) {
-  const real = [...new Set(values.filter(v => v !== null && v !== undefined).map(Number))];
-  return real.length === 0 ? null : real.reduce((a, b) => a + b, 0);
-}
-
-/** The province-and-team key a team figure is grouped on. */
-const teamKeyOf = (row) => row.team ? `team:${row.province}|${row.team}` : `person:${row.numberKey}`;
-
-/**
- * The totals for the Performance tab, counting a team's figure once.
+ * This used to have to guess: the figures arrived against each employee number, so the
+ * rule was "two members with the same number are one figure written twice, two with
+ * different numbers are two real figures". Keying the uploads on the team removed the
+ * guess entirely — there is one figure per team, and it is either there or it is not.
  *
- * DISTINCT values per team, not the first or the largest: two members carrying the same
- * number are one team figure entered twice, while two carrying different numbers are
- * two real figures and both count. That keeps a genuine difference visible instead of
- * quietly discarding one of them.
- *
- * Grouped on province AND team, because a team name is only unique within its province
- * and merging two provinces' teams would swap one under-count for another.
- *
- * A row with no team name is its own group. Without a team there is nothing to say two
- * rows are the same team's figure, and collapsing everybody with a blank team into one
- * would delete most of the total.
- *
- * The per-person rows above are untouched — each still shows the team figure it carries.
- * This is only about what the tiles add up to, which is what an admin reads as "the
- * team did this much".
+ * A person with no team carries no team figures, so contributes nothing to those three.
  */
 function performanceTotals(rows) {
   // Each person's own pay, so simply summed.
   const commission = rows.reduce((sum, r) => sum + (r.commissionRands || 0), 0);
-
   const totals = { stock: 0, connections: 0, activations: 0, commission };
-  TEAM_LEVEL_FIELDS.forEach(field => {
-    const perGroup = {};
-    rows.forEach(r => {
-      (perGroup[teamKeyOf(r)] = perGroup[teamKeyOf(r)] || []).push(r[field]);
+
+  const seen = new Set();
+  rows.forEach(r => {
+    if (!r.teamKey || seen.has(r.teamKey)) return;
+    seen.add(r.teamKey);
+    TEAM_LEVEL_FIELDS.forEach(field => {
+      if (r[field] !== null && r[field] !== undefined) totals[field] += Number(r[field]);
     });
-    totals[field] = Object.values(perGroup)
-      .reduce((sum, values) => sum + (distinctSum(values) || 0), 0);
   });
   return totals;
 }
@@ -3737,35 +3747,51 @@ async function savePerformance(kind) {
     return;
   }
 
+  // Only needed for commission, which is matched to a person.
   const byNumber = {};
   data.employees.forEach(e => {
     const key = numberKey(e.employeeNumber);
     if (key) byNumber[key] = e;
   });
+  // And only for the team files, to say whether a team name matches anybody.
+  const knownTeams = new Set(data.employees.map(e => teamKey(e.teamName)).filter(Boolean));
 
   try {
     const batch = writeBatch(db);
     let matched = 0;
     rows.forEach(r => {
-      const person = byNumber[r.numberKey];
-      if (person) matched++;
-      const id = `${r.numberKey}_${r.month}`;
-      const base = {
-        employeeNumber: r.employeeNumber,
-        numberKey: r.numberKey,
-        uid: person ? person.id : '',
-        employeeName: person ? fullName(person) : '',
-        uploadedAtMillis: Date.now()
-      };
-      // Merged, so uploading stock does not wipe the commission already there.
-      batch.set(doc(db, 'perfMonthly', id),
-        { ...base, month: r.month, [r.field]: r.value }, { merge: true });
+      const id = `${r.key}_${r.month}`;
+      if (r.keyedOn === 'team') {
+        if (knownTeams.has(r.key)) matched++;
+        batch.set(doc(db, 'perfTeams', id), {
+          team: r.keyAsTyped,
+          teamKey: r.key,
+          month: r.month,
+          [r.field]: r.value,
+          uploadedAtMillis: Date.now()
+        }, { merge: true });
+      } else {
+        const person = byNumber[r.key];
+        if (person) matched++;
+        batch.set(doc(db, 'perfMonthly', id), {
+          employeeNumber: r.keyAsTyped,
+          numberKey: r.key,
+          // The uid is what lets that person read their own commission: a security rule
+          // cannot normalise an employee number to compare it.
+          uid: person ? person.id : '',
+          employeeName: person ? fullName(person) : '',
+          month: r.month,
+          [r.field]: r.value,
+          uploadedAtMillis: Date.now()
+        }, { merge: true });
+      }
     });
     await batch.commit();
 
     $('perfUploadStatus').innerHTML =
       `<span style="color:var(--primary)">Saved ${rows.length} row(s) of ${
-        esc(spec.label.toLowerCase())}. ${matched} matched an employee${
+        esc(spec.label.toLowerCase())}. ${matched} matched ${
+        spec.keyedOn === 'team' ? 'a team on the staff list' : 'an employee'}${
         matched < rows.length ? `, ${rows.length - matched} did not` : ''}.</span>` +
       (errors.length
         ? `<div class="meta" style="color:var(--error)">${errors.length} line(s) skipped:</div>` +
@@ -3821,10 +3847,10 @@ const lbFilters = { metric: 'connections', province: '', query: '' };
 /**
  * The month's TEAMS in order, highest figure first, carrying a position not a figure.
  *
- * By team because connections and activations arrive as a team's numbers, written onto
- * every member. Ranking people on them would have listed a team's members tied at the
- * same position and called it an individual ranking, which is a ranking of teams wearing
- * the wrong label.
+ * Read straight off the team records, which is what the figures now are — one row per
+ * team per month. It used to reconstruct a team from its members and work out which of
+ * their repeated numbers were duplicates; keying the uploads on the team removed all of
+ * that, and the guess with it.
  *
  * Competition ranking: teams on equal figures share a position and the next position
  * skips, so a tie for first is followed by third. Dense ranking would say second, which
@@ -3835,29 +3861,41 @@ const lbFilters = { metric: 'connections', province: '', query: '' };
  * month — and it is the thing a leaderboard must not get wrong, because the figures are
  * hidden and nobody can check it.
  *
- * Somebody with no team recorded cannot be placed among teams and is left out; the count
- * of them is returned so the page can say so rather than quietly shrinking the board.
+ * The teams come from the STAFF LIST, so a team that exists and has had nothing uploaded
+ * appears unranked rather than vanishing. A team name that appears in the figures and on
+ * nobody's record is returned separately: its figure counts towards nothing, and only
+ * the admin can find out why.
  */
 function leaderboardRows(month, metric) {
   const field = metric === 'activations' ? 'activations' : 'connections';
-  const groups = {};
-  let withoutTeam = 0;
 
-  performanceRows(month).forEach(r => {
-    if (!r.team) { withoutTeam += 1; return; }
-    const key = `${r.province}|${r.team}`;
-    if (!groups[key]) groups[key] = { province: r.province, team: r.team, people: 0, values: [] };
-    groups[key].people += 1;
-    groups[key].values.push(r[field]);
+  const figures = {};
+  data.perfTeams.filter(r => r.month === month).forEach(r => { figures[r.teamKey] = r; });
+
+  const teams = {};
+  let withoutTeam = 0;
+  data.employees.forEach(e => {
+    if (!e.teamName) { withoutTeam += 1; return; }
+    const key = teamKey(e.teamName);
+    if (!teams[key]) teams[key] = { key, team: e.teamName, province: e.province || '', people: 0 };
+    teams[key].people += 1;
   });
 
-  const teams = Object.values(groups).map(g => ({
-    province: g.province, team: g.team, people: g.people, figure: distinctSum(g.values)
-  }));
+  const unknownTeams = Object.values(figures)
+    .filter(r => !teams[r.teamKey])
+    .map(r => r.team || r.teamKey)
+    .sort();
+
+  const listed = Object.values(teams).map(t => {
+    const row = figures[t.key];
+    const value = row ? row[field] : undefined;
+    return { ...t, figure: value === undefined || value === null ? null : Number(value) };
+  });
 
   const byTeam = (a, b) => String(a.team).localeCompare(String(b.team));
-  const placed = teams.filter(t => t.figure !== null).sort((a, b) => (b.figure - a.figure) || byTeam(a, b));
-  const missing = teams.filter(t => t.figure === null).sort(byTeam);
+  const placed = listed.filter(t => t.figure !== null)
+    .sort((a, b) => (b.figure - a.figure) || byTeam(a, b));
+  const missing = listed.filter(t => t.figure === null).sort(byTeam);
 
   let position = 0;
   let previous = null;
@@ -3867,14 +3905,15 @@ function leaderboardRows(month, metric) {
       previous = t.figure;
     }
     // The figure is dropped here on purpose: nothing downstream can show what the board
-    // is meant to hide, including the CSV export.
+    // is meant to hide, the CSV export included.
     return { province: t.province, team: t.team, people: t.people, position };
   });
 
   return {
     rows: [...ranked, ...missing.map(t =>
       ({ province: t.province, team: t.team, people: t.people, position: null }))],
-    withoutTeam
+    withoutTeam,
+    unknownTeams
   };
 }
 
@@ -3905,7 +3944,9 @@ function renderLeaderboard() {
     rows.length > placed ? `${rows.length - placed} not uploaded` : null,
     // Said out loud rather than silently dropped: a board that quietly leaves people out
     // is a board nobody can reconcile against the staff list.
-    board.withoutTeam ? `${board.withoutTeam} employee${board.withoutTeam === 1 ? '' : 's'} with no team` : null
+    board.withoutTeam ? `${board.withoutTeam} employee${board.withoutTeam === 1 ? '' : 's'} with no team` : null,
+    // A team name in the figures that nobody is on: its figure counts towards nothing.
+    board.unknownTeams.length ? `nobody on: ${board.unknownTeams.join(', ')}` : null
   ].filter(Boolean).join(' · ');
 
   $('lbRows').innerHTML = rows.length === 0

@@ -21,7 +21,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
   'visiblePerformanceRows', 'perfFilters', 'performanceTotals', 'TEAM_LEVEL_FIELDS',
-  'leaderboardRows', 'distinctSum'
+  'leaderboardRows', 'teamKey'
 ]);
 
 let failures = 0;
@@ -356,24 +356,33 @@ check('and covers exactly who the table shows',
 portal.filters.province = portal.ALL_PROVINCES;
 
 /* ---------------- performance figures ---------------- */
-// Four figures per person per month, and three ratios between them. The ratios are the
-// part that can go quietly wrong: a missing figure must read as unknown rather than as a
-// conversion of nothing, and a team rate must divide totals rather than average rates.
+// A team's stock, connections and activations come from perfTeams and are looked up by
+// team name; commission comes from perfMonthly and is the person's own. The ratios are
+// the part that can go quietly wrong: a missing figure must read as unknown rather than
+// as a conversion of nothing, and a team rate must divide totals, not average rates.
 portal.data.employees = [
   { id: 'p1', name: 'Nomsa', surname: 'Dlamini', employeeNumber: 'T042',
     province: 'Gauteng', teamName: 'Midrand' },
   { id: 'p2', name: 'Sipho', surname: 'Khumalo', employeeNumber: 't-099',
     province: 'Western Cape', teamName: 'Cape Town' },
+  // No team, so no team figures can reach them.
   { id: 'p3', name: 'Nothing', surname: 'Uploaded', employeeNumber: 'T105' }
+];
+portal.data.perfTeams = [
+  // Uploaded as "midrand" — the team name matches however it was typed.
+  { teamKey: 'MIDRAND', team: 'midrand', month: '2026-09',
+    stock: 600, connections: 450, activations: 380 },
+  // Stock and connections in, activations not yet — separate files.
+  { teamKey: 'CAPE TOWN', team: 'Cape Town', month: '2026-09', stock: 500, connections: 0 },
+  // A team name nobody on the staff list is on.
+  { teamKey: 'GHOST TOWN', team: 'Ghost Town', month: '2026-09', stock: 100 }
 ];
 portal.data.perfMonthly = [
   { numberKey: 'T042', employeeNumber: 'T042', uid: 'p1', month: '2026-09',
-    stock: 600, connections: 450, activations: 380, commissionRands: 12500.5 },
-  // Stock and connections in, activations and commission not yet — four separate files.
-  { numberKey: 'T099', employeeNumber: 't-099', uid: 'p2', month: '2026-09',
-    stock: 500, connections: 0 },
-  // Uploaded against a number nobody has.
-  { numberKey: 'GHOST9', employeeNumber: 'GHOST9', uid: '', month: '2026-09', stock: 100 }
+    commissionRands: 12500.5 },
+  // Uploaded against an employee number nobody has.
+  { numberKey: 'GHOST9', employeeNumber: 'GHOST9', uid: '', month: '2026-09',
+    commissionRands: 99 }
 ];
 
 const perf = portal.performanceRows('2026-09');
@@ -479,66 +488,70 @@ portal.perfFilters.query = '';
 check('clearing the filters restores everyone', portal.visiblePerformanceRows().length, allRows);
 
 /* ---------------- a team's figure counted once ---------------- */
-// Stock, connections and activations arrive as a TEAM's numbers written onto every
-// member, so summing the rows counts a two-person team twice. Commission is each
-// person's own pay and is always summed. Getting this backwards misreports money.
+// Every member of a team carries the same stock, connections and activations, because
+// those belong to the team. Summing the rows would count a two-person team twice.
+// Commission is each person's own pay and is always summed — getting that backwards
+// misreports money, which is why it is asserted first.
 check('commission is not treated as a team figure',
   portal.TEAM_LEVEL_FIELDS.includes('commissionRands'), false);
 
-const team = (name, province, over) =>
-  ({ numberKey: name, name, province, team: over.team, stock: null, connections: null,
-     activations: null, commissionRands: null, ...over });
+// A row as performanceRows() builds one: the team's figures looked up, plus own pay.
+const member = (name, provinceName, teamName, over) => ({
+  numberKey: name, name, province: provinceName,
+  team: teamName, teamKey: portal.teamKey(teamName),
+  stock: null, connections: null, activations: null, commissionRands: null, ...over
+});
 
-// Two people, one team, the same team figure entered on both rows.
+// Two people in one team, both carrying their team's figures.
 const shared = [
-  team('A', 'Gauteng', { team: 'Soweto', stock: 600, connections: 450, activations: 380, commissionRands: 5000 }),
-  team('B', 'Gauteng', { team: 'Soweto', stock: 600, connections: 450, activations: 380, commissionRands: 5000 })
+  member('A', 'Gauteng', 'Soweto',
+    { stock: 600, connections: 450, activations: 380, commissionRands: 5000 }),
+  member('B', 'Gauteng', 'Soweto',
+    { stock: 600, connections: 450, activations: 380, commissionRands: 5000 })
 ];
 const sharedTotals = portal.performanceTotals(shared);
-check('the team figure counts once, not twice',
+check('the team figure counts once, not once per member',
   [sharedTotals.stock, sharedTotals.connections, sharedTotals.activations], [600, 450, 380]);
 check('but both commissions count, because that is their own pay',
   sharedTotals.commission, 10000);
 
-// Different numbers in one team are two real figures, so both count.
-const differing = [
-  team('A', 'Gauteng', { team: 'Soweto', stock: 600 }),
-  team('B', 'Gauteng', { team: 'Soweto', stock: 500 })
-];
-check('two different figures in one team are both counted',
-  portal.performanceTotals(differing).stock, 1100);
-
-// A team name is only unique inside its province, so two provinces' teams must not merge.
-const sameNameTwoProvinces = [
-  team('A', 'Gauteng', { team: 'Central', stock: 600 }),
-  team('B', 'Western Cape', { team: 'Central', stock: 600 })
-];
-check('teams of the same name in different provinces stay separate',
-  portal.performanceTotals(sameNameTwoProvinces).stock, 1200);
-
-// Without a team there is nothing to say two rows are the same team's figure, so
-// collapsing everybody with a blank team into one would delete most of the total.
-const noTeam = [
-  team('A', 'Gauteng', { team: '', stock: 600 }),
-  team('B', 'Gauteng', { team: '', stock: 600 })
-];
-check('rows with no team are each counted on their own',
-  portal.performanceTotals(noTeam).stock, 1200);
-
-// A third member adds nothing, which is the whole point.
-const three = [...shared, team('C', 'Gauteng',
-  { team: 'Soweto', stock: 600, connections: 450, activations: 380, commissionRands: 4000 })];
+// A third member adds nothing to the team figures, which is the whole point.
+const three = [...shared, member('C', 'Gauteng', 'Soweto',
+  { stock: 600, connections: 450, activations: 380, commissionRands: 4000 })];
 check('a third member of the same team adds no team figures',
   portal.performanceTotals(three).stock, 600);
 check('but does add their commission', portal.performanceTotals(three).commission, 14000);
 
-// A figure nobody uploaded must not become a zero that counts as a distinct value.
-const partly = [
-  team('A', 'Gauteng', { team: 'Soweto', stock: 600 }),
-  team('B', 'Gauteng', { team: 'Soweto' })          // nothing uploaded for B
+// Two teams are two figures.
+const twoTeams = [
+  member('A', 'Gauteng', 'Soweto', { stock: 600 }),
+  member('B', 'Gauteng', 'Tembisa', { stock: 500 })
 ];
-check('a missing figure is skipped rather than counted as 0',
-  portal.performanceTotals(partly).stock, 600);
+check('two different teams are both counted', portal.performanceTotals(twoTeams).stock, 1100);
+
+// Team figures are keyed on the team NAME, so the same name is the same team wherever
+// its people are posted. Checked against the real staff list before settling on this:
+// 39 distinct teams, no name used in two provinces. If that ever changes, the two would
+// share a figure, and the template would need a province column.
+const sameNameTwoProvinces = [
+  member('A', 'Gauteng', 'Central', { stock: 600 }),
+  member('B', 'Western Cape', 'Central', { stock: 600 })
+];
+check('one team name is one team, wherever its people are posted',
+  portal.performanceTotals(sameNameTwoProvinces).stock, 600);
+
+// Somebody with no team can carry no team figures, so contributes nothing to those three
+// — but their own commission still counts.
+const noTeam = [member('A', 'Gauteng', '', { commissionRands: 3000 })];
+check('a person with no team adds no team figures',
+  portal.performanceTotals(noTeam).stock, 0);
+check('but their commission is still theirs', portal.performanceTotals(noTeam).commission, 3000);
+
+// A figure nobody uploaded must not become a zero.
+const partly = [member('A', 'Gauteng', 'Soweto', { stock: 600 })];
+check('a figure never uploaded is skipped rather than counted as 0',
+  [portal.performanceTotals(partly).stock, portal.performanceTotals(partly).connections],
+  [600, 0]);
 
 /* ---------------- the leaderboard ---------------- */
 // By team, ranked highest first, positions only. The figures are hidden, so nobody can
@@ -553,16 +566,19 @@ portal.data.employees = [
   // No team recorded: cannot be placed among teams.
   { id: 'l6', name: 'F', surname: 'Six', employeeNumber: 'T006', province: 'Limpopo' }
 ];
-portal.data.perfMonthly = [
-  // Soweto: the same team figure on both members, so the team's figure is 500, not 1000.
-  { numberKey: 'T001', month: '2026-09', connections: 500, activations: 100 },
-  { numberKey: 'T002', month: '2026-09', connections: 500, activations: 100 },
-  { numberKey: 'T003', month: '2026-09', connections: 700, activations: 100 },
-  { numberKey: 'T004', month: '2026-09', connections: 500, activations: 400 },
-  { numberKey: 'T007', month: '2026-09', connections: 300, activations: 50 },
-  // Tzaneen: nothing uploaded at all.
-  { numberKey: 'T006', month: '2026-09', connections: 900 }
+portal.data.perfTeams = [
+  // One figure per team, so Soweto's two members share it without anything having to
+  // work out that they do.
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', connections: 500, activations: 100 },
+  { teamKey: 'TEMBISA', team: 'Tembisa', month: '2026-09', connections: 700, activations: 100 },
+  { teamKey: 'POLOKWANE', team: 'Polokwane', month: '2026-09', connections: 500, activations: 400 },
+  // Nelspruit sits BELOW the tie on purpose — see the ranking check further down.
+  { teamKey: 'NELSPRUIT', team: 'Nelspruit', month: '2026-09', connections: 300, activations: 50 },
+  // Tzaneen: a real team with nothing uploaded.
+  // And a figure against a team nobody is on, which counts towards nothing.
+  { teamKey: 'GHOST TOWN', team: 'Ghost Town', month: '2026-09', connections: 900 }
 ];
+portal.data.perfMonthly = [];
 
 const board = portal.leaderboardRows('2026-09', 'connections');
 
@@ -602,9 +618,15 @@ check('with its own tie for second, and a fourth below it',
   byActivations.rows.map(r => r.position), [1, 2, 2, 4, null]);
 
 // The board and the Performance tiles must agree on what a team carries.
+// Soweto once (not twice for its two members), plus Tembisa, Polokwane and Nelspruit.
+// Tzaneen has nothing uploaded and adds nothing. Ghost Town's 900 counts towards
+// NOTHING, because nobody is on it — which is precisely why the board reports it by
+// name instead of letting it quietly inflate a total.
 check('the board ranks on the same number the totals count',
   portal.performanceTotals(portal.performanceRows('2026-09')).connections,
-  500 + 700 + 500 + 300 + 900);   // Soweto once, Tembisa, Polokwane, Nelspruit, T006 alone
+  500 + 700 + 500 + 300);
+check('and a figure against a team nobody is on is reported, not counted',
+  portal.leaderboardRows('2026-09', 'connections').unknownTeams, ['Ghost Town']);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

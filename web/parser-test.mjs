@@ -30,7 +30,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'PARK_BY', 'minutesParkedLate', 'isParkedLate',
   'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort',
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
-  'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS'
+  'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel'
 ]);
 
 let failures = 0;
@@ -237,23 +237,41 @@ check('one kilometre past it is not',
 
 /* ---------------- the four performance uploads ---------------- */
 
+// Stock, connections and activations are keyed on TEAM; commission on employee number.
+check('the team files ask for a team name',
+  ['stock', 'connections', 'activations'].map(k => portal.perfKeyLabel(k)),
+  ['Team name', 'Team name', 'Team name']);
+check('and commission asks for an employee number',
+  portal.perfKeyLabel('commission'), 'Employee number');
+
 const conn = portal.parsePerformanceLines(
-  'Employee number,Month,Connections\nT042,2026-09,450\nt-099,2026-09,380\n',
+  'Team name,Month,Connections\nSOWETO,2026-09,450\nsoweto-east,2026-09,380\n',
   'connections');
 check('the header is skipped and both rows load', conn.rows.length, 2);
 check('no errors on a clean file', conn.errors.length, 0);
-check('the employee number is normalised for matching',
-  conn.rows.map(r => r.numberKey), ['T042', 'T099']);
-check('but kept as typed for display', conn.rows[1].employeeNumber, 't-099');
+check('the team name is normalised for matching',
+  conn.rows.map(r => r.key), ['SOWETO', 'SOWETO EAST']);
+check('but kept as typed for display', conn.rows[1].keyAsTyped, 'soweto-east');
 check('and the figure lands on the right field',
   [conn.rows[0].field, conn.rows[0].value], ['connections', 450]);
+check('the row says what it is keyed on', conn.rows[0].keyedOn, 'team');
 
-const stockFile = portal.parsePerformanceLines('T042,2026-09,600', 'stock');
-check('stock is a count against a month',
+/* Team names are typed twice — once in the staff list, once in the figures file — so
+   they will not match on the nose. Single spaces are kept on purpose, or SOWETO and
+   SOWETO EAST would collapse into one team. */
+check('case, punctuation and repeated spaces are ignored',
+  [portal.teamKey('Soweto East'), portal.teamKey('SOWETO  EAST'), portal.teamKey('soweto-east')],
+  ['SOWETO EAST', 'SOWETO EAST', 'SOWETO EAST']);
+check('but a real space still separates two teams',
+  portal.teamKey('SOWETO') === portal.teamKey('SOWETO EAST'), false);
+check('and a name with nothing in it keys to nothing', portal.teamKey('  -- '), '');
+
+const stockFile = portal.parsePerformanceLines('SOWETO,2026-09,600', 'stock');
+check('stock is a team count against a month',
   [stockFile.rows[0].field, stockFile.rows[0].month, stockFile.rows[0].value],
   ['stock', '2026-09', 600]);
 
-const act = portal.parsePerformanceLines('T042,2026-09,380', 'activations');
+const act = portal.parsePerformanceLines('SOWETO,2026-09,380', 'activations');
 check('so are activations', [act.rows[0].month, act.rows[0].value], ['2026-09', 380]);
 
 const comm = portal.parsePerformanceLines('T042,2026-09,12500.00', 'commission');
@@ -263,18 +281,18 @@ check('commission is money', [comm.rows[0].field, comm.rows[0].value],
 /* A file of forty rows with three mistakes must load the thirty-seven and name the
    three, rather than failing whole and leaving the admin to hunt for them. */
 const messy = portal.parsePerformanceLines(
-  [',2026-09,450',          // no employee number
-   'T099,2026-13,380',      // month 13 is not a month
-   'T105,2026-09,forty',    // not a number
-   'T118,2026-09,410'       // fine
+  [',2026-09,450',            // no team name
+   'TEMBISA,2026-13,380',     // month 13 is not a month
+   'PMB,2026-09,forty',       // not a number
+   'MTHATHA,2026-09,410'      // fine
   ].join('\n'), 'connections');
-check('only the good row loads', messy.rows.map(r => r.numberKey), ['T118']);
+check('only the good row loads', messy.rows.map(r => r.key), ['MTHATHA']);
 check('and each bad one is reported', messy.errors.length, 3);
 check('with a reason that says what to fix',
-  messy.errors.map(e => e.why.includes('employee number') || e.why.includes('month') || e.why.includes('whole number')),
+  messy.errors.map(e => e.why.includes('team name') || e.why.includes('month') || e.why.includes('whole number')),
   [true, true, true]);
 check('and the line itself, so it can be found in the file',
-  messy.errors[2].line, 'T105,2026-09,forty');
+  messy.errors[2].line, 'PMB,2026-09,forty');
 
 /* South African Excel exports semicolons and comma decimals. In a semicolon file the
    comma is safely a decimal; in a comma file it splits the column, which is a real

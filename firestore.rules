@@ -126,21 +126,32 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // Performance figures. Uploaded by an admin from a spreadsheet and read by the
-    // person they belong to.
+    // Performance figures, uploaded by an admin from a spreadsheet. They split two ways,
+    // because a team's output and a person's pay are not the same kind of secret.
+
+    // A TEAM's figures — stock, connections and activations — one document per team per
+    // month, keyed on the team name.
     //
-    // All four figures — stock, connections, activations and commission — are monthly
-    // and share one document per person per month, so uploading one never wipes another.
+    // Readable by anyone signed in, on purpose. A team's output is not one person's
+    // private business and the leaderboard is meant to be seen. Restricting it to "my
+    // own team" would mean the stored team name and the employee's teamName agreeing
+    // character for character, and those are two hand-typed fields that will not.
+    match /perfTeams/{rowId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // COMMISSION — one document per person per month, and nobody else's business.
     //
-    // The upload key is the EMPLOYEE NUMBER, because that is what the figures arrive
-    // keyed on. The access key is the uid, resolved when the file is loaded and stored
-    // on the row — a rule cannot normalise an employee number to compare it, and an
-    // employee must not be able to read a colleague's commission. Same shape as
-    // timeLogs: a query provably restricted to the caller's own uid is permitted, and
-    // one asking for everybody's is rejected outright.
+    // The upload key is the employee number, because that is what the figures arrive
+    // keyed on. The access key is the uid, resolved when the file is loaded and stored on
+    // the row: a rule cannot normalise an employee number to compare it, and an employee
+    // must not be able to read a colleague's pay. Same shape as timeLogs — a query
+    // provably restricted to the caller's own uid is permitted, one asking for
+    // everybody's is refused outright.
     //
-    // A row whose employee number matched nobody has an empty uid and is therefore
-    // readable by the admin alone, which is correct — it belongs to no one yet.
+    // A row whose employee number matched nobody has an empty uid and so is readable by
+    // the admin alone, which is right: it belongs to no one yet.
     match /perfMonthly/{rowId} {
       allow get: if isAdmin() ||
         (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
