@@ -42,7 +42,7 @@ private val monthLabelFormat = SimpleDateFormat("MMMM yyyy", Locale.US).apply {
  * it is a sentence about somebody's money, and whoever wants to reword it should not
  * have to read a Compose tree to find it.
  */
-const PAY_DISCLAIMER = "Please note these amounts are before tax deductions"
+const val PAY_DISCLAIMER = "Please note these amounts are before tax deductions"
 
 /** "2026-09" as "September 2026", falling back to the key if it will not parse. */
 private fun monthLabel(month: String): String =
