@@ -785,9 +785,18 @@
             <label for="perfMonth">Month</label>
             <input id="perfMonth" type="month">
           </div>
+          <div>
+            <label for="perfProvince">Province</label>
+            <select id="perfProvince"></select>
+          </div>
+          <div>
+            <label for="perfTeam">Team</label>
+            <select id="perfTeam"></select>
+          </div>
           <div class="grow">
             <label for="perfSearch">Search</label>
-            <input id="perfSearch" type="search" placeholder="Name or employee number">
+            <input id="perfSearch" type="search"
+              placeholder="Name, employee number, province or team">
           </div>
           <button id="exportPerformance" class="outline">Export CSV</button>
         </div>
@@ -795,15 +804,17 @@
         <div class="count" id="perfShowing"></div>
         <div class="table-wrap"><table>
           <thead><tr>
-            <th>Employee</th><th>Employee no</th><th>Connections</th>
-            <th>Activations</th><th>Commission</th>
+            <th>Employee</th><th>Employee no</th>
+            <th>Stock</th><th>Connections</th><th>Stock → conn</th>
+            <th>Activations</th><th>Conn → act</th><th>Act → stock</th>
+            <th>Commission</th>
           </tr></thead>
           <tbody id="perfRows"></tbody>
         </table></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
-          Connections are uploaded weekly and counted into the month their week
-          <b>starts</b> in — a week that straddles two months belongs to the first, since
-          a count cannot be split between them.
+          A percentage is shown only where both of its figures have been uploaded. It is
+          not capped at 100% — more connections than stock means the stock figure is
+          understated or carried over, which is worth seeing rather than rounding away.
         </p>
       </div>
 
@@ -900,7 +911,7 @@ const db = getFirestore(app);
 // Everything loaded for the signed-in admin.
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
   recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [],
-  perfWeekly: [], perfMonthly: [] };
+  perfMonthly: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -1301,7 +1312,7 @@ async function loadAll() {
   $('appView').classList.add('busy');
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
-      activityWindow, fuelHistory, roster, perfWeekly, perfMonthly] = await Promise.all([
+      activityWindow, fuelHistory, roster, perfMonthly] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -1320,7 +1331,6 @@ async function loadAll() {
         getDocs(query(collection(db, 'fuelLogs'),
           where('date', '>=', shiftDate(todayString(), -FUEL_HISTORY_DAYS)))),
         getDocs(collection(db, 'roster')),
-        getDocs(collection(db, 'perfWeekly')),
         getDocs(collection(db, 'perfMonthly'))
       ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1333,7 +1343,6 @@ async function loadAll() {
       recentTimeLogs: rows(recentTimeLogs),
       fuelLogs: rows(fuelLogs),
       roster: rows(roster),
-      perfWeekly: rows(perfWeekly),
       perfMonthly: rows(perfMonthly),
       // uid → the most recent date that person has any entry for.
       // Every fill in the window, grouped by vehicle, for the tank-to-tank figure.
@@ -2852,41 +2861,42 @@ const digits = (s) => {
 /* ---------------- performance uploads ---------------- */
 
 /**
- * The three performance uploads, described once.
+ * The four performance uploads, described once.
  *
- * Connections come in weekly and activations and commission monthly, so they are three
- * separate files with one figure each rather than one wide file with half its columns
- * blank. Describing them in a table rather than writing three parsers means the columns
- * an admin is given and the columns the parser reads cannot drift apart — the templates
- * are generated from this, and a test holds the committed files to it.
+ * Stock, connections, activations and commission — four separate files with one figure
+ * each, all keyed on employee number and month. Four narrow files rather than one wide
+ * one because they arrive at different times from different places, and a wide file
+ * would be mostly blank columns waiting on whoever had not sent theirs yet.
  *
- * Activations and commission share a document per person per month, written with a
- * merge, so uploading one never wipes the other.
+ * Describing them in a table rather than writing four parsers means the columns an admin
+ * is handed and the columns the parser reads cannot drift apart. The templates are
+ * generated from this, and a test feeds each one back through its own parser.
+ *
+ * All four share a single document per person per month, written with a merge, so
+ * uploading any one of them never wipes the others.
  */
 const PERF_UPLOADS = {
+  stock: {
+    label: 'Stock', field: 'stock', kind: 'count',
+    sample: [['T042', '2026-09', '600'], ['T099', '2026-09', '500']]
+  },
   connections: {
-    label: 'Connections', periodLabel: 'Week starting', period: 'week',
-    field: 'connections', kind: 'count', collection: 'perfWeekly',
-    sample: [['EMP001', '2026-09-07', '45'], ['EMP002', '2026-09-07', '38'],
-             ['EMP001', '2026-09-14', '52']]
+    label: 'Connections', field: 'connections', kind: 'count',
+    sample: [['T042', '2026-09', '450'], ['T099', '2026-09', '380']]
   },
   activations: {
-    label: 'Activations', periodLabel: 'Month', period: 'month',
-    field: 'activations', kind: 'count', collection: 'perfMonthly',
-    sample: [['EMP001', '2026-09', '38'], ['EMP002', '2026-09', '31']]
+    label: 'Activations', field: 'activations', kind: 'count',
+    sample: [['T042', '2026-09', '380'], ['T099', '2026-09', '310']]
   },
   commission: {
-    label: 'Commission', periodLabel: 'Month', period: 'month',
-    field: 'commissionRands', kind: 'money', collection: 'perfMonthly',
-    sample: [['EMP001', '2026-09', '12500.00'], ['EMP002', '2026-09', '9800.50']]
+    label: 'Commission', field: 'commissionRands', kind: 'money',
+    sample: [['T042', '2026-09', '12500.00'], ['T099', '2026-09', '9800.50']]
   }
 };
 
 /** The template for one upload, header first — what the Download template button gives. */
-const perfTemplateRows = (kind) => {
-  const spec = PERF_UPLOADS[kind];
-  return [['Employee number', spec.periodLabel, spec.label], ...spec.sample];
-};
+const perfTemplateRows = (kind) =>
+  [['Employee number', 'Month', PERF_UPLOADS[kind].label], ...PERF_UPLOADS[kind].sample];
 
 /**
  * The delimiter, worked out per file.
@@ -2920,14 +2930,6 @@ const perfMoney = (cell) => {
   if (/^\d+[.,]\d{1,2}$/.test(cleaned)) cleaned = cleaned.replace(',', '.');
   else cleaned = cleaned.replace(/,/g, '');
   return /^\d+(\.\d+)?$/.test(cleaned) ? Number(cleaned) : null;
-};
-
-/** yyyy-mm-dd, and a real day rather than the 31st of February. */
-const isRealDate = (value) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [y, m, d] = value.split('-').map(Number);
-  const asDate = new Date(y, m - 1, d);
-  return asDate.getFullYear() === y && asDate.getMonth() === m - 1 && asDate.getDate() === d;
 };
 
 const isMonth = (value) => /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
@@ -2973,12 +2975,7 @@ function parsePerformanceLines(text, kind) {
       });
     }
 
-    if (spec.period === 'week' && !isRealDate(period)) {
-      return errors.push({ line, why: spec.periodLabel + ' must be a real date as yyyy-mm-dd' });
-    }
-    if (spec.period === 'month' && !isMonth(period)) {
-      return errors.push({ line, why: spec.periodLabel + ' must be yyyy-mm' });
-    }
+    if (!isMonth(period)) return errors.push({ line, why: 'month must be yyyy-mm' });
 
     const value = spec.kind === 'money' ? perfMoney(parts[2]) : perfCount(parts[2]);
     if (value === null) {
@@ -2993,7 +2990,7 @@ function parsePerformanceLines(text, kind) {
     rows.push({
       employeeNumber,
       numberKey: numberKey(employeeNumber),
-      period,
+      month: period,
       field: spec.field,
       value
     });
@@ -3003,13 +3000,30 @@ function parsePerformanceLines(text, kind) {
 }
 
 /**
- * The month a week's connections count towards: the one its START date falls in.
+ * One figure as a percentage of an earlier one — stock to connections, connections to
+ * activations, activations to stock.
  *
- * A week can straddle two months and a count cannot be split between them, so one of
- * them has to own it. The start date is the choice an admin can predict without
- * thinking about it, and the week-start dates are theirs to set in the file.
+ * Null when it cannot be worked out, never 0%. A missing denominator means the file has
+ * not been uploaded, and 0% would read as "converted nothing" instead of "we do not
+ * know" — which is the difference between a bad week and no data.
+ *
+ * A zero NUMERATOR against a real denominator is different, and is a real 0%: stock was
+ * issued and nothing came of it. That is information, and it is shown.
+ *
+ * Deliberately not capped at 100%. More connections than stock means the stock figure is
+ * understated or carried over from a previous week, and hiding that behind a neat 100%
+ * would bury the very thing worth asking about.
  */
-const monthOfWeek = (weekStart) => String(weekStart || '').slice(0, 7);
+const ratioPercent = (numerator, denominator) => {
+  if (denominator === null || denominator === undefined || Number(denominator) <= 0) return null;
+  if (numerator === null || numerator === undefined) return null;
+  return Number(numerator) / Number(denominator) * 100;
+};
+
+/** "63,3%", or a dash when there is nothing to divide. */
+const percentLabel = (value) => value === null
+  ? '—'
+  : value.toLocaleString('en-ZA', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
 
 function parseVehicleLines(text) {
   const ignoredIntervals = [];
@@ -3338,69 +3352,79 @@ $('exportSummary').addEventListener('click', () => {
 
 /* ---------------- performance ---------------- */
 
-let perfFilter = '';
+/** What the Performance tab is filtered to. An object, like the Employees tab's
+ * filters, so the render and the export read one source and a test can drive it. */
+const perfFilters = { province: '', team: '', query: '' };
 
 /**
- * One row per person for the chosen month: their connections (summed from the weeks
- * that START in it), activations and commission.
+ * One row per person for the chosen month: stock, connections, activations, commission.
  *
  * Built from the employee list rather than from the figures, so somebody with nothing
  * uploaded still appears with dashes. A person missing from the month's figures is the
  * thing worth seeing — leaving them out would make an incomplete upload look complete.
+ *
+ * A field only becomes a number once something has been uploaded for it. Defaulting to
+ * 0 would make a file nobody has sent yet indistinguishable from a month where somebody
+ * genuinely converted nothing.
  */
 function performanceRows(month) {
   const byKey = {};
-  const bucket = (numberKey, employeeNumber, name) => {
-    if (!byKey[numberKey]) {
-      byKey[numberKey] = {
-        numberKey, employeeNumber, name,
-        connections: null, activations: null, commissionRands: null, weeks: 0
+  const bucket = (key, employeeNumber, name) => {
+    if (!byKey[key]) {
+      byKey[key] = {
+        numberKey: key, employeeNumber, name, province: '', team: '',
+        stock: null, connections: null, activations: null, commissionRands: null
       };
     }
-    return byKey[numberKey];
+    return byKey[key];
   };
 
   data.employees.forEach(e => {
     const key = numberKey(e.employeeNumber);
-    if (key) bucket(key, e.employeeNumber || '', fullName(e));
+    if (!key) return;
+    const row = bucket(key, e.employeeNumber || '', fullName(e));
+    // From the employee record, not the upload: the figures arrive with an employee
+    // number and nothing else, and a posting typed into a spreadsheet would go stale
+    // the moment somebody moved province.
+    row.province = e.province || '';
+    row.team = e.teamName || '';
   });
-
-  data.perfWeekly
-    .filter(r => monthOfWeek(r.weekStart) === month)
-    .forEach(r => {
-      const b = bucket(r.numberKey, r.employeeNumber || '', r.employeeName || 'Not on the staff list');
-      b.connections = (b.connections || 0) + Number(r.connections || 0);
-      b.weeks += 1;
-    });
 
   data.perfMonthly
     .filter(r => r.month === month)
     .forEach(r => {
-      const b = bucket(r.numberKey, r.employeeNumber || '', r.employeeName || 'Not on the staff list');
-      if (r.activations !== undefined && r.activations !== null) b.activations = Number(r.activations);
-      if (r.commissionRands !== undefined && r.commissionRands !== null) {
-        b.commissionRands = Number(r.commissionRands);
-      }
+      // Only onto a person who exists. A number matching nobody is reported by
+      // unmatchedPerformance() instead — a table row with no one behind it cannot be
+      // acted on from the table, and reads as a phantom employee.
+      const b = byKey[r.numberKey];
+      if (!b) return;
+      ['stock', 'connections', 'activations', 'commissionRands'].forEach(field => {
+        if (r[field] !== undefined && r[field] !== null) b[field] = Number(r[field]);
+      });
     });
 
   return Object.values(byKey).sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
-/** Rows on screen, after the search box. */
+/** Rows on screen, after the dropdowns and the search box. */
 function visiblePerformanceRows() {
-  const q = perfFilter.trim().toLowerCase();
-  const rows = performanceRows($('perfMonth').value || todayString().slice(0, 7));
-  if (!q) return rows;
-  return rows.filter(r =>
-    String(r.name).toLowerCase().includes(q) ||
-    numberKey(r.employeeNumber).includes(numberKey(q)));
+  const q = perfFilters.query.trim().toLowerCase();
+  return performanceRows($('perfMonth').value || todayString().slice(0, 7)).filter(r => {
+    if (perfFilters.province && r.province !== perfFilters.province) return false;
+    if (perfFilters.team && r.team !== perfFilters.team) return false;
+    if (!q) return true;
+    // The employee number is matched on its normalised form, so searching "t42" finds
+    // T042 the same way the fleet search finds a plate however it was spaced.
+    return [r.name, r.province, r.team].some(v => String(v ?? '').toLowerCase().includes(q))
+      || numberKey(r.employeeNumber).includes(numberKey(q));
+  });
 }
 
 /** Figures uploaded against an employee number that matches nobody on the staff list. */
 function unmatchedPerformance() {
   const known = new Set(data.employees.map(e => numberKey(e.employeeNumber)).filter(Boolean));
   const seen = {};
-  [...data.perfWeekly, ...data.perfMonthly].forEach(r => {
+  data.perfMonthly.forEach(r => {
     if (r.numberKey && !known.has(r.numberKey)) {
       seen[r.numberKey] = (seen[r.numberKey] || 0) + 1;
     }
@@ -3410,25 +3434,42 @@ function unmatchedPerformance() {
 
 function renderPerformance() {
   const month = $('perfMonth').value || todayString().slice(0, 7);
-  const rows = visiblePerformanceRows();
   const all = performanceRows(month);
 
+  // Only postings that exist this month, so the lists stay short and nothing offers a
+  // province with nobody in it. The team list narrows to the chosen province, since a
+  // team belongs to one and offering the rest is just noise.
+  const provinces = [...new Set(all.map(r => r.province).filter(Boolean))].sort();
+  const teamsIn = all.filter(r => !perfFilters.province || r.province === perfFilters.province);
+  const teams = [...new Set(teamsIn.map(r => r.team).filter(Boolean))].sort();
+  if (perfFilters.team && !teams.includes(perfFilters.team)) perfFilters.team = '';
+
+  $('perfProvince').innerHTML = [`<option value="">All provinces</option>`,
+    ...provinces.map(v =>
+      `<option value="${esc(v)}" ${v === perfFilters.province ? 'selected' : ''}>${esc(v)}</option>`)].join('');
+  $('perfTeam').innerHTML = [`<option value="">All teams</option>`,
+    ...teams.map(v =>
+      `<option value="${esc(v)}" ${v === perfFilters.team ? 'selected' : ''}>${esc(v)}</option>`)].join('');
+
+  const rows = visiblePerformanceRows();
+
   const totals = rows.reduce((t, r) => ({
+    stock: t.stock + (r.stock || 0),
     connections: t.connections + (r.connections || 0),
     activations: t.activations + (r.activations || 0),
     commission: t.commission + (r.commissionRands || 0)
-  }), { connections: 0, activations: 0, commission: 0 });
+  }), { stock: 0, connections: 0, activations: 0, commission: 0 });
 
+  // Every ratio here divides the two totals. The mean of everybody's conversion rate
+  // is not the team's conversion rate, and it flatters whoever was given least stock.
   $('perfTiles').innerHTML = [
+    ['Stock', num(totals.stock), ''],
     ['Connections', num(totals.connections), ''],
+    ['Stock → conn', percentLabel(ratioPercent(totals.connections, totals.stock)), ''],
     ['Activations', num(totals.activations), ''],
-    ['Commission', rand(totals.commission), ''],
-    // Nothing uploaded for somebody is the figure worth acting on, so it gets a tile
-    // of its own rather than being left to be counted off the table.
-    ['Nobody uploaded', rows.filter(r =>
-      r.connections === null && r.activations === null && r.commissionRands === null).length,
-      rows.some(r => r.connections === null && r.activations === null && r.commissionRands === null)
-        ? 'warn' : 'calm']
+    ['Conn → act', percentLabel(ratioPercent(totals.activations, totals.connections)), ''],
+    ['Act → stock', percentLabel(ratioPercent(totals.activations, totals.stock)), ''],
+    ['Commission', rand(totals.commission), '']
   ].map(([cap, big, tone]) =>
     `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
@@ -3442,15 +3483,21 @@ function renderPerformance() {
   const figure = (value, format) => value === null ? '<span class="meta">—</span>' : format(value);
 
   $('perfRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="5" class="empty">${data.employees.length === 0
+    ? `<tr><td colspan="9" class="empty">${data.employees.length === 0
         ? 'No employees yet.'
         : 'Nobody matches that search.'}</td></tr>`
     : rows.map(r => `<tr>
         <td><div class="nm">${esc(r.name)}</div>${
-          r.weeks > 0 ? `<div class="meta">${r.weeks} week${r.weeks === 1 ? '' : 's'} uploaded</div>` : ''}</td>
+          [r.province, r.team].filter(Boolean).length
+            ? `<div class="meta">${esc([r.province, r.team].filter(Boolean).join(' · '))}</div>`
+            : ''}</td>
         <td>${esc(r.employeeNumber || '—')}</td>
+        <td>${figure(r.stock, num)}</td>
         <td>${figure(r.connections, num)}</td>
+        <td>${percentLabel(ratioPercent(r.connections, r.stock))}</td>
         <td>${figure(r.activations, num)}</td>
+        <td>${percentLabel(ratioPercent(r.activations, r.connections))}</td>
+        <td>${percentLabel(ratioPercent(r.activations, r.stock))}</td>
         <td>${figure(r.commissionRands, rand)}</td>
       </tr>`).join('');
 
@@ -3476,9 +3523,9 @@ function renderPerformanceUploads() {
   if ($('perfUploads').dataset.built === 'yes') return;
   $('perfUploads').innerHTML = Object.entries(PERF_UPLOADS).map(([kind, spec]) => `
     <div class="field" style="border-top:1px solid var(--surface-variant);padding-top:var(--s3)">
-      <label>${esc(spec.label)} — one row per person per ${esc(spec.period)}</label>
-      <div class="meta" style="margin-bottom:var(--s2)">Columns: Employee number, ${
-        esc(spec.periodLabel)}, ${esc(spec.label)}</div>
+      <label>${esc(spec.label)} — one row per person per month</label>
+      <div class="meta" style="margin-bottom:var(--s2)">Columns: Employee number, Month, ${
+        esc(spec.label)}</div>
       <input id="perfFile-${kind}" type="file" accept=".csv,text/csv,text/plain">
       <textarea id="perfText-${kind}" rows="3" style="margin-top:var(--s2)"
         placeholder="${esc(spec.sample[0].join(', '))}"></textarea>
@@ -3538,7 +3585,7 @@ async function savePerformance(kind) {
     rows.forEach(r => {
       const person = byNumber[r.numberKey];
       if (person) matched++;
-      const id = `${r.numberKey}_${r.period}`;
+      const id = `${r.numberKey}_${r.month}`;
       const base = {
         employeeNumber: r.employeeNumber,
         numberKey: r.numberKey,
@@ -3546,13 +3593,9 @@ async function savePerformance(kind) {
         employeeName: person ? fullName(person) : '',
         uploadedAtMillis: Date.now()
       };
-      if (spec.period === 'week') {
-        batch.set(doc(db, 'perfWeekly', id),
-          { ...base, weekStart: r.period, connections: r.value }, { merge: true });
-      } else {
-        batch.set(doc(db, 'perfMonthly', id),
-          { ...base, month: r.period, [r.field]: r.value }, { merge: true });
-      }
+      // Merged, so uploading stock does not wipe the commission already there.
+      batch.set(doc(db, 'perfMonthly', id),
+        { ...base, month: r.month, [r.field]: r.value }, { merge: true });
     });
     await batch.commit();
 
@@ -3572,19 +3615,35 @@ async function savePerformance(kind) {
 }
 
 $('perfMonth').addEventListener('change', renderPerformance);
+$('perfProvince').addEventListener('change', (e) => {
+  perfFilters.province = e.target.value;
+  renderPerformance();
+});
+$('perfTeam').addEventListener('change', (e) => {
+  perfFilters.team = e.target.value;
+  renderPerformance();
+});
 $('perfSearch').addEventListener('input', (e) => {
-  perfFilter = e.target.value;
+  perfFilters.query = e.target.value;
   renderPerformance();
 });
 
 $('exportPerformance').addEventListener('click', () => {
   const month = $('perfMonth').value || todayString().slice(0, 7);
-  const rows = [['Employee', 'Employee number', 'Month', 'Connections', 'Activations', 'Commission R']];
+  const rows = [['Employee', 'Employee number', 'Province', 'Team', 'Month', 'Stock', 'Connections',
+    'Stock to connection %', 'Activations', 'Connection to activation %',
+    'Activation to stock %', 'Commission R']];
+  // Blank rather than 0 throughout, for the same reason the table shows a dash — a
+  // spreadsheet would otherwise average "we don't know" in as a nought.
+  const asPercent = (value) => value === null ? '' : value.toFixed(1);
   visiblePerformanceRows().forEach(r => rows.push([
-    r.name, r.employeeNumber, month,
-    // Blank rather than 0, for the same reason the table shows a dash.
+    r.name, r.employeeNumber, r.province, r.team, month,
+    r.stock === null ? '' : r.stock,
     r.connections === null ? '' : r.connections,
+    asPercent(ratioPercent(r.connections, r.stock)),
     r.activations === null ? '' : r.activations,
+    asPercent(ratioPercent(r.activations, r.connections)),
+    asPercent(ratioPercent(r.activations, r.stock)),
     r.commissionRands === null ? '' : r.commissionRands.toFixed(2)
   ]));
   downloadCsv(`performance-${month}.csv`, rows);

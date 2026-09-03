@@ -1,4 +1,3 @@
-Employee number,Week starting,Connections
-EMP001,2026-09-07,45
-EMP002,2026-09-07,38
-EMP001,2026-09-14,52
+Employee number,Month,Connections
+T042,2026-09,450
+T099,2026-09,380

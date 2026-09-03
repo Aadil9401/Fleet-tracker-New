@@ -19,7 +19,8 @@ import { loadPortal, writes } from './portal-harness.mjs';
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
-  'performanceRows', 'unmatchedPerformance'
+  'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
+  'visiblePerformanceRows', 'perfFilters'
 ]);
 
 let failures = 0;
@@ -348,48 +349,74 @@ check('and covers exactly who the table shows',
 portal.filters.province = portal.ALL_PROVINCES;
 
 /* ---------------- performance figures ---------------- */
-// Connections arrive weekly and are counted into the month their week STARTS in, so the
-// rollup is the part that can quietly put a number in the wrong month.
+// Four figures per person per month, and three ratios between them. The ratios are the
+// part that can go quietly wrong: a missing figure must read as unknown rather than as a
+// conversion of nothing, and a team rate must divide totals rather than average rates.
 portal.data.employees = [
-  { id: 'p1', name: 'Nomsa', surname: 'Dlamini', employeeNumber: 'EMP001' },
-  { id: 'p2', name: 'Sipho', surname: 'Khumalo', employeeNumber: 'emp-002' },
-  { id: 'p3', name: 'Nothing', surname: 'Uploaded', employeeNumber: 'EMP003' }
-];
-portal.data.perfWeekly = [
-  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', weekStart: '2026-09-07', connections: 45 },
-  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', weekStart: '2026-09-14', connections: 52 },
-  // Starts in September and runs into October: it counts to September.
-  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', weekStart: '2026-09-28', connections: 30 },
-  // Starts in August: must not appear in September at all.
-  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', weekStart: '2026-08-31', connections: 99 },
-  { numberKey: 'EMP002', employeeNumber: 'emp-002', uid: 'p2', weekStart: '2026-09-07', connections: 38 },
-  // Uploaded against a number nobody has.
-  { numberKey: 'GHOST9', employeeNumber: 'GHOST9', uid: '', weekStart: '2026-09-07', connections: 12 }
+  { id: 'p1', name: 'Nomsa', surname: 'Dlamini', employeeNumber: 'T042',
+    province: 'Gauteng', teamName: 'Midrand' },
+  { id: 'p2', name: 'Sipho', surname: 'Khumalo', employeeNumber: 't-099',
+    province: 'Western Cape', teamName: 'Cape Town' },
+  { id: 'p3', name: 'Nothing', surname: 'Uploaded', employeeNumber: 'T105' }
 ];
 portal.data.perfMonthly = [
-  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', month: '2026-09',
-    activations: 38, commissionRands: 12500.5 },
-  // Activations uploaded, commission not yet — they are separate files.
-  { numberKey: 'EMP002', employeeNumber: 'emp-002', uid: 'p2', month: '2026-09', activations: 31 }
+  { numberKey: 'T042', employeeNumber: 'T042', uid: 'p1', month: '2026-09',
+    stock: 600, connections: 450, activations: 380, commissionRands: 12500.5 },
+  // Stock and connections in, activations and commission not yet — four separate files.
+  { numberKey: 'T099', employeeNumber: 't-099', uid: 'p2', month: '2026-09',
+    stock: 500, connections: 0 },
+  // Uploaded against a number nobody has.
+  { numberKey: 'GHOST9', employeeNumber: 'GHOST9', uid: '', month: '2026-09', stock: 100 }
 ];
 
 const perf = portal.performanceRows('2026-09');
 const byName = Object.fromEntries(perf.map(r => [r.name, r]));
+const nomsa = byName['Nomsa Dlamini'];
 
-check('the three weeks starting in September are summed', byName['Nomsa Dlamini'].connections, 127);
-check('the week count is shown, so a short month is obvious', byName['Nomsa Dlamini'].weeks, 3);
-check('activations and commission come from the monthly file',
-  [byName['Nomsa Dlamini'].activations, byName['Nomsa Dlamini'].commissionRands], [38, 12500.5]);
+check('all four figures are read off the month',
+  [nomsa.stock, nomsa.connections, nomsa.activations, nomsa.commissionRands],
+  [600, 450, 380, 12500.5]);
 
-// Nothing uploaded is not zero. A commission of R0,00 would read as a bad month rather
-// than as a file nobody has sent yet.
-check('a figure not yet uploaded is null, not zero', byName['Sipho Khumalo'].commissionRands, null);
-check('while the one that was uploaded is a number', byName['Sipho Khumalo'].activations, 31);
+/* The three ratios. Each divides a figure by the earlier one it came from. */
+check('stock to connections', portal.ratioPercent(nomsa.connections, nomsa.stock).toFixed(1), '75.0');
+check('connections to activations', portal.ratioPercent(nomsa.activations, nomsa.connections).toFixed(1), '84.4');
+check('activations to stock, the end to end figure',
+  portal.ratioPercent(nomsa.activations, nomsa.stock).toFixed(1), '63.3');
+check('and written out for reading', portal.percentLabel(63.333), '63,3%');
+
+/* Zero connections against real stock is a genuine 0% — stock was issued and nothing
+   came of it. That is information, and it must not be hidden as unknown. */
+const sipho = byName['Sipho Khumalo'];
+check('a real zero converts to a real 0%', portal.ratioPercent(sipho.connections, sipho.stock), 0);
+check('which reads as 0,0% rather than a dash', portal.percentLabel(0), '0,0%');
+
+/* But a missing figure is unknown, and 0% would read as "converted nothing" when it
+   means "nobody has sent the file". */
+check('a ratio with a figure not yet uploaded is unknown',
+  portal.ratioPercent(sipho.activations, sipho.connections), null);
+check('and shows a dash', portal.percentLabel(null), '—');
+check('dividing by zero is unknown, not infinite', portal.ratioPercent(50, 0), null);
+check('and so is dividing by a figure never uploaded', portal.ratioPercent(50, null), null);
+
+/* Not capped: more connections than stock means the stock figure is understated or
+   carried over, which is worth seeing rather than rounding away to a neat 100%. */
+check('over a hundred per cent is shown as it is',
+  portal.percentLabel(portal.ratioPercent(120, 100)), '120,0%');
+
+/* A team ratio divides the two totals. The mean of everybody's conversion rate is not
+   the team's, and it flatters whoever was given least stock. */
+const heavy = { activations: 380, stock: 600 };   // 63,3%
+const light = { activations: 9, stock: 10 };      // 90,0%
+const meanOfRates = (portal.ratioPercent(heavy.activations, heavy.stock) +
+  portal.ratioPercent(light.activations, light.stock)) / 2;
+const teamRate = portal.ratioPercent(heavy.activations + light.activations, heavy.stock + light.stock);
+check('the mean of the rates is not the team rate', meanOfRates.toFixed(1), '76.7');
+check('the team rate divides the totals', teamRate.toFixed(1), '63.8');
 
 // Somebody with nothing at all still has to appear, or an incomplete upload looks
 // complete and the person is simply invisible.
 check('an employee with no figures still appears',
-  [byName['Nothing Uploaded'].connections, byName['Nothing Uploaded'].activations], [null, null]);
+  [byName['Nothing Uploaded'].stock, byName['Nothing Uploaded'].connections], [null, null]);
 
 // A number matching nobody belongs to nobody and nobody can see it, so the admin must.
 const ghosts = portal.unmatchedPerformance();
@@ -398,7 +425,51 @@ check('with how many rows are affected', ghosts[0].count, 1);
 
 // Another month must not inherit September's figures.
 check('another month is empty rather than inheriting',
-  portal.performanceRows('2026-10').every(r => r.connections === null), true);
+  portal.performanceRows('2026-10').every(r => r.stock === null), true);
+
+/* Posting comes off the employee record, not the upload — the figures arrive with an
+   employee number and nothing else, and a posting typed into a spreadsheet would go
+   stale the moment somebody moved province. */
+check('the posting is read from the employee record',
+  [nomsa.province, nomsa.team], ['Gauteng', 'Midrand']);
+
+/* The filters. An export covering a different set than the table shows would be
+   invisible to whoever ran it, so both go through visiblePerformanceRows(). */
+// The month has to be set for visiblePerformanceRows(), which reads it off the picker.
+writes()['perfMonth'] = '2026-09';
+const allRows = portal.visiblePerformanceRows().length;
+// Three people on the staff list. The GHOST9 figures are NOT a fourth row: they belong
+// to nobody, so they are reported on their own card rather than as a phantom employee.
+check('unfiltered, everyone on the staff list appears and nobody else', allRows, 3);
+
+portal.perfFilters.province = 'Gauteng';
+check('filtering by province narrows the table',
+  portal.visiblePerformanceRows().map(r => r.name), ['Nomsa Dlamini']);
+
+portal.perfFilters.province = '';
+portal.perfFilters.team = 'Cape Town';
+check('and so does filtering by team',
+  portal.visiblePerformanceRows().map(r => r.name), ['Sipho Khumalo']);
+
+portal.perfFilters.team = '';
+// Matching is a substring of the normalised number, so "t042" and "42" both find T042.
+// "t42" deliberately does not: skipping the leading zero would mean guessing, and a
+// search that quietly matches the wrong person is worse than one that finds nobody.
+portal.perfFilters.query = 't042';
+check('the search matches an employee number as typed',
+  portal.visiblePerformanceRows().map(r => r.name), ['Nomsa Dlamini']);
+portal.perfFilters.query = '42';
+check('and matches part of one', portal.visiblePerformanceRows().map(r => r.name), ['Nomsa Dlamini']);
+portal.perfFilters.query = 't42';
+check('but does not invent a match across a leading zero',
+  portal.visiblePerformanceRows().length, 0);
+
+portal.perfFilters.query = 'midrand';
+check('and matches a team name too',
+  portal.visiblePerformanceRows().map(r => r.name), ['Nomsa Dlamini']);
+
+portal.perfFilters.query = '';
+check('clearing the filters restores everyone', portal.visiblePerformanceRows().length, allRows);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);
