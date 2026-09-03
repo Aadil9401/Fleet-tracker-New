@@ -806,7 +806,7 @@
           <thead><tr>
             <th>Employee</th><th>Employee no</th>
             <th>Stock</th><th>Connections</th><th>Stock → conn</th>
-            <th>Activations</th><th>Conn → act</th><th>Act → stock</th>
+            <th>Activations</th><th>Conn → act</th><th>Stock → act</th>
             <th>Commission</th>
           </tr></thead>
           <tbody id="perfRows"></tbody>
@@ -3642,7 +3642,7 @@ function renderPerformance() {
     ['Stock → conn', percentLabel(ratioPercent(totals.connections, totals.stock)), ''],
     ['Activations', num(totals.activations), ''],
     ['Conn → act', percentLabel(ratioPercent(totals.activations, totals.connections)), ''],
-    ['Act → stock', percentLabel(ratioPercent(totals.activations, totals.stock)), ''],
+    ['Stock → act', percentLabel(ratioPercent(totals.activations, totals.stock)), ''],
     ['Commission', rand(totals.commission), '']
   ].map(([cap, big, tone]) =>
     `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
@@ -3835,7 +3835,7 @@ $('exportPerformance').addEventListener('click', () => {
   const month = $('perfMonth').value || todayString().slice(0, 7);
   const rows = [['Employee', 'Employee number', 'Province', 'Team', 'Month', 'Stock', 'Connections',
     'Stock to connection %', 'Activations', 'Connection to activation %',
-    'Activation to stock %', 'Commission R']];
+    'Stock to activation %', 'Commission R']];
   // Blank rather than 0 throughout, for the same reason the table shows a dash — a
   // spreadsheet would otherwise average "we don't know" in as a nought.
   const asPercent = (value) => value === null ? '' : value.toFixed(1);

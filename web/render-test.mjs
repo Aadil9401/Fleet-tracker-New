@@ -396,7 +396,10 @@ check('all four figures are read off the month',
 /* The three ratios. Each divides a figure by the earlier one it came from. */
 check('stock to connections', portal.ratioPercent(nomsa.connections, nomsa.stock).toFixed(1), '75.0');
 check('connections to activations', portal.ratioPercent(nomsa.activations, nomsa.connections).toFixed(1), '84.4');
-check('activations to stock, the end to end figure',
+// Named the way the column is: "from → to", showing to ÷ from. So stock → act is
+// activations over stock — the end-to-end conversion. The label used to read the other
+// way round and claimed to be stock over activations, which is not what it computes.
+check('stock to activations, the end to end figure',
   portal.ratioPercent(nomsa.activations, nomsa.stock).toFixed(1), '63.3');
 check('and written out for reading', portal.percentLabel(63.333), '63,3%');
 
