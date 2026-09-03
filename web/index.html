@@ -831,9 +831,13 @@
       <div class="card">
         <h2 class="section">Upload figures</h2>
         <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-          Three separate files, because connections arrive weekly and activations and
-          commission monthly. Every file is matched to people on <b>employee number</b>.
-          Uploading the same period again corrects it rather than adding to it.
+          Four separate files, one figure each, all monthly. Stock, connections and
+          activations are matched on <b>team name</b> because they are a team's figures;
+          commission is matched on <b>employee number</b> because it is a person's own pay.
+          <br>
+          One file can carry several months — put the month on each row. Uploading the
+          same month again corrects it rather than adding to it, and uploading one figure
+          never wipes another.
         </p>
         <div id="perfUploads"></div>
         <div class="count" id="perfUploadStatus"></div>
@@ -1074,6 +1078,28 @@ const costPerKmLabel = (fuelRands, distanceKm) => {
 const FUEL_HISTORY_DAYS = 180;
 
 const MAX_KM_BETWEEN_FILLS = 5000;
+
+/**
+ * How far back performance figures are read.
+ *
+ * Both collections used to be read whole on every page load. At eight months of history
+ * that is around a thousand documents each time, growing by roughly a hundred and twenty
+ * a month and never shrinking — so in two years every visit to the portal would read
+ * several thousand, against the free plan's fifty thousand reads a day, and the day view
+ * has not even loaded yet at that point.
+ *
+ * Two years of history is more than anyone reads off a monthly figure, and the month
+ * pickers are given this as their minimum so the page cannot offer a month it has no
+ * data for.
+ */
+const PERF_HISTORY_MONTHS = 24;
+
+/** The yyyy-MM this many whole months before the current one. */
+function monthsBack(count) {
+  const now = new Date();
+  const shifted = new Date(now.getFullYear(), now.getMonth() - count, 1);
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`;
+}
 
 /**
  * What a kilometre costs a particular VEHICLE, measured tank to tank.
@@ -1382,8 +1408,12 @@ async function loadAll() {
         getDocs(query(collection(db, 'fuelLogs'),
           where('date', '>=', shiftDate(todayString(), -FUEL_HISTORY_DAYS)))),
         getDocs(collection(db, 'roster')),
-        getDocs(collection(db, 'perfMonthly')),
-        getDocs(collection(db, 'perfTeams'))
+        // Bounded rather than the whole collection — see PERF_HISTORY_MONTHS. A single
+        // inequality on one field needs no composite index.
+        getDocs(query(collection(db, 'perfMonthly'),
+          where('month', '>=', monthsBack(PERF_HISTORY_MONTHS)))),
+        getDocs(query(collection(db, 'perfTeams'),
+          where('month', '>=', monthsBack(PERF_HISTORY_MONTHS))))
       ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
     data = {
@@ -3677,11 +3707,14 @@ function renderPerformance() {
 
   const unmatched = unmatchedPerformance();
   $('perfUnmatchedCard').innerHTML = unmatched.length === 0 ? '' : `
-    <h2 class="section">Figures with no matching employee (${unmatched.length})</h2>
+    <h2 class="section">Commission with no matching employee (${unmatched.length})</h2>
     <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-      These employee numbers appear in uploaded figures but not on any employee record,
-      so the figures belong to nobody and nobody can see them. Either the number is
-      mistyped in the file, or the person has not signed up yet.
+      These employee numbers appear in an uploaded <b>commission</b> file but on no
+      employee record, so the money belongs to nobody and nobody can see it. Either the
+      number is mistyped in the file, or the person has not signed up yet.
+      <br>
+      A <b>team</b> name that matches nobody is reported on the leaderboard instead,
+      where a team with no people on it is the useful way to see it.
     </p>
     ${unmatched.map(u => `<div class="exception"><div class="who">
         <div class="nm">${esc(u.key)}</div>
@@ -3817,6 +3850,9 @@ async function savePerformance(kind) {
   }
 }
 
+// So a month with no data loaded cannot be selected and read as "nothing happened".
+$('perfMonth').min = monthsBack(PERF_HISTORY_MONTHS);
+$('perfMonth').max = todayString().slice(0, 7);
 $('perfMonth').addEventListener('change', renderPerformance);
 $('perfProvince').addEventListener('change', (e) => {
   perfFilters.province = e.target.value;
@@ -3831,15 +3867,23 @@ $('perfSearch').addEventListener('input', (e) => {
   renderPerformance();
 });
 
-$('exportPerformance').addEventListener('click', () => {
-  const month = $('perfMonth').value || todayString().slice(0, 7);
-  const rows = [['Employee', 'Employee number', 'Province', 'Team', 'Month', 'Stock', 'Connections',
-    'Stock to connection %', 'Activations', 'Connection to activation %',
-    'Stock to activation %', 'Commission R']];
-  // Blank rather than 0 throughout, for the same reason the table shows a dash — a
-  // spreadsheet would otherwise average "we don't know" in as a nought.
+/**
+ * The performance table as CSV rows, header first.
+ *
+ * Extracted from the click handler so the columns can be counted by a test: a header and
+ * a row that disagree by one shifts every figure after it into the wrong column, and a
+ * spreadsheet of shifted percentages looks perfectly reasonable.
+ *
+ * Blank rather than 0 throughout, for the same reason the table shows a dash — a
+ * spreadsheet would otherwise average "we don't know" in as a nought.
+ */
+function performanceExportRows(month) {
   const asPercent = (value) => value === null ? '' : value.toFixed(1);
-  visiblePerformanceRows().forEach(r => rows.push([
+  const header = ['Employee', 'Employee number', 'Province', 'Team', 'Month',
+    'Stock', 'Connections', 'Stock to connection %',
+    'Activations', 'Connection to activation %', 'Stock to activation %',
+    'Commission R'];
+  return [header, ...visiblePerformanceRows().map(r => [
     r.name, r.employeeNumber, r.province, r.team, month,
     r.stock === null ? '' : r.stock,
     r.connections === null ? '' : r.connections,
@@ -3848,8 +3892,12 @@ $('exportPerformance').addEventListener('click', () => {
     asPercent(ratioPercent(r.activations, r.connections)),
     asPercent(ratioPercent(r.activations, r.stock)),
     r.commissionRands === null ? '' : r.commissionRands.toFixed(2)
-  ]));
-  downloadCsv(`performance-${month}.csv`, rows);
+  ])];
+}
+
+$('exportPerformance').addEventListener('click', () => {
+  const month = $('perfMonth').value || todayString().slice(0, 7);
+  downloadCsv(`performance-${month}.csv`, performanceExportRows(month));
 });
 
 /* ---------------- leaderboard ---------------- */
@@ -3980,6 +4028,8 @@ $('lbMetric').addEventListener('change', (e) => {
   lbFilters.metric = e.target.value;
   renderLeaderboard();
 });
+$('lbMonth').min = monthsBack(PERF_HISTORY_MONTHS);
+$('lbMonth').max = todayString().slice(0, 7);
 $('lbMonth').addEventListener('change', renderLeaderboard);
 $('lbProvince').addEventListener('change', (e) => {
   lbFilters.province = e.target.value;

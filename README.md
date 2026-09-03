@@ -78,6 +78,20 @@ are due with the name of whoever is driving them.
   assumption that anyone filled to full. Blank rather than zero when nobody logged a
   fill: that means unknown, not free. The fleet figure divides the two totals rather
   than averaging everyone's rate, which would flatter whoever drove least
+- **Performance** — stock, connections, activations and commission per month, with the
+  three conversion percentages between them: stock to connection, connection to
+  activation, and stock to activation end to end. Four CSV uploads, one figure each,
+  with a template for every one. Stock, connections and activations are keyed on **team
+  name** because they are a team's figures; commission is keyed on **employee number**
+  because it is a person's own pay. Filter by province, team or name
+- **Leaderboard** — on the Logs tab, ranking **teams** on connections or activations for
+  a month. Positions only, no figures, on screen or in the export. Teams on equal figures
+  share a position and the next one skips, so a tie for first is followed by third; a team
+  with nothing uploaded is listed unranked rather than placed last, because a missing file
+  is not a bad month
+- **Reset a password** — the Employees tab sends Firebase's reset email, which is the only
+  way an employee's password can be changed from here. Passwords are never stored — Firebase
+  keeps a one-way hash — so there is nothing to look up and show
 - **Employees** — add staff (the app generates a username and password and emails
   it to them), edit details, see who was last active to spot dormant and
   duplicate accounts, upload an authoritative staff list and fill details from it

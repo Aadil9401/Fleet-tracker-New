@@ -21,7 +21,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
   'visiblePerformanceRows', 'perfFilters', 'performanceTotals', 'TEAM_LEVEL_FIELDS',
-  'leaderboardRows', 'teamKey'
+  'leaderboardRows', 'teamKey', 'performanceExportRows', 'monthsBack', 'PERF_HISTORY_MONTHS'
 ]);
 
 let failures = 0;
@@ -489,6 +489,50 @@ check('and matches a team name too',
 
 portal.perfFilters.query = '';
 check('clearing the filters restores everyone', portal.visiblePerformanceRows().length, allRows);
+
+/* The export's columns. A header and a row that disagree by one shifts every figure
+   after it, and a spreadsheet of shifted percentages looks perfectly reasonable. */
+const perfExport = portal.performanceExportRows('2026-09');
+check('the export has a header and a row per person', perfExport.length, 4);
+check('every row has as many fields as the header',
+  perfExport.slice(1).map(r => r.length), [12, 12, 12]);
+
+// Positions matter as much as the count, so the three percentages are checked where the
+// header says they are.
+const perfHeader = perfExport[0];
+const nomsaRow = perfExport.find(r => r[0] === 'Nomsa Dlamini');
+check('stock to connection lands under its own heading',
+  nomsaRow[perfHeader.indexOf('Stock to connection %')], '75.0');
+check('connection to activation too',
+  nomsaRow[perfHeader.indexOf('Connection to activation %')], '84.4');
+check('and stock to activation, named the way it is calculated',
+  nomsaRow[perfHeader.indexOf('Stock to activation %')], '63.3');
+check('the posting is exported as its own columns',
+  [nomsaRow[perfHeader.indexOf('Province')], nomsaRow[perfHeader.indexOf('Team')]],
+  ['Gauteng', 'Midrand']);
+// Blank, not 0 — a spreadsheet would average a nought in as though it were a figure.
+const emptyRow = perfExport.find(r => r[0] === 'Nothing Uploaded');
+check('a figure nobody uploaded exports blank rather than zero',
+  [emptyRow[perfHeader.indexOf('Stock')], emptyRow[perfHeader.indexOf('Stock to connection %')]],
+  ['', '']);
+
+/* The read window. Both collections used to be read whole on every page load, which
+   grows for ever; the pickers are bounded to what is actually loaded. */
+check('the window is two years', portal.PERF_HISTORY_MONTHS, 24);
+check('and names a month, not a date', /^\d{4}-(0[1-9]|1[0-2])$/.test(portal.monthsBack(24)), true);
+check('zero months back is this month', portal.monthsBack(0), new Date().toISOString().slice(0, 7));
+
+// Counted independently, as months since year zero, so the assertion does not just
+// restate the implementation. Ordering alone was not enough: a version that took the
+// count modulo 12 still produced an earlier month and sailed through.
+const monthIndex = (m) => {
+  const [year, month] = m.split('-').map(Number);
+  return year * 12 + (month - 1);
+};
+const thisMonth = monthIndex(portal.monthsBack(0));
+check('n months back really is n months back — including across a year boundary',
+  [1, 11, 12, 13, 24].map(n => thisMonth - monthIndex(portal.monthsBack(n))),
+  [1, 11, 12, 13, 24]);
 
 /* ---------------- a team's figure counted once ---------------- */
 // Every member of a team carries the same stock, connections and activations, because
