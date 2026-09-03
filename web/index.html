@@ -842,6 +842,48 @@
     <section id="tab-logs" class="hidden">
       <div class="card">
         <div class="toolbar">
+          <h2 class="section" style="margin:0">Leaderboard</h2>
+          <div>
+            <label for="lbMetric">Ranked on</label>
+            <select id="lbMetric">
+              <option value="connections">Connections</option>
+              <option value="activations">Activations</option>
+            </select>
+          </div>
+          <div>
+            <label for="lbMonth">Month</label>
+            <input id="lbMonth" type="month">
+          </div>
+          <div>
+            <label for="lbProvince">Province</label>
+            <select id="lbProvince"></select>
+          </div>
+          <div class="grow">
+            <label for="lbSearch">Search</label>
+            <input id="lbSearch" type="search" placeholder="Team or province">
+          </div>
+          <button id="exportLeaderboard" class="outline">Export CSV</button>
+        </div>
+        <div class="count" id="lbShowing"></div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Position</th><th>Team</th><th>Province</th><th>People</th>
+          </tr></thead>
+          <tbody id="lbRows"></tbody>
+        </table></div>
+        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          Positions only — no figures. Highest is 1. Teams on equal figures share a
+          position and the next position skips, so a tie for first is followed by third.
+          <br>
+          By team, because connections and activations arrive as a team's numbers. A team
+          whose figure has not been uploaded is listed at the bottom without a position
+          rather than at the back of the field: nothing uploaded is not the same as coming
+          last.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
           <div><label for="logFrom">From</label><input id="logFrom" type="date"></div>
           <div><label for="logTo">To</label><input id="logTo" type="date"></div>
           <button id="logRun">Load</button>
@@ -1390,6 +1432,10 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
       $('perfMonth').value = todayString().slice(0, 7);
       renderPerformance();
     }
+    if (btn.dataset.tab === 'logs' && !$('lbMonth').value) {
+      $('lbMonth').value = todayString().slice(0, 7);
+      renderLeaderboard();
+    }
     // Logs open on the last week — a single day is often empty of fuel entries.
     if (btn.dataset.tab === 'logs' && !$('logFrom').value) {
       setLogRange(shiftDate(todayString(), -6), todayString());
@@ -1403,6 +1449,7 @@ function renderAll() {
   renderEmployees();
   renderVehicles();
   renderPerformance();
+  renderLeaderboard();
   renderLogs();
 }
 
@@ -3502,6 +3549,24 @@ function unmatchedPerformance() {
 const TEAM_LEVEL_FIELDS = ['stock', 'connections', 'activations'];
 
 /**
+ * What one group carries for one figure: the sum of the DISTINCT values in it.
+ *
+ * Two rows with the same number are one team figure written twice; two with different
+ * numbers are two real figures and both count. Null when the group has nothing
+ * uploaded at all, which is not the same as zero.
+ *
+ * Shared by the totals and the leaderboard on purpose — ranking teams on one number
+ * while totalling them on another would have the board and the tiles disagreeing.
+ */
+function distinctSum(values) {
+  const real = [...new Set(values.filter(v => v !== null && v !== undefined).map(Number))];
+  return real.length === 0 ? null : real.reduce((a, b) => a + b, 0);
+}
+
+/** The province-and-team key a team figure is grouped on. */
+const teamKeyOf = (row) => row.team ? `team:${row.province}|${row.team}` : `person:${row.numberKey}`;
+
+/**
  * The totals for the Performance tab, counting a team's figure once.
  *
  * DISTINCT values per team, not the first or the largest: two members carrying the same
@@ -3528,13 +3593,10 @@ function performanceTotals(rows) {
   TEAM_LEVEL_FIELDS.forEach(field => {
     const perGroup = {};
     rows.forEach(r => {
-      const value = r[field];
-      if (value === null || value === undefined) return;
-      const key = r.team ? `team:${r.province}|${r.team}` : `person:${r.numberKey}`;
-      (perGroup[key] = perGroup[key] || new Set()).add(Number(value));
+      (perGroup[teamKeyOf(r)] = perGroup[teamKeyOf(r)] || []).push(r[field]);
     });
-    totals[field] = Object.values(perGroup).reduce(
-      (sum, values) => sum + [...values].reduce((a, b) => a + b, 0), 0);
+    totals[field] = Object.values(perGroup)
+      .reduce((sum, values) => sum + (distinctSum(values) || 0), 0);
   });
   return totals;
 }
@@ -3749,6 +3811,140 @@ $('exportPerformance').addEventListener('click', () => {
     r.commissionRands === null ? '' : r.commissionRands.toFixed(2)
   ]));
   downloadCsv(`performance-${month}.csv`, rows);
+});
+
+/* ---------------- leaderboard ---------------- */
+
+/** Its own filters, so ranking does not disturb the Performance tab. */
+const lbFilters = { metric: 'connections', province: '', query: '' };
+
+/**
+ * The month's TEAMS in order, highest figure first, carrying a position not a figure.
+ *
+ * By team because connections and activations arrive as a team's numbers, written onto
+ * every member. Ranking people on them would have listed a team's members tied at the
+ * same position and called it an individual ranking, which is a ranking of teams wearing
+ * the wrong label.
+ *
+ * Competition ranking: teams on equal figures share a position and the next position
+ * skips, so a tie for first is followed by third. Dense ranking would say second, which
+ * reads as though somebody came second when nobody did.
+ *
+ * A team with nothing uploaded comes back with a null position, NOT last place. Ranking
+ * it last would be a judgement the data does not support — a missing file is not a bad
+ * month — and it is the thing a leaderboard must not get wrong, because the figures are
+ * hidden and nobody can check it.
+ *
+ * Somebody with no team recorded cannot be placed among teams and is left out; the count
+ * of them is returned so the page can say so rather than quietly shrinking the board.
+ */
+function leaderboardRows(month, metric) {
+  const field = metric === 'activations' ? 'activations' : 'connections';
+  const groups = {};
+  let withoutTeam = 0;
+
+  performanceRows(month).forEach(r => {
+    if (!r.team) { withoutTeam += 1; return; }
+    const key = `${r.province}|${r.team}`;
+    if (!groups[key]) groups[key] = { province: r.province, team: r.team, people: 0, values: [] };
+    groups[key].people += 1;
+    groups[key].values.push(r[field]);
+  });
+
+  const teams = Object.values(groups).map(g => ({
+    province: g.province, team: g.team, people: g.people, figure: distinctSum(g.values)
+  }));
+
+  const byTeam = (a, b) => String(a.team).localeCompare(String(b.team));
+  const placed = teams.filter(t => t.figure !== null).sort((a, b) => (b.figure - a.figure) || byTeam(a, b));
+  const missing = teams.filter(t => t.figure === null).sort(byTeam);
+
+  let position = 0;
+  let previous = null;
+  const ranked = placed.map((t, index) => {
+    if (previous === null || t.figure !== previous) {
+      position = index + 1;
+      previous = t.figure;
+    }
+    // The figure is dropped here on purpose: nothing downstream can show what the board
+    // is meant to hide, including the CSV export.
+    return { province: t.province, team: t.team, people: t.people, position };
+  });
+
+  return {
+    rows: [...ranked, ...missing.map(t =>
+      ({ province: t.province, team: t.team, people: t.people, position: null }))],
+    withoutTeam
+  };
+}
+
+/** Rows on screen, after the province dropdown and the search box. */
+function visibleLeaderboardRows() {
+  const q = lbFilters.query.trim().toLowerCase();
+  const month = $('lbMonth').value || todayString().slice(0, 7);
+  return leaderboardRows(month, lbFilters.metric).rows.filter(r => {
+    if (lbFilters.province && r.province !== lbFilters.province) return false;
+    if (!q) return true;
+    return [r.team, r.province].some(v => String(v ?? '').toLowerCase().includes(q));
+  });
+}
+
+function renderLeaderboard() {
+  const month = $('lbMonth').value || todayString().slice(0, 7);
+  const board = leaderboardRows(month, lbFilters.metric);
+
+  const provinces = [...new Set(board.rows.map(r => r.province).filter(Boolean))].sort();
+  $('lbProvince').innerHTML = [`<option value="">All provinces</option>`,
+    ...provinces.map(v =>
+      `<option value="${esc(v)}" ${v === lbFilters.province ? 'selected' : ''}>${esc(v)}</option>`)].join('');
+
+  const rows = visibleLeaderboardRows();
+  const placed = rows.filter(r => r.position !== null).length;
+  $('lbShowing').textContent = [
+    `${placed} team${placed === 1 ? '' : 's'} ranked`,
+    rows.length > placed ? `${rows.length - placed} not uploaded` : null,
+    // Said out loud rather than silently dropped: a board that quietly leaves people out
+    // is a board nobody can reconcile against the staff list.
+    board.withoutTeam ? `${board.withoutTeam} employee${board.withoutTeam === 1 ? '' : 's'} with no team` : null
+  ].filter(Boolean).join(' · ');
+
+  $('lbRows').innerHTML = rows.length === 0
+    ? `<tr><td colspan="4" class="empty">${data.employees.length === 0
+        ? 'No employees yet.'
+        : 'No teams to rank for that month yet.'}</td></tr>`
+    : rows.map(r => `<tr>
+        <td>${r.position === null
+          ? '<span class="meta">not uploaded</span>'
+          : `<b>${r.position}</b>`}</td>
+        <td><div class="nm">${esc(r.team)}</div></td>
+        <td>${r.province ? `<span class="chip">${esc(r.province)}</span>` : '—'}</td>
+        <td>${num(r.people)}</td>
+      </tr>`).join('');
+}
+
+$('lbMetric').addEventListener('change', (e) => {
+  lbFilters.metric = e.target.value;
+  renderLeaderboard();
+});
+$('lbMonth').addEventListener('change', renderLeaderboard);
+$('lbProvince').addEventListener('change', (e) => {
+  lbFilters.province = e.target.value;
+  renderLeaderboard();
+});
+$('lbSearch').addEventListener('input', (e) => {
+  lbFilters.query = e.target.value;
+  renderLeaderboard();
+});
+
+$('exportLeaderboard').addEventListener('click', () => {
+  const month = $('lbMonth').value || todayString().slice(0, 7);
+  // No figures here either: the export must not leak what the board deliberately hides.
+  const rows = [['Position', 'Team', 'Province', 'People', 'Month', 'Ranked on']];
+  visibleLeaderboardRows().forEach(r => rows.push([
+    r.position === null ? '' : r.position,
+    r.team, r.province, r.people, month, lbFilters.metric
+  ]));
+  downloadCsv(`leaderboard-${lbFilters.metric}-${month}.csv`, rows);
 });
 
 /* ---------------- logs ---------------- */

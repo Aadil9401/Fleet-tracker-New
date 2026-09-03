@@ -20,7 +20,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
-  'visiblePerformanceRows', 'perfFilters', 'performanceTotals', 'TEAM_LEVEL_FIELDS'
+  'visiblePerformanceRows', 'perfFilters', 'performanceTotals', 'TEAM_LEVEL_FIELDS',
+  'leaderboardRows', 'distinctSum'
 ]);
 
 let failures = 0;
@@ -221,9 +222,15 @@ check('the fleet cost per km divides the totals rather than averaging the rows',
 // at all because this table lost a column: receipt photos were uploaded and linked here
 // until there turned out to be nowhere to keep the images. Dropping a <th> and leaving
 // the <td> or the colspan behind renders perfectly happily and misaligns every row.
-const logsTab = tabMarkup('logs');
-const fuelHead = logsTab.slice(logsTab.indexOf('<thead>'), logsTab.indexOf('</thead>'));
-const fuelHeaders = (fuelHead.match(/<th[\s>]/g) ?? []).length;
+// Found by its own tbody, then walked back to the nearest <thead> before it — rather
+// than by taking the first thead in the tab. Adding a card above this table has moved
+// that boundary twice now, and the check then read a different table's header entirely.
+const headerAbove = (bodyId) => {
+  const body = src.indexOf(`<tbody id="${bodyId}"`);
+  const head = src.lastIndexOf('<thead>', body);
+  return src.slice(head, src.indexOf('</thead>', head));
+};
+const fuelHeaders = (headerAbove('fuelRows').match(/<th[\s>]/g) ?? []).length;
 
 const fuelRowsAt = src.indexOf("$('fuelRows').innerHTML");
 const fuelRowStart = src.indexOf('<tr>', src.indexOf('return', fuelRowsAt));
@@ -532,6 +539,72 @@ const partly = [
 ];
 check('a missing figure is skipped rather than counted as 0',
   portal.performanceTotals(partly).stock, 600);
+
+/* ---------------- the leaderboard ---------------- */
+// By team, ranked highest first, positions only. The figures are hidden, so nobody can
+// check the board against them — which makes every rule below one that has to be right.
+portal.data.employees = [
+  { id: 'l1', name: 'A', surname: 'One', employeeNumber: 'T001', province: 'Gauteng', teamName: 'Soweto' },
+  { id: 'l2', name: 'B', surname: 'Two', employeeNumber: 'T002', province: 'Gauteng', teamName: 'Soweto' },
+  { id: 'l3', name: 'C', surname: 'Three', employeeNumber: 'T003', province: 'Gauteng', teamName: 'Tembisa' },
+  { id: 'l4', name: 'D', surname: 'Four', employeeNumber: 'T004', province: 'Limpopo', teamName: 'Polokwane' },
+  { id: 'l5', name: 'E', surname: 'Five', employeeNumber: 'T005', province: 'Limpopo', teamName: 'Tzaneen' },
+  { id: 'l7', name: 'G', surname: 'Seven', employeeNumber: 'T007', province: 'Mpumalanga', teamName: 'Nelspruit' },
+  // No team recorded: cannot be placed among teams.
+  { id: 'l6', name: 'F', surname: 'Six', employeeNumber: 'T006', province: 'Limpopo' }
+];
+portal.data.perfMonthly = [
+  // Soweto: the same team figure on both members, so the team's figure is 500, not 1000.
+  { numberKey: 'T001', month: '2026-09', connections: 500, activations: 100 },
+  { numberKey: 'T002', month: '2026-09', connections: 500, activations: 100 },
+  { numberKey: 'T003', month: '2026-09', connections: 700, activations: 100 },
+  { numberKey: 'T004', month: '2026-09', connections: 500, activations: 400 },
+  { numberKey: 'T007', month: '2026-09', connections: 300, activations: 50 },
+  // Tzaneen: nothing uploaded at all.
+  { numberKey: 'T006', month: '2026-09', connections: 900 }
+];
+
+const board = portal.leaderboardRows('2026-09', 'connections');
+
+check('a two-person team is one row, not two',
+  board.rows.filter(r => r.team === 'Soweto').length, 1);
+check('and its people are counted',
+  board.rows.find(r => r.team === 'Soweto').people, 2);
+
+// Tembisa 700, Polokwane and Soweto tied on 500, Nelspruit 300, Tzaneen unranked.
+check('teams run highest first',
+  board.rows.map(r => r.team), ['Tembisa', 'Polokwane', 'Soweto', 'Nelspruit', 'Tzaneen']);
+// Competition ranking: the tie for second is followed by FOURTH, not third. Dense
+// ranking would say third, which reads as though somebody came third when nobody did.
+// Nelspruit sits below the tie precisely so the two schemes give different answers here.
+check('equal figures share a position and the next one skips',
+  board.rows.map(r => r.position), [1, 2, 2, 4, null]);
+
+// The one thing a leaderboard must not get wrong: a missing upload is not last place.
+check('a team with nothing uploaded has no position, rather than being placed last',
+  board.rows.find(r => r.team === 'Tzaneen').position, null);
+check('and it is listed after the ranked teams',
+  board.rows[board.rows.length - 1].team, 'Tzaneen');
+
+// Somebody with no team cannot be placed, and the count is reported rather than the
+// person quietly vanishing off a board nobody could then reconcile.
+check('employees with no team are counted, not silently dropped', board.withoutTeam, 1);
+
+// No figure may reach the caller — not on screen, and not in the export either.
+check('no figure is carried on a board row',
+  board.rows.every(r => !('figure' in r) && !('connections' in r) && !('activations' in r)), true);
+
+// Ranking on the other metric reorders it: Polokwane's 400 activations beat the rest.
+const byActivations = portal.leaderboardRows('2026-09', 'activations');
+check('ranking on activations gives a different order',
+  byActivations.rows.map(r => r.team), ['Polokwane', 'Soweto', 'Tembisa', 'Nelspruit', 'Tzaneen']);
+check('with its own tie for second, and a fourth below it',
+  byActivations.rows.map(r => r.position), [1, 2, 2, 4, null]);
+
+// The board and the Performance tiles must agree on what a team carries.
+check('the board ranks on the same number the totals count',
+  portal.performanceTotals(portal.performanceRows('2026-09')).connections,
+  500 + 700 + 500 + 300 + 900);   // Soweto once, Tembisa, Polokwane, Nelspruit, T006 alone
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);
