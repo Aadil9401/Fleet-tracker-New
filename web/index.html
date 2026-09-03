@@ -812,6 +812,12 @@
           <tbody id="perfRows"></tbody>
         </table></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          <b>The tiles count a team's figure once.</b> Stock, connections and activations
+          arrive as a team's numbers and are written onto every member, so adding the rows
+          up would count a team with two people twice. Two members carrying the same
+          number are one figure entered twice; two carrying different numbers are two real
+          figures and both count. Commission is each person's own and is always summed.
+          <br><br>
           A percentage is shown only where both of its figures have been uploaded. It is
           not capped at 100% — more connections than stock means the stock figure is
           understated or carried over, which is worth seeing rather than rounding away.
@@ -3485,6 +3491,54 @@ function unmatchedPerformance() {
   return Object.entries(seen).map(([key, count]) => ({ key, count }));
 }
 
+/**
+ * Figures that arrive as a TEAM's number, written onto every member of that team.
+ *
+ * Two people in one team therefore carry the same stock, connections and activations,
+ * and summing the rows would count that team's work twice. Commission is not here: it
+ * is each person's own pay, and two people in a team who both earned R5 000 earned
+ * R10 000 between them.
+ */
+const TEAM_LEVEL_FIELDS = ['stock', 'connections', 'activations'];
+
+/**
+ * The totals for the Performance tab, counting a team's figure once.
+ *
+ * DISTINCT values per team, not the first or the largest: two members carrying the same
+ * number are one team figure entered twice, while two carrying different numbers are
+ * two real figures and both count. That keeps a genuine difference visible instead of
+ * quietly discarding one of them.
+ *
+ * Grouped on province AND team, because a team name is only unique within its province
+ * and merging two provinces' teams would swap one under-count for another.
+ *
+ * A row with no team name is its own group. Without a team there is nothing to say two
+ * rows are the same team's figure, and collapsing everybody with a blank team into one
+ * would delete most of the total.
+ *
+ * The per-person rows above are untouched — each still shows the team figure it carries.
+ * This is only about what the tiles add up to, which is what an admin reads as "the
+ * team did this much".
+ */
+function performanceTotals(rows) {
+  // Each person's own pay, so simply summed.
+  const commission = rows.reduce((sum, r) => sum + (r.commissionRands || 0), 0);
+
+  const totals = { stock: 0, connections: 0, activations: 0, commission };
+  TEAM_LEVEL_FIELDS.forEach(field => {
+    const perGroup = {};
+    rows.forEach(r => {
+      const value = r[field];
+      if (value === null || value === undefined) return;
+      const key = r.team ? `team:${r.province}|${r.team}` : `person:${r.numberKey}`;
+      (perGroup[key] = perGroup[key] || new Set()).add(Number(value));
+    });
+    totals[field] = Object.values(perGroup).reduce(
+      (sum, values) => sum + [...values].reduce((a, b) => a + b, 0), 0);
+  });
+  return totals;
+}
+
 function renderPerformance() {
   const month = $('perfMonth').value || todayString().slice(0, 7);
   const all = performanceRows(month);
@@ -3506,12 +3560,7 @@ function renderPerformance() {
 
   const rows = visiblePerformanceRows();
 
-  const totals = rows.reduce((t, r) => ({
-    stock: t.stock + (r.stock || 0),
-    connections: t.connections + (r.connections || 0),
-    activations: t.activations + (r.activations || 0),
-    commission: t.commission + (r.commissionRands || 0)
-  }), { stock: 0, connections: 0, activations: 0, commission: 0 });
+  const totals = performanceTotals(rows);
 
   // Every ratio here divides the two totals. The mean of everybody's conversion rate
   // is not the team's conversion rate, and it flatters whoever was given least stock.

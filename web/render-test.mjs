@@ -20,7 +20,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
-  'visiblePerformanceRows', 'perfFilters'
+  'visiblePerformanceRows', 'perfFilters', 'performanceTotals', 'TEAM_LEVEL_FIELDS'
 ]);
 
 let failures = 0;
@@ -470,6 +470,68 @@ check('and matches a team name too',
 
 portal.perfFilters.query = '';
 check('clearing the filters restores everyone', portal.visiblePerformanceRows().length, allRows);
+
+/* ---------------- a team's figure counted once ---------------- */
+// Stock, connections and activations arrive as a TEAM's numbers written onto every
+// member, so summing the rows counts a two-person team twice. Commission is each
+// person's own pay and is always summed. Getting this backwards misreports money.
+check('commission is not treated as a team figure',
+  portal.TEAM_LEVEL_FIELDS.includes('commissionRands'), false);
+
+const team = (name, province, over) =>
+  ({ numberKey: name, name, province, team: over.team, stock: null, connections: null,
+     activations: null, commissionRands: null, ...over });
+
+// Two people, one team, the same team figure entered on both rows.
+const shared = [
+  team('A', 'Gauteng', { team: 'Soweto', stock: 600, connections: 450, activations: 380, commissionRands: 5000 }),
+  team('B', 'Gauteng', { team: 'Soweto', stock: 600, connections: 450, activations: 380, commissionRands: 5000 })
+];
+const sharedTotals = portal.performanceTotals(shared);
+check('the team figure counts once, not twice',
+  [sharedTotals.stock, sharedTotals.connections, sharedTotals.activations], [600, 450, 380]);
+check('but both commissions count, because that is their own pay',
+  sharedTotals.commission, 10000);
+
+// Different numbers in one team are two real figures, so both count.
+const differing = [
+  team('A', 'Gauteng', { team: 'Soweto', stock: 600 }),
+  team('B', 'Gauteng', { team: 'Soweto', stock: 500 })
+];
+check('two different figures in one team are both counted',
+  portal.performanceTotals(differing).stock, 1100);
+
+// A team name is only unique inside its province, so two provinces' teams must not merge.
+const sameNameTwoProvinces = [
+  team('A', 'Gauteng', { team: 'Central', stock: 600 }),
+  team('B', 'Western Cape', { team: 'Central', stock: 600 })
+];
+check('teams of the same name in different provinces stay separate',
+  portal.performanceTotals(sameNameTwoProvinces).stock, 1200);
+
+// Without a team there is nothing to say two rows are the same team's figure, so
+// collapsing everybody with a blank team into one would delete most of the total.
+const noTeam = [
+  team('A', 'Gauteng', { team: '', stock: 600 }),
+  team('B', 'Gauteng', { team: '', stock: 600 })
+];
+check('rows with no team are each counted on their own',
+  portal.performanceTotals(noTeam).stock, 1200);
+
+// A third member adds nothing, which is the whole point.
+const three = [...shared, team('C', 'Gauteng',
+  { team: 'Soweto', stock: 600, connections: 450, activations: 380, commissionRands: 4000 })];
+check('a third member of the same team adds no team figures',
+  portal.performanceTotals(three).stock, 600);
+check('but does add their commission', portal.performanceTotals(three).commission, 14000);
+
+// A figure nobody uploaded must not become a zero that counts as a distinct value.
+const partly = [
+  team('A', 'Gauteng', { team: 'Soweto', stock: 600 }),
+  team('B', 'Gauteng', { team: 'Soweto' })          // nothing uploaded for B
+];
+check('a missing figure is skipped rather than counted as 0',
+  portal.performanceTotals(partly).stock, 600);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);
