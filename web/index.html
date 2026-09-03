@@ -426,6 +426,7 @@
     <button data-tab="reports">Reports</button>
     <button data-tab="employees">Employees</button>
     <button data-tab="vehicles">Vehicles</button>
+    <button data-tab="performance">Performance</button>
     <button data-tab="logs">Logs</button>
   </nav>
 
@@ -776,6 +777,50 @@
       </div>
     </section>
 
+    <!-- PERFORMANCE -->
+    <section id="tab-performance" class="hidden">
+      <div class="card">
+        <div class="toolbar">
+          <div>
+            <label for="perfMonth">Month</label>
+            <input id="perfMonth" type="month">
+          </div>
+          <div class="grow">
+            <label for="perfSearch">Search</label>
+            <input id="perfSearch" type="search" placeholder="Name or employee number">
+          </div>
+          <button id="exportPerformance" class="outline">Export CSV</button>
+        </div>
+        <div id="perfTiles" class="tiles"></div>
+        <div class="count" id="perfShowing"></div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Employee</th><th>Employee no</th><th>Connections</th>
+            <th>Activations</th><th>Commission</th>
+          </tr></thead>
+          <tbody id="perfRows"></tbody>
+        </table></div>
+        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          Connections are uploaded weekly and counted into the month their week
+          <b>starts</b> in — a week that straddles two months belongs to the first, since
+          a count cannot be split between them.
+        </p>
+      </div>
+
+      <div class="card" id="perfUnmatchedCard"></div>
+
+      <div class="card">
+        <h2 class="section">Upload figures</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          Three separate files, because connections arrive weekly and activations and
+          commission monthly. Every file is matched to people on <b>employee number</b>.
+          Uploading the same period again corrects it rather than adding to it.
+        </p>
+        <div id="perfUploads"></div>
+        <div class="count" id="perfUploadStatus"></div>
+      </div>
+    </section>
+
     <!-- LOGS -->
     <section id="tab-logs" class="hidden">
       <div class="card">
@@ -854,7 +899,8 @@ const db = getFirestore(app);
 
 // Everything loaded for the signed-in admin.
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
-  recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [] };
+  recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [],
+  perfWeekly: [], perfMonthly: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -1255,7 +1301,7 @@ async function loadAll() {
   $('appView').classList.add('busy');
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
-      activityWindow, fuelHistory, roster] = await Promise.all([
+      activityWindow, fuelHistory, roster, perfWeekly, perfMonthly] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -1273,7 +1319,9 @@ async function loadAll() {
         // size is a few days and gives most vehicles one fill or none.
         getDocs(query(collection(db, 'fuelLogs'),
           where('date', '>=', shiftDate(todayString(), -FUEL_HISTORY_DAYS)))),
-        getDocs(collection(db, 'roster'))
+        getDocs(collection(db, 'roster')),
+        getDocs(collection(db, 'perfWeekly')),
+        getDocs(collection(db, 'perfMonthly'))
       ]);
     const rows = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
     data = {
@@ -1285,6 +1333,8 @@ async function loadAll() {
       recentTimeLogs: rows(recentTimeLogs),
       fuelLogs: rows(fuelLogs),
       roster: rows(roster),
+      perfWeekly: rows(perfWeekly),
+      perfMonthly: rows(perfMonthly),
       // uid → the most recent date that person has any entry for.
       // Every fill in the window, grouped by vehicle, for the tank-to-tank figure.
       fuelByVehicle: rows(fuelHistory).reduce((acc, f) => {
@@ -1310,7 +1360,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['today','reports','employees','vehicles','logs'].forEach(t =>
+    ['today','reports','employees','vehicles','performance','logs'].forEach(t =>
       $('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
     $('globalMsg').innerHTML = '';
 
@@ -1319,6 +1369,10 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
       $('repFrom').value = todayString();
       $('repTo').value = todayString();
       runReport();
+    }
+    if (btn.dataset.tab === 'performance' && !$('perfMonth').value) {
+      $('perfMonth').value = todayString().slice(0, 7);
+      renderPerformance();
     }
     // Logs open on the last week — a single day is often empty of fuel entries.
     if (btn.dataset.tab === 'logs' && !$('logFrom').value) {
@@ -1332,6 +1386,7 @@ function renderAll() {
   renderToday();
   renderEmployees();
   renderVehicles();
+  renderPerformance();
   renderLogs();
 }
 
@@ -2794,6 +2849,168 @@ const digits = (s) => {
  * worth naming back to the admin, because the vehicle quietly lands on the fleet
  * standard rather than the figure they typed.
  */
+/* ---------------- performance uploads ---------------- */
+
+/**
+ * The three performance uploads, described once.
+ *
+ * Connections come in weekly and activations and commission monthly, so they are three
+ * separate files with one figure each rather than one wide file with half its columns
+ * blank. Describing them in a table rather than writing three parsers means the columns
+ * an admin is given and the columns the parser reads cannot drift apart — the templates
+ * are generated from this, and a test holds the committed files to it.
+ *
+ * Activations and commission share a document per person per month, written with a
+ * merge, so uploading one never wipes the other.
+ */
+const PERF_UPLOADS = {
+  connections: {
+    label: 'Connections', periodLabel: 'Week starting', period: 'week',
+    field: 'connections', kind: 'count', collection: 'perfWeekly',
+    sample: [['EMP001', '2026-09-07', '45'], ['EMP002', '2026-09-07', '38'],
+             ['EMP001', '2026-09-14', '52']]
+  },
+  activations: {
+    label: 'Activations', periodLabel: 'Month', period: 'month',
+    field: 'activations', kind: 'count', collection: 'perfMonthly',
+    sample: [['EMP001', '2026-09', '38'], ['EMP002', '2026-09', '31']]
+  },
+  commission: {
+    label: 'Commission', periodLabel: 'Month', period: 'month',
+    field: 'commissionRands', kind: 'money', collection: 'perfMonthly',
+    sample: [['EMP001', '2026-09', '12500.00'], ['EMP002', '2026-09', '9800.50']]
+  }
+};
+
+/** The template for one upload, header first — what the Download template button gives. */
+const perfTemplateRows = (kind) => {
+  const spec = PERF_UPLOADS[kind];
+  return [['Employee number', spec.periodLabel, spec.label], ...spec.sample];
+};
+
+/**
+ * The delimiter, worked out per file.
+ *
+ * Excel in a South African locale exports with semicolons and writes decimals with a
+ * comma, and "12500,50" in a comma-separated file is two fields. Reading a semicolon
+ * file as semicolon-separated makes its commas safely decimal; in a comma-separated
+ * file a decimal comma is a real mistake and is reported as one rather than guessed at.
+ */
+const perfDelimiter = (text) => {
+  const firstLine = text.split(/\r?\n/).find(l => l.trim()) || '';
+  if (firstLine.includes('\t')) return '\t';
+  return firstLine.split(';').length > firstLine.split(',').length ? ';' : ',';
+};
+
+/**
+ * A whole number from a cell, or null. Grouping spaces are tolerated because a
+ * spreadsheet writes 1 250 that way; anything else is a mistake, not a number to
+ * salvage.
+ */
+const perfCount = (cell) => {
+  const cleaned = String(cell ?? '').replace(/\s/g, '');
+  return /^\d+$/.test(cleaned) ? Number(cleaned) : null;
+};
+
+/** Money from a cell. Accepts 12500, 12500.50 and 12500,50 — and an R, and spaces. */
+const perfMoney = (cell) => {
+  let cleaned = String(cell ?? '').replace(/[R\s]/gi, '');
+  if (cleaned === '') return null;
+  // One separator with one or two digits after it is a decimal point, however written.
+  if (/^\d+[.,]\d{1,2}$/.test(cleaned)) cleaned = cleaned.replace(',', '.');
+  else cleaned = cleaned.replace(/,/g, '');
+  return /^\d+(\.\d+)?$/.test(cleaned) ? Number(cleaned) : null;
+};
+
+/** yyyy-mm-dd, and a real day rather than the 31st of February. */
+const isRealDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const asDate = new Date(y, m - 1, d);
+  return asDate.getFullYear() === y && asDate.getMonth() === m - 1 && asDate.getDate() === d;
+};
+
+const isMonth = (value) => /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
+/**
+ * One performance file, against one of the three specs above.
+ *
+ * Every rejected line is returned with its own reason and its own text. A file of forty
+ * rows with three mistakes in it should load the thirty-seven and say exactly which
+ * three did not, rather than failing as a whole and leaving the admin to hunt.
+ */
+function parsePerformanceLines(text, kind) {
+  const spec = PERF_UPLOADS[kind];
+  if (!spec) return { rows: [], errors: [{ line: '', why: 'unknown upload type ' + kind }] };
+
+  const delimiter = perfDelimiter(text);
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const rows = [], errors = [];
+
+  lines.forEach(line => {
+    const parts = line.split(delimiter).map(x => x.trim());
+    // Trailing empties are how a spreadsheet writes a row, and mean nothing.
+    while (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
+    const employeeNumber = parts[0] || '';
+    const period = parts[1] || '';
+
+    // The header, however they capitalised it.
+    const first = employeeNumber.toLowerCase();
+    if (first.startsWith('employee') || first.startsWith('emp no') || first === 'no.') return;
+
+    if (!numberKey(employeeNumber)) return errors.push({ line, why: 'no employee number' });
+
+    // An extra column means the row is not the shape this file is supposed to be, and
+    // the commonest cause is a comma decimal splitting the figure in two. That used to
+    // read the whole rands and drop the cents in silence — R12 500,50 recorded as
+    // R12 500 with nothing to say so, which is worse than refusing the line.
+    if (parts.length > 3) {
+      return errors.push({
+        line,
+        why: spec.kind === 'money'
+          ? spec.label + ' looks split across two columns — a comma decimal in a comma-separated file'
+          : 'more columns than this file should have'
+      });
+    }
+
+    if (spec.period === 'week' && !isRealDate(period)) {
+      return errors.push({ line, why: spec.periodLabel + ' must be a real date as yyyy-mm-dd' });
+    }
+    if (spec.period === 'month' && !isMonth(period)) {
+      return errors.push({ line, why: spec.periodLabel + ' must be yyyy-mm' });
+    }
+
+    const value = spec.kind === 'money' ? perfMoney(parts[2]) : perfCount(parts[2]);
+    if (value === null) {
+      return errors.push({
+        line,
+        why: spec.kind === 'money'
+          ? spec.label + ' must be an amount'
+          : spec.label + ' must be a whole number'
+      });
+    }
+
+    rows.push({
+      employeeNumber,
+      numberKey: numberKey(employeeNumber),
+      period,
+      field: spec.field,
+      value
+    });
+  });
+
+  return { rows, errors };
+}
+
+/**
+ * The month a week's connections count towards: the one its START date falls in.
+ *
+ * A week can straddle two months and a count cannot be split between them, so one of
+ * them has to own it. The start date is the choice an admin can predict without
+ * thinking about it, and the week-start dates are theirs to set in the file.
+ */
+const monthOfWeek = (weekStart) => String(weekStart || '').slice(0, 7);
+
 function parseVehicleLines(text) {
   const ignoredIntervals = [];
   const vehicles = text.split(/\r?\n/)
@@ -3117,6 +3334,260 @@ $('exportSummary').addEventListener('click', () => {
     r.cpk === null ? '' : r.cpk.toFixed(2)
   ]));
   downloadCsv(`summary-${reportRange.from}-to-${reportRange.to}.csv`, rows);
+});
+
+/* ---------------- performance ---------------- */
+
+let perfFilter = '';
+
+/**
+ * One row per person for the chosen month: their connections (summed from the weeks
+ * that START in it), activations and commission.
+ *
+ * Built from the employee list rather than from the figures, so somebody with nothing
+ * uploaded still appears with dashes. A person missing from the month's figures is the
+ * thing worth seeing — leaving them out would make an incomplete upload look complete.
+ */
+function performanceRows(month) {
+  const byKey = {};
+  const bucket = (numberKey, employeeNumber, name) => {
+    if (!byKey[numberKey]) {
+      byKey[numberKey] = {
+        numberKey, employeeNumber, name,
+        connections: null, activations: null, commissionRands: null, weeks: 0
+      };
+    }
+    return byKey[numberKey];
+  };
+
+  data.employees.forEach(e => {
+    const key = numberKey(e.employeeNumber);
+    if (key) bucket(key, e.employeeNumber || '', fullName(e));
+  });
+
+  data.perfWeekly
+    .filter(r => monthOfWeek(r.weekStart) === month)
+    .forEach(r => {
+      const b = bucket(r.numberKey, r.employeeNumber || '', r.employeeName || 'Not on the staff list');
+      b.connections = (b.connections || 0) + Number(r.connections || 0);
+      b.weeks += 1;
+    });
+
+  data.perfMonthly
+    .filter(r => r.month === month)
+    .forEach(r => {
+      const b = bucket(r.numberKey, r.employeeNumber || '', r.employeeName || 'Not on the staff list');
+      if (r.activations !== undefined && r.activations !== null) b.activations = Number(r.activations);
+      if (r.commissionRands !== undefined && r.commissionRands !== null) {
+        b.commissionRands = Number(r.commissionRands);
+      }
+    });
+
+  return Object.values(byKey).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+/** Rows on screen, after the search box. */
+function visiblePerformanceRows() {
+  const q = perfFilter.trim().toLowerCase();
+  const rows = performanceRows($('perfMonth').value || todayString().slice(0, 7));
+  if (!q) return rows;
+  return rows.filter(r =>
+    String(r.name).toLowerCase().includes(q) ||
+    numberKey(r.employeeNumber).includes(numberKey(q)));
+}
+
+/** Figures uploaded against an employee number that matches nobody on the staff list. */
+function unmatchedPerformance() {
+  const known = new Set(data.employees.map(e => numberKey(e.employeeNumber)).filter(Boolean));
+  const seen = {};
+  [...data.perfWeekly, ...data.perfMonthly].forEach(r => {
+    if (r.numberKey && !known.has(r.numberKey)) {
+      seen[r.numberKey] = (seen[r.numberKey] || 0) + 1;
+    }
+  });
+  return Object.entries(seen).map(([key, count]) => ({ key, count }));
+}
+
+function renderPerformance() {
+  const month = $('perfMonth').value || todayString().slice(0, 7);
+  const rows = visiblePerformanceRows();
+  const all = performanceRows(month);
+
+  const totals = rows.reduce((t, r) => ({
+    connections: t.connections + (r.connections || 0),
+    activations: t.activations + (r.activations || 0),
+    commission: t.commission + (r.commissionRands || 0)
+  }), { connections: 0, activations: 0, commission: 0 });
+
+  $('perfTiles').innerHTML = [
+    ['Connections', num(totals.connections), ''],
+    ['Activations', num(totals.activations), ''],
+    ['Commission', rand(totals.commission), ''],
+    // Nothing uploaded for somebody is the figure worth acting on, so it gets a tile
+    // of its own rather than being left to be counted off the table.
+    ['Nobody uploaded', rows.filter(r =>
+      r.connections === null && r.activations === null && r.commissionRands === null).length,
+      rows.some(r => r.connections === null && r.activations === null && r.commissionRands === null)
+        ? 'warn' : 'calm']
+  ].map(([cap, big, tone]) =>
+    `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+  ).join('');
+
+  $('perfShowing').textContent = rows.length === all.length
+    ? `${all.length} employee(s)`
+    : `Showing ${rows.length} of ${all.length}`;
+
+  // A dash, not a zero: nothing uploaded is not the same as a week with no connections,
+  // and showing 0 would make a missing upload look like a bad month.
+  const figure = (value, format) => value === null ? '<span class="meta">—</span>' : format(value);
+
+  $('perfRows').innerHTML = rows.length === 0
+    ? `<tr><td colspan="5" class="empty">${data.employees.length === 0
+        ? 'No employees yet.'
+        : 'Nobody matches that search.'}</td></tr>`
+    : rows.map(r => `<tr>
+        <td><div class="nm">${esc(r.name)}</div>${
+          r.weeks > 0 ? `<div class="meta">${r.weeks} week${r.weeks === 1 ? '' : 's'} uploaded</div>` : ''}</td>
+        <td>${esc(r.employeeNumber || '—')}</td>
+        <td>${figure(r.connections, num)}</td>
+        <td>${figure(r.activations, num)}</td>
+        <td>${figure(r.commissionRands, rand)}</td>
+      </tr>`).join('');
+
+  const unmatched = unmatchedPerformance();
+  $('perfUnmatchedCard').innerHTML = unmatched.length === 0 ? '' : `
+    <h2 class="section">Figures with no matching employee (${unmatched.length})</h2>
+    <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+      These employee numbers appear in uploaded figures but not on any employee record,
+      so the figures belong to nobody and nobody can see them. Either the number is
+      mistyped in the file, or the person has not signed up yet.
+    </p>
+    ${unmatched.map(u => `<div class="exception"><div class="who">
+        <div class="nm">${esc(u.key)}</div>
+        <div class="meta">${u.count} row${u.count === 1 ? '' : 's'}</div>
+      </div></div>`).join('')}`;
+  $('perfUnmatchedCard').classList.toggle('hidden', unmatched.length === 0);
+
+  renderPerformanceUploads();
+}
+
+/** The three upload cards, built from the same table the parser reads. */
+function renderPerformanceUploads() {
+  if ($('perfUploads').dataset.built === 'yes') return;
+  $('perfUploads').innerHTML = Object.entries(PERF_UPLOADS).map(([kind, spec]) => `
+    <div class="field" style="border-top:1px solid var(--surface-variant);padding-top:var(--s3)">
+      <label>${esc(spec.label)} — one row per person per ${esc(spec.period)}</label>
+      <div class="meta" style="margin-bottom:var(--s2)">Columns: Employee number, ${
+        esc(spec.periodLabel)}, ${esc(spec.label)}</div>
+      <input id="perfFile-${kind}" type="file" accept=".csv,text/csv,text/plain">
+      <textarea id="perfText-${kind}" rows="3" style="margin-top:var(--s2)"
+        placeholder="${esc(spec.sample[0].join(', '))}"></textarea>
+      <div class="toolbar" style="margin-top:var(--s2)">
+        <button id="perfSave-${kind}">Save ${esc(spec.label.toLowerCase())}</button>
+        <button id="perfTemplate-${kind}" class="outline">Download template</button>
+      </div>
+    </div>`).join('');
+  $('perfUploads').dataset.built = 'yes';
+
+  Object.keys(PERF_UPLOADS).forEach(kind => {
+    $('perfTemplate-' + kind).addEventListener('click', () => {
+      downloadCsv(`performance-${kind}-template.csv`, perfTemplateRows(kind));
+    });
+    $('perfFile-' + kind).addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) $('perfText-' + kind).value = await file.text();
+    });
+    $('perfSave-' + kind).addEventListener('click', () => savePerformance(kind));
+  });
+}
+
+/**
+ * Writes one uploaded file.
+ *
+ * The employee number is matched to a person here, and their uid stored on the row —
+ * that is what lets them read their own figures, since a security rule cannot normalise
+ * an employee number to compare it. A row matching nobody is still written, with an
+ * empty uid, so the admin can see it arrived and fix the number rather than wondering
+ * where it went.
+ *
+ * Activations and commission share one document per person per month and are merged, so
+ * uploading one never wipes the other.
+ */
+async function savePerformance(kind) {
+  const spec = PERF_UPLOADS[kind];
+  const text = $('perfText-' + kind).value;
+  if (!text.trim()) { showMsg('Choose a file or paste the figures first.', 'err'); return; }
+
+  const { rows, errors } = parsePerformanceLines(text, kind);
+  if (rows.length === 0) {
+    $('perfUploadStatus').innerHTML = `<span style="color:var(--error)">Nothing to save. ${
+      errors.length} line(s) could not be read.</span>` +
+      errors.slice(0, 8).map(e => `<div class="meta">${esc(e.why)} — ${esc(e.line)}</div>`).join('');
+    return;
+  }
+
+  const byNumber = {};
+  data.employees.forEach(e => {
+    const key = numberKey(e.employeeNumber);
+    if (key) byNumber[key] = e;
+  });
+
+  try {
+    const batch = writeBatch(db);
+    let matched = 0;
+    rows.forEach(r => {
+      const person = byNumber[r.numberKey];
+      if (person) matched++;
+      const id = `${r.numberKey}_${r.period}`;
+      const base = {
+        employeeNumber: r.employeeNumber,
+        numberKey: r.numberKey,
+        uid: person ? person.id : '',
+        employeeName: person ? fullName(person) : '',
+        uploadedAtMillis: Date.now()
+      };
+      if (spec.period === 'week') {
+        batch.set(doc(db, 'perfWeekly', id),
+          { ...base, weekStart: r.period, connections: r.value }, { merge: true });
+      } else {
+        batch.set(doc(db, 'perfMonthly', id),
+          { ...base, month: r.period, [r.field]: r.value }, { merge: true });
+      }
+    });
+    await batch.commit();
+
+    $('perfUploadStatus').innerHTML =
+      `<span style="color:var(--primary)">Saved ${rows.length} row(s) of ${
+        esc(spec.label.toLowerCase())}. ${matched} matched an employee${
+        matched < rows.length ? `, ${rows.length - matched} did not` : ''}.</span>` +
+      (errors.length
+        ? `<div class="meta" style="color:var(--error)">${errors.length} line(s) skipped:</div>` +
+          errors.slice(0, 8).map(e => `<div class="meta">${esc(e.why)} — ${esc(e.line)}</div>`).join('')
+        : '');
+    $('perfText-' + kind).value = '';
+    await loadAll();
+  } catch (err) {
+    showMsg('Could not save the figures: ' + err.message, 'err');
+  }
+}
+
+$('perfMonth').addEventListener('change', renderPerformance);
+$('perfSearch').addEventListener('input', (e) => {
+  perfFilter = e.target.value;
+  renderPerformance();
+});
+
+$('exportPerformance').addEventListener('click', () => {
+  const month = $('perfMonth').value || todayString().slice(0, 7);
+  const rows = [['Employee', 'Employee number', 'Month', 'Connections', 'Activations', 'Commission R']];
+  visiblePerformanceRows().forEach(r => rows.push([
+    r.name, r.employeeNumber, month,
+    // Blank rather than 0, for the same reason the table shows a dash.
+    r.connections === null ? '' : r.connections,
+    r.activations === null ? '' : r.activations,
+    r.commissionRands === null ? '' : r.commissionRands.toFixed(2)
+  ]));
+  downloadCsv(`performance-${month}.csv`, rows);
 });
 
 /* ---------------- logs ---------------- */

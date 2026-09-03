@@ -18,7 +18,8 @@ import { loadPortal, writes } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
-  'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES'
+  'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
+  'performanceRows', 'unmatchedPerformance'
 ]);
 
 let failures = 0;
@@ -179,7 +180,20 @@ check('a figure of zero explains itself rather than showing an empty table',
 // still enough to catch the way that grid actually drifts: a column added to the
 // header without a matching cell in the row, or a stale colspan on the empty row.
 const src = readFileSync(process.argv[2] ?? 'web/index.html', 'utf8');
-const reportsTab = src.slice(src.indexOf('<section id="tab-reports"'), src.indexOf('<!-- EMPLOYEES'));
+
+/**
+ * The markup of one tab, bounded by its own </section>.
+ *
+ * These used to be sliced up to whichever HTML comment came next, so adding a tab
+ * between two sections quietly moved the boundary and a table's header was read from
+ * the wrong table entirely — which is how a passing check started failing on a change
+ * that touched neither table.
+ */
+const tabMarkup = (id) => {
+  const start = src.indexOf(`<section id="tab-${id}"`);
+  return src.slice(start, src.indexOf('</section>', start));
+};
+const reportsTab = tabMarkup('reports');
 const thead = reportsTab.slice(reportsTab.indexOf('<thead>'), reportsTab.indexOf('</thead>'));
 const repHeaders = (thead.match(/<th[\s>]/g) ?? []).length;
 
@@ -206,7 +220,7 @@ check('the fleet cost per km divides the totals rather than averaging the rows',
 // at all because this table lost a column: receipt photos were uploaded and linked here
 // until there turned out to be nowhere to keep the images. Dropping a <th> and leaving
 // the <td> or the colspan behind renders perfectly happily and misaligns every row.
-const logsTab = src.slice(src.indexOf('<section id="tab-logs"'));
+const logsTab = tabMarkup('logs');
 const fuelHead = logsTab.slice(logsTab.indexOf('<thead>'), logsTab.indexOf('</thead>'));
 const fuelHeaders = (fuelHead.match(/<th[\s>]/g) ?? []).length;
 
@@ -242,7 +256,7 @@ check('an unnamed vehicle is titled by its formatted plate',
 check('the fleet count is shown', writes()['vehCount'], 2);
 
 // The grid, checked the same way as the other two tables.
-const fleetTab = src.slice(src.indexOf('<section id="tab-vehicles"'), src.indexOf('<!-- LOGS'));
+const fleetTab = tabMarkup('vehicles');
 const fleetHead = fleetTab.slice(fleetTab.lastIndexOf('<thead>'), fleetTab.lastIndexOf('</thead>'));
 const fleetHeaders = (fleetHead.match(/<th[\s>]/g) ?? []).length;
 const fleetRowStart = fleet.indexOf('<tr>');
@@ -332,6 +346,59 @@ check('the export follows the province filter', filteredExport.length, 2);
 check('and covers exactly who the table shows',
   filteredExport.length - 1, portal.filteredEmployees().length);
 portal.filters.province = portal.ALL_PROVINCES;
+
+/* ---------------- performance figures ---------------- */
+// Connections arrive weekly and are counted into the month their week STARTS in, so the
+// rollup is the part that can quietly put a number in the wrong month.
+portal.data.employees = [
+  { id: 'p1', name: 'Nomsa', surname: 'Dlamini', employeeNumber: 'EMP001' },
+  { id: 'p2', name: 'Sipho', surname: 'Khumalo', employeeNumber: 'emp-002' },
+  { id: 'p3', name: 'Nothing', surname: 'Uploaded', employeeNumber: 'EMP003' }
+];
+portal.data.perfWeekly = [
+  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', weekStart: '2026-09-07', connections: 45 },
+  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', weekStart: '2026-09-14', connections: 52 },
+  // Starts in September and runs into October: it counts to September.
+  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', weekStart: '2026-09-28', connections: 30 },
+  // Starts in August: must not appear in September at all.
+  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', weekStart: '2026-08-31', connections: 99 },
+  { numberKey: 'EMP002', employeeNumber: 'emp-002', uid: 'p2', weekStart: '2026-09-07', connections: 38 },
+  // Uploaded against a number nobody has.
+  { numberKey: 'GHOST9', employeeNumber: 'GHOST9', uid: '', weekStart: '2026-09-07', connections: 12 }
+];
+portal.data.perfMonthly = [
+  { numberKey: 'EMP001', employeeNumber: 'EMP001', uid: 'p1', month: '2026-09',
+    activations: 38, commissionRands: 12500.5 },
+  // Activations uploaded, commission not yet — they are separate files.
+  { numberKey: 'EMP002', employeeNumber: 'emp-002', uid: 'p2', month: '2026-09', activations: 31 }
+];
+
+const perf = portal.performanceRows('2026-09');
+const byName = Object.fromEntries(perf.map(r => [r.name, r]));
+
+check('the three weeks starting in September are summed', byName['Nomsa Dlamini'].connections, 127);
+check('the week count is shown, so a short month is obvious', byName['Nomsa Dlamini'].weeks, 3);
+check('activations and commission come from the monthly file',
+  [byName['Nomsa Dlamini'].activations, byName['Nomsa Dlamini'].commissionRands], [38, 12500.5]);
+
+// Nothing uploaded is not zero. A commission of R0,00 would read as a bad month rather
+// than as a file nobody has sent yet.
+check('a figure not yet uploaded is null, not zero', byName['Sipho Khumalo'].commissionRands, null);
+check('while the one that was uploaded is a number', byName['Sipho Khumalo'].activations, 31);
+
+// Somebody with nothing at all still has to appear, or an incomplete upload looks
+// complete and the person is simply invisible.
+check('an employee with no figures still appears',
+  [byName['Nothing Uploaded'].connections, byName['Nothing Uploaded'].activations], [null, null]);
+
+// A number matching nobody belongs to nobody and nobody can see it, so the admin must.
+const ghosts = portal.unmatchedPerformance();
+check('figures against an unknown employee number are surfaced', ghosts.map(g => g.key), ['GHOST9']);
+check('with how many rows are affected', ghosts[0].count, 1);
+
+// Another month must not inherit September's figures.
+check('another month is empty rather than inheriting',
+  portal.performanceRows('2026-10').every(r => r.connections === null), true);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

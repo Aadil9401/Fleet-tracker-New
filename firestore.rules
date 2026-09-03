@@ -126,6 +126,32 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Performance figures. Uploaded by an admin from a spreadsheet and read by the
+    // person they belong to.
+    //
+    // The upload key is the EMPLOYEE NUMBER, because that is what the figures arrive
+    // keyed on. The access key is the uid, resolved when the file is loaded and stored
+    // on the row — a rule cannot normalise an employee number to compare it, and an
+    // employee must not be able to read a colleague's commission. Same shape as
+    // timeLogs: a query provably restricted to the caller's own uid is permitted, and
+    // one asking for everybody's is rejected outright.
+    //
+    // A row whose employee number matched nobody has an empty uid and is therefore
+    // readable by the admin alone, which is correct — it belongs to no one yet.
+    match /perfWeekly/{rowId} {
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /perfMonthly/{rowId} {
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
     // Single settings document used by the app + Cloud Functions.
     match /config/{docId} {
       allow read: if isSignedIn();

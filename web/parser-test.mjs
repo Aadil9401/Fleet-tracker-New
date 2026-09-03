@@ -29,7 +29,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'hasUsableInterval', 'vehiclesWithBadInterval', 'data',
   'PARK_BY', 'minutesParkedLate', 'isParkedLate',
   'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort',
-  'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS'
+  'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
+  'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'monthOfWeek'
 ]);
 
 let failures = 0;
@@ -233,6 +234,83 @@ check('exactly at the limit is still accepted',
 check('one kilometre past it is not',
   portal.vehicleCostPerKm([fill(1, base, 100),
     fill(2, base + portal.MAX_KM_BETWEEN_FILLS + 1, 100)]).intervals, 0);
+
+/* ---------------- the three performance uploads ---------------- */
+
+const conn = portal.parsePerformanceLines(
+  'Employee number,Week starting,Connections\nEMP001,2026-09-07,45\nemp-002,2026-09-07,38\n',
+  'connections');
+check('the header is skipped and both rows load', conn.rows.length, 2);
+check('no errors on a clean file', conn.errors.length, 0);
+check('the employee number is normalised for matching',
+  conn.rows.map(r => r.numberKey), ['EMP001', 'EMP002']);
+check('but kept as typed for display', conn.rows[1].employeeNumber, 'emp-002');
+check('and the figure lands on the right field',
+  [conn.rows[0].field, conn.rows[0].value], ['connections', 45]);
+
+const act = portal.parsePerformanceLines('EMP001,2026-09,38', 'activations');
+check('activations are monthly', [act.rows[0].period, act.rows[0].value], ['2026-09', 38]);
+
+const comm = portal.parsePerformanceLines('EMP001,2026-09,12500.00', 'commission');
+check('commission is money', [comm.rows[0].field, comm.rows[0].value],
+  ['commissionRands', 12500]);
+
+/* A file of forty rows with three mistakes must load the thirty-seven and name the
+   three, rather than failing whole and leaving the admin to hunt for them. */
+const messy = portal.parsePerformanceLines(
+  [',2026-09-07,45',              // no employee number
+   'EMP002,2026-13-07,38',        // not a real date
+   'EMP003,2026-09-07,forty',     // not a number
+   'EMP004,2026-09-07,41'         // fine
+  ].join('\n'), 'connections');
+check('only the good row loads', messy.rows.map(r => r.numberKey), ['EMP004']);
+check('and each bad one is reported', messy.errors.length, 3);
+check('with a reason that says what to fix',
+  messy.errors.map(e => e.why.includes('employee number') || e.why.includes('date') || e.why.includes('whole number')),
+  [true, true, true]);
+check('and the line itself, so it can be found in the file',
+  messy.errors[2].line, 'EMP003,2026-09-07,forty');
+
+/* South African Excel exports semicolons and comma decimals. In a semicolon file the
+   comma is safely a decimal; in a comma file it splits the column, which is a real
+   mistake and has to be reported as one rather than guessed at. */
+const semi = portal.parsePerformanceLines(
+  'Employee number;Month;Commission\nEMP001;2026-09;12500,50', 'commission');
+check('a semicolon file reads a comma decimal', semi.rows[0].value, 12500.5);
+const splitDecimal = portal.parsePerformanceLines('EMP001,2026-09,12500,50', 'commission');
+check('a comma decimal in a comma file is refused', splitDecimal.rows.length, 0);
+check('and the message says why', splitDecimal.errors[0].why.includes('split across two columns'), true);
+
+// Rejecting the split decimal is the point: reading the whole rands and dropping the
+// cents in silence recorded R12 500,50 as R12 500 with nothing to say so.
+check('the cents are never silently dropped', splitDecimal.rows.length, 0);
+// But a spreadsheet writes trailing empty cells, and those mean nothing.
+check('trailing empty columns are tolerated',
+  portal.parsePerformanceLines('EMP001,2026-09,38,,', 'activations').rows[0].value, 38);
+check('while a real extra column is refused',
+  portal.parsePerformanceLines('EMP001,2026-09,38,99', 'activations').errors.length, 1);
+
+check('an R and grouping spaces are tolerated',
+  portal.parsePerformanceLines('EMP001,2026-09,R 12 500.50', 'commission').rows[0].value, 12500.5);
+check('a whole-rand amount needs no decimals',
+  portal.parsePerformanceLines('EMP001,2026-09,12500', 'commission').rows[0].value, 12500);
+check('a negative figure is not a count',
+  portal.parsePerformanceLines('EMP001,2026-09,-5', 'activations').rows.length, 0);
+
+/* The month a week counts towards is the one its start date falls in — a week can
+   straddle two and a count cannot be split between them. */
+check('a week belongs to the month it starts in', portal.monthOfWeek('2026-09-28'), '2026-09');
+check('even when most of it falls in the next one', portal.monthOfWeek('2026-09-30'), '2026-09');
+
+/* The templates an admin downloads are generated from the same table the parser reads,
+   so a column cannot be added to one without the other. Feeding each template back
+   through its own parser is the check that they still agree. */
+Object.keys(portal.PERF_UPLOADS).forEach(kind => {
+  const csv = portal.perfTemplateRows(kind).map(r => r.join(',')).join('\n');
+  const back = portal.parsePerformanceLines(csv, kind);
+  check(`the ${kind} template parses cleanly through its own parser`, back.errors.length, 0);
+  check(`and yields its sample rows`, back.rows.length, portal.PERF_UPLOADS[kind].sample.length);
+});
 
 console.log(failures === 0
   ? '\nPARSER TESTS OK'
