@@ -3270,15 +3270,32 @@ function parsePerformanceLines(text, kind) {
       });
     }
 
-    // A team file from before networks existed has three columns, and its figure sits
-    // where the network now goes. Said plainly, because "network must be one of" against
-    // a row reading SOWETO, 2026-09, 600 tells an admin nothing about what to do.
+    /*
+     * A row with something missing off the end, which is two different mistakes.
+     *
+     * A blank FIGURE is the common one — somebody working down a template and leaving a
+     * month they have no number for. Trailing empty cells are stripped before this, so
+     * the row simply arrives short, and it used to be reported as "fewer columns than
+     * this file should have": a message that sends an admin hunting for a column problem
+     * that is not there, on a file whose columns are perfectly correct.
+     *
+     * A missing NETWORK is the other — a team file written before networks existed, its
+     * figure sitting where the network now goes. Worth its own message too, because
+     * "network must be one of" against a row reading SOWETO, 2026-09, 600 says nothing
+     * about what to do.
+     *
+     * Told apart by whether what IS there looks like a network.
+     */
     if (parts.length < width) {
+      const figureIsBlank = parts.length === width - 1
+        && (!onTeam || networkKey(parts[2]));
       return errors.push({
         line,
-        why: onTeam && parts.length === width - 1
-          ? 'this file needs a Network column now — download the template again'
-          : 'fewer columns than this file should have'
+        why: figureIsBlank
+          ? spec.label + ' is blank'
+          : onTeam && parts.length === width - 1
+            ? 'this file needs a Network column now — download the template again'
+            : 'fewer columns than this file should have'
       });
     }
 

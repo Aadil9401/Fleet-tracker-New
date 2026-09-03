@@ -298,6 +298,23 @@ check('and the message names the four that are accepted',
 /* A team file saved before networks existed has three columns and its figure sitting
    where the network now goes. "Network must be one of" against SOWETO,2026-09,600 tells
    an admin nothing about what to do, so it says what to do. */
+/* A row short of its last cell is two different mistakes, and telling them apart is
+   the difference between a useful message and a wild goose chase. Somebody working down
+   a template and leaving a month blank has a file whose COLUMNS are perfectly correct,
+   and used to be told there were fewer columns than there should be. */
+const blankFigure = portal.parsePerformanceLines('SOWETO,2026-09,MTN,', 'stock');
+check('a blank figure is refused rather than saved as nought', blankFigure.rows.length, 0);
+check('and the message names the figure, not the columns',
+  blankFigure.errors[0].why, 'Stock is blank');
+const blankMoney = portal.parsePerformanceLines('T042,2026-01,', 'commission');
+check('the same for a blank amount on a commission row',
+  blankMoney.errors[0].why, 'Commission is blank');
+// A truly short row still says so — there is nothing better to tell somebody whose row
+// is missing both its month and its figure.
+check('a row missing more than its figure says the columns are wrong',
+  portal.parsePerformanceLines('SOWETO', 'stock').errors[0].why,
+  'fewer columns than this file should have');
+
 const oldShape = portal.parsePerformanceLines('SOWETO,2026-09,600', 'stock');
 check('a team file in the old three-column shape is refused', oldShape.rows.length, 0);
 check('with the fix rather than the symptom',
