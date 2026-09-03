@@ -793,6 +793,10 @@
             <label for="perfTeam">Team</label>
             <select id="perfTeam"></select>
           </div>
+          <div>
+            <label for="perfNetwork">Network</label>
+            <select id="perfNetwork"></select>
+          </div>
           <div class="grow">
             <label for="perfSearch">Search</label>
             <input id="perfSearch" type="search"
@@ -812,10 +816,15 @@
           <tbody id="perfRows"></tbody>
         </table></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
-          <b>Stock, connections and activations are uploaded per team</b>, so everyone in a
-          team shows the same three figures — they are the team's. The tiles count each
-          team once, not once per member. Commission is uploaded per employee number and
-          is each person's own, so it is always summed.
+          <b>Stock, connections and activations are uploaded per team, per network</b>, so
+          everyone in a team shows the same three figures — they are the team's. The tiles
+          count each team once, not once per member. Commission is uploaded per employee
+          number and is each person's own, so it is always summed.
+          <br>
+          With <b>All networks</b> chosen the three figures are the team's MTN, Vodacom,
+          Cell C and Telkom figures added together; choose one network to see it on its
+          own. Commission carries no network — it is a person's pay, not a figure against
+          a product — so it does not change when the network does.
           <br>
           Somebody with no team on their record can carry no team figures and will show
           dashes until a team is set on the Employees tab.
@@ -832,8 +841,13 @@
         <h2 class="section">Upload figures</h2>
         <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
           Four separate files, one figure each, all monthly. Stock, connections and
-          activations are matched on <b>team name</b> because they are a team's figures;
-          commission is matched on <b>employee number</b> because it is a person's own pay.
+          activations are matched on <b>team name</b> because they are a team's figures,
+          and each row also names its <b>network</b>; commission is matched on
+          <b>employee number</b> because it is a person's own pay and has no network.
+          <br>
+          A team's month needs one row per network — four rows for a team selling all
+          four. A network with nothing to report is left out rather than sent as 0, which
+          is what keeps "sold none" and "not counted yet" apart on the tab.
           <br>
           One file can carry several months — put the month on each row. Uploading the
           same month again corrects it rather than adding to it, and uploading one figure
@@ -863,6 +877,10 @@
           <div>
             <label for="lbProvince">Province</label>
             <select id="lbProvince"></select>
+          </div>
+          <div>
+            <label for="lbNetwork">Network</label>
+            <select id="lbNetwork"></select>
           </div>
           <div class="grow">
             <label for="lbSearch">Search</label>
@@ -3023,15 +3041,15 @@ const digits = (s) => {
 const PERF_UPLOADS = {
   stock: {
     label: 'Stock', field: 'stock', kind: 'count', keyedOn: 'team',
-    sample: [['SOWETO', '2026-09', '600'], ['TEMBISA', '2026-09', '500']]
+    sample: [['SOWETO', '2026-09', 'MTN', '600'], ['SOWETO', '2026-09', 'VODACOM', '450']]
   },
   connections: {
     label: 'Connections', field: 'connections', kind: 'count', keyedOn: 'team',
-    sample: [['SOWETO', '2026-09', '450'], ['TEMBISA', '2026-09', '380']]
+    sample: [['SOWETO', '2026-09', 'MTN', '320'], ['SOWETO', '2026-09', 'VODACOM', '410']]
   },
   activations: {
     label: 'Activations', field: 'activations', kind: 'count', keyedOn: 'team',
-    sample: [['SOWETO', '2026-09', '380'], ['TEMBISA', '2026-09', '310']]
+    sample: [['SOWETO', '2026-09', 'MTN', '260'], ['SOWETO', '2026-09', 'VODACOM', '350']]
   },
   commission: {
     label: 'Commission', field: 'commissionRands', kind: 'money', keyedOn: 'employee',
@@ -3039,13 +3057,67 @@ const PERF_UPLOADS = {
   }
 };
 
+/**
+ * The networks a team's figures are filed under.
+ *
+ * A CLOSED list on purpose. An unrecognised name is reported as a bad line rather than
+ * quietly becoming a fifth network, because a figure filed under "VODAOCM" would appear
+ * to have saved while being invisible on the tab, in the totals and on the leaderboard.
+ * Adding a real fifth network is one entry here.
+ */
+const NETWORKS = ['MTN', 'VODACOM', 'CELLC', 'TELKOM'];
+
+/** How a network is written on screen, which is not how it is stored. */
+const NETWORK_LABELS = { MTN: 'MTN', VODACOM: 'Vodacom', CELLC: 'Cell C', TELKOM: 'Telkom' };
+
+/**
+ * Alternate names for the same network. Not misspellings — accepting those would hide a
+ * data-quality problem in the file instead of showing it.
+ */
+const NETWORK_ALIASES = { CC: 'CELLC', VODA: 'VODACOM', VOD: 'VODACOM' };
+
+/**
+ * A network reduced to one of the four, or '' when it is none of them.
+ *
+ * Case, spaces and punctuation are dropped, so "Cell C", "CELLC" and "cell-c" are one
+ * network. Commission carries no network: it is a person's pay, not a team's figure
+ * against a product, and a blank here is what says so.
+ */
+const networkKey = (s) => {
+  const cleaned = String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (NETWORKS.includes(cleaned)) return cleaned;
+  return NETWORK_ALIASES[cleaned] || '';
+};
+
+/** "MTN, Vodacom, Cell C or Telkom" — for the message on a rejected line. */
+const networkList = () => {
+  const names = NETWORKS.map(n => NETWORK_LABELS[n]);
+  return names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1];
+};
+
 /** What the first column of an upload is called, and therefore what it is matched on. */
 const perfKeyLabel = (kind) =>
   PERF_UPLOADS[kind].keyedOn === 'team' ? 'Team name' : 'Employee number';
 
+/**
+ * Whether this upload carries a network column.
+ *
+ * The team figures do; commission does not. Derived from what the figure IS rather than
+ * listed separately, so the templates, the parser and the reader cannot disagree about
+ * which files have four columns.
+ */
+const perfHasNetwork = (kind) => PERF_UPLOADS[kind].keyedOn === 'team';
+
+/** The columns one upload has, and therefore where its figure sits. */
+const perfColumns = (kind) => {
+  const spec = PERF_UPLOADS[kind];
+  return perfHasNetwork(kind)
+    ? [perfKeyLabel(kind), 'Month', 'Network', spec.label]
+    : [perfKeyLabel(kind), 'Month', spec.label];
+};
+
 /** The template for one upload, header first — what the Download template button gives. */
-const perfTemplateRows = (kind) =>
-  [[perfKeyLabel(kind), 'Month', PERF_UPLOADS[kind].label], ...PERF_UPLOADS[kind].sample];
+const perfTemplateRows = (kind) => [perfColumns(kind), ...PERF_UPLOADS[kind].sample];
 
 /**
  * A team name reduced to something comparable: uppercased, punctuation dropped, runs of
@@ -3129,11 +3201,13 @@ function parsePerformanceLines(text, kind) {
       return errors.push({ line, why: onTeam ? 'no team name' : 'no employee number' });
     }
 
+    const width = perfColumns(kind).length;
+
     // An extra column means the row is not the shape this file is supposed to be, and
     // the commonest cause is a comma decimal splitting the figure in two. That used to
     // read the whole rands and drop the cents in silence — R12 500,50 recorded as
     // R12 500 with nothing to say so, which is worse than refusing the line.
-    if (parts.length > 3) {
+    if (parts.length > width) {
       return errors.push({
         line,
         why: spec.kind === 'money'
@@ -3142,9 +3216,27 @@ function parsePerformanceLines(text, kind) {
       });
     }
 
+    // A team file from before networks existed has three columns, and its figure sits
+    // where the network now goes. Said plainly, because "network must be one of" against
+    // a row reading SOWETO, 2026-09, 600 tells an admin nothing about what to do.
+    if (parts.length < width) {
+      return errors.push({
+        line,
+        why: onTeam && parts.length === width - 1
+          ? 'this file needs a Network column now — download the template again'
+          : 'fewer columns than this file should have'
+      });
+    }
+
     if (!isMonth(period)) return errors.push({ line, why: 'month must be yyyy-mm' });
 
-    const value = spec.kind === 'money' ? perfMoney(parts[2]) : perfCount(parts[2]);
+    const network = onTeam ? networkKey(parts[2]) : '';
+    if (onTeam && !network) {
+      return errors.push({ line, why: 'network must be ' + networkList() });
+    }
+
+    const figureCell = parts[width - 1];
+    const value = spec.kind === 'money' ? perfMoney(figureCell) : perfCount(figureCell);
     if (value === null) {
       return errors.push({
         line,
@@ -3161,6 +3253,7 @@ function parsePerformanceLines(text, kind) {
       key: onTeam ? teamKey(key) : numberKey(key),
       keyedOn: spec.keyedOn,
       month: period,
+      network,
       field: spec.field,
       value
     });
@@ -3524,7 +3617,7 @@ $('exportSummary').addEventListener('click', () => {
 
 /** What the Performance tab is filtered to. An object, like the Employees tab's
  * filters, so the render and the export read one source and a test can drive it. */
-const perfFilters = { province: '', team: '', query: '' };
+const perfFilters = { province: '', team: '', network: '', query: '' };
 
 /**
  * One row per person for the chosen month: their team's stock, connections and
@@ -3538,11 +3631,8 @@ const perfFilters = { province: '', team: '', query: '' };
  * of a team shows the same three numbers because that is what they are. Nothing here
  * has to work out whether two equal numbers are one figure written twice.
  */
-function performanceRows(month) {
-  const teamFigures = {};
-  data.perfTeams.filter(r => r.month === month).forEach(r => {
-    teamFigures[r.teamKey] = r;
-  });
+function performanceRows(month, network) {
+  const teamFigures = teamFiguresFor(month, network);
   const commissionByNumber = {};
   data.perfMonthly.filter(r => r.month === month).forEach(r => {
     commissionByNumber[r.numberKey] = r;
@@ -3575,10 +3665,54 @@ function performanceRows(month) {
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
+/**
+ * The month's team figures, keyed on team, for one network or for all of them.
+ *
+ * The single place perfTeams is turned into figures, so the Performance tab and the
+ * leaderboard cannot disagree about what a team's month adds up to.
+ *
+ * Summed across networks when none is chosen, because that is what a total means: a
+ * team's stock is its MTN stock plus its Vodacom stock. Summed only over the networks
+ * that HAVE a figure — a team with MTN stock and no Vodacom stock keeps its MTN number
+ * rather than being treated as having none.
+ *
+ * Figures uploaded before networks existed carry no network. Those are used only while a
+ * team has nothing networked for that month; the moment a networked figure arrives for
+ * that team the old one is dropped. Counting both would count the team's stock twice and
+ * a doubled total reads as a good month, which is the worst way for this to go wrong.
+ */
+function teamFiguresFor(month, network) {
+  const wanted = networkKey(network);
+
+  const byTeam = {};
+  data.perfTeams.filter(r => r.month === month).forEach(r => {
+    (byTeam[r.teamKey] = byTeam[r.teamKey] || []).push(r);
+  });
+
+  const out = {};
+  Object.entries(byTeam).forEach(([key, all]) => {
+    const networked = all.filter(r => networkKey(r.network));
+    const usable = networked.length ? networked : all;
+    const chosen = wanted ? usable.filter(r => networkKey(r.network) === wanted) : usable;
+    if (chosen.length === 0) return;
+
+    const row = { team: chosen[0].team || key, teamKey: key };
+    TEAM_LEVEL_FIELDS.forEach(field => {
+      const present = chosen.filter(r => r[field] !== null && r[field] !== undefined);
+      row[field] = present.length
+        ? present.reduce((sum, r) => sum + Number(r[field]), 0)
+        : null;
+    });
+    out[key] = row;
+  });
+  return out;
+}
+
 /** Rows on screen, after the dropdowns and the search box. */
 function visiblePerformanceRows() {
   const q = perfFilters.query.trim().toLowerCase();
-  return performanceRows($('perfMonth').value || todayString().slice(0, 7)).filter(r => {
+  return performanceRows($('perfMonth').value || todayString().slice(0, 7),
+    perfFilters.network).filter(r => {
     if (perfFilters.province && r.province !== perfFilters.province) return false;
     if (perfFilters.team && r.team !== perfFilters.team) return false;
     if (!q) return true;
@@ -3641,9 +3775,24 @@ function performanceTotals(rows) {
   return totals;
 }
 
+/**
+ * The network dropdown for one tab.
+ *
+ * Every network is always offered, not only the ones with figures this month: an empty
+ * Telkom is a fact worth being able to look at, and a dropdown that silently loses an
+ * option makes a missing upload look like a network nobody sells.
+ */
+function networkOptions(selected) {
+  return [`<option value="">All networks</option>`,
+    ...NETWORKS.map(n =>
+      `<option value="${n}" ${n === selected ? 'selected' : ''}>${esc(NETWORK_LABELS[n])}</option>`)
+  ].join('');
+}
+
 function renderPerformance() {
   const month = $('perfMonth').value || todayString().slice(0, 7);
-  const all = performanceRows(month);
+  const all = performanceRows(month, perfFilters.network);
+  $('perfNetwork').innerHTML = networkOptions(perfFilters.network);
 
   // Only postings that exist this month, so the lists stay short and nothing offers a
   // province with nobody in it. The team list narrows to the chosen province, since a
@@ -3730,9 +3879,10 @@ function renderPerformanceUploads() {
   if ($('perfUploads').dataset.built === 'yes') return;
   $('perfUploads').innerHTML = Object.entries(PERF_UPLOADS).map(([kind, spec]) => `
     <div class="field" style="border-top:1px solid var(--surface-variant);padding-top:var(--s3)">
-      <label>${esc(spec.label)} — one row per person per month</label>
-      <div class="meta" style="margin-bottom:var(--s2)">Columns: Employee number, Month, ${
-        esc(spec.label)}</div>
+      <label>${esc(spec.label)} — one row per ${
+        perfHasNetwork(kind) ? 'team per month per network' : 'person per month'}</label>
+      <div class="meta" style="margin-bottom:var(--s2)">Columns: ${
+        esc(perfColumns(kind).join(', '))}</div>
       <input id="perfFile-${kind}" type="file" accept=".csv,text/csv,text/plain">
       <textarea id="perfText-${kind}" rows="3" style="margin-top:var(--s2)"
         placeholder="${esc(spec.sample[0].join(', '))}"></textarea>
@@ -3802,17 +3952,21 @@ async function savePerformance(kind) {
     for (let start = 0; start < rows.length; start += 400) {
       const batch = writeBatch(db);
       rows.slice(start, start + 400).forEach(r => {
-        const id = `${r.key}_${r.month}`;
         if (r.keyedOn === 'team') {
+          // The network is part of the identity: one document per team, per month, per
+          // network. Without it in the id the second network of a month would overwrite
+          // the first and the tab would show one network's figures as the team's total.
           if (knownTeams.has(r.key)) matched++;
-          batch.set(doc(db, 'perfTeams', id), {
+          batch.set(doc(db, 'perfTeams', `${r.key}_${r.month}_${r.network}`), {
             team: r.keyAsTyped,
             teamKey: r.key,
             month: r.month,
+            network: r.network,
             [r.field]: r.value,
             uploadedAtMillis: Date.now()
           }, { merge: true });
         } else {
+          const id = `${r.key}_${r.month}`;
           const person = byNumber[r.key];
           if (person) matched++;
           batch.set(doc(db, 'perfMonthly', id), {
@@ -3858,6 +4012,10 @@ $('perfProvince').addEventListener('change', (e) => {
   perfFilters.province = e.target.value;
   renderPerformance();
 });
+$('perfNetwork').addEventListener('change', (e) => {
+  perfFilters.network = e.target.value;
+  renderPerformance();
+});
 $('perfTeam').addEventListener('change', (e) => {
   perfFilters.team = e.target.value;
   renderPerformance();
@@ -3879,12 +4037,17 @@ $('perfSearch').addEventListener('input', (e) => {
  */
 function performanceExportRows(month) {
   const asPercent = (value) => value === null ? '' : value.toFixed(1);
-  const header = ['Employee', 'Employee number', 'Province', 'Team', 'Month',
+  // Which network the figures are for, on every row — a sheet of numbers with the
+  // network only in the filename is a sheet nobody can safely combine with another.
+  const network = perfFilters.network
+    ? NETWORK_LABELS[networkKey(perfFilters.network)]
+    : 'All networks';
+  const header = ['Employee', 'Employee number', 'Province', 'Team', 'Month', 'Network',
     'Stock', 'Connections', 'Stock to connection %',
     'Activations', 'Connection to activation %', 'Stock to activation %',
     'Commission R'];
   return [header, ...visiblePerformanceRows().map(r => [
-    r.name, r.employeeNumber, r.province, r.team, month,
+    r.name, r.employeeNumber, r.province, r.team, month, network,
     r.stock === null ? '' : r.stock,
     r.connections === null ? '' : r.connections,
     asPercent(ratioPercent(r.connections, r.stock)),
@@ -3903,7 +4066,7 @@ $('exportPerformance').addEventListener('click', () => {
 /* ---------------- leaderboard ---------------- */
 
 /** Its own filters, so ranking does not disturb the Performance tab. */
-const lbFilters = { metric: 'connections', province: '', query: '' };
+const lbFilters = { metric: 'connections', province: '', network: '', query: '' };
 
 /**
  * The month's TEAMS in order, highest figure first, carrying a position not a figure.
@@ -3927,11 +4090,10 @@ const lbFilters = { metric: 'connections', province: '', query: '' };
  * nobody's record is returned separately: its figure counts towards nothing, and only
  * the admin can find out why.
  */
-function leaderboardRows(month, metric) {
+function leaderboardRows(month, metric, network) {
   const field = metric === 'activations' ? 'activations' : 'connections';
 
-  const figures = {};
-  data.perfTeams.filter(r => r.month === month).forEach(r => { figures[r.teamKey] = r; });
+  const figures = teamFiguresFor(month, network);
 
   const teams = {};
   let withoutTeam = 0;
@@ -3982,7 +4144,7 @@ function leaderboardRows(month, metric) {
 function visibleLeaderboardRows() {
   const q = lbFilters.query.trim().toLowerCase();
   const month = $('lbMonth').value || todayString().slice(0, 7);
-  return leaderboardRows(month, lbFilters.metric).rows.filter(r => {
+  return leaderboardRows(month, lbFilters.metric, lbFilters.network).rows.filter(r => {
     if (lbFilters.province && r.province !== lbFilters.province) return false;
     if (!q) return true;
     return [r.team, r.province].some(v => String(v ?? '').toLowerCase().includes(q));
@@ -3991,7 +4153,9 @@ function visibleLeaderboardRows() {
 
 function renderLeaderboard() {
   const month = $('lbMonth').value || todayString().slice(0, 7);
-  const board = leaderboardRows(month, lbFilters.metric);
+  const board = leaderboardRows(month, lbFilters.metric, lbFilters.network);
+
+  $('lbNetwork').innerHTML = networkOptions(lbFilters.network);
 
   const provinces = [...new Set(board.rows.map(r => r.province).filter(Boolean))].sort();
   $('lbProvince').innerHTML = [`<option value="">All provinces</option>`,
@@ -4035,6 +4199,10 @@ $('lbProvince').addEventListener('change', (e) => {
   lbFilters.province = e.target.value;
   renderLeaderboard();
 });
+$('lbNetwork').addEventListener('change', (e) => {
+  lbFilters.network = e.target.value;
+  renderLeaderboard();
+});
 $('lbSearch').addEventListener('input', (e) => {
   lbFilters.query = e.target.value;
   renderLeaderboard();
@@ -4043,10 +4211,13 @@ $('lbSearch').addEventListener('input', (e) => {
 $('exportLeaderboard').addEventListener('click', () => {
   const month = $('lbMonth').value || todayString().slice(0, 7);
   // No figures here either: the export must not leak what the board deliberately hides.
-  const rows = [['Position', 'Team', 'Province', 'People', 'Month', 'Ranked on']];
+  const rows = [['Position', 'Team', 'Province', 'People', 'Month', 'Network', 'Ranked on']];
+  const network = lbFilters.network
+    ? NETWORK_LABELS[networkKey(lbFilters.network)]
+    : 'All networks';
   visibleLeaderboardRows().forEach(r => rows.push([
     r.position === null ? '' : r.position,
-    r.team, r.province, r.people, month, lbFilters.metric
+    r.team, r.province, r.people, month, network, lbFilters.metric
   ]));
   downloadCsv(`leaderboard-${lbFilters.metric}-${month}.csv`, rows);
 });

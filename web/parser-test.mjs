@@ -31,7 +31,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'PARK_BY', 'minutesParkedLate', 'isParkedLate',
   'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort',
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
-  'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel'
+  'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
+  'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS'
 ]);
 
 let failures = 0;
@@ -245,8 +246,28 @@ check('the team files ask for a team name',
 check('and commission asks for an employee number',
   portal.perfKeyLabel('commission'), 'Employee number');
 
+// The team files gained a network column; commission did not, because commission is a
+// person's pay rather than a figure against a product.
+check('a team file has four columns, in this order',
+  portal.perfColumns('stock'), ['Team name', 'Month', 'Network', 'Stock']);
+check('and commission still has three',
+  portal.perfColumns('commission'), ['Employee number', 'Month', 'Commission']);
+
+/* One of four networks, or nothing. A CLOSED list: a figure filed under a name nobody
+   filters to would appear to have saved while being invisible everywhere. */
+check('case, spaces and punctuation are ignored',
+  ['Cell C', 'CELLC', 'cell-c'].map(portal.networkKey), ['CELLC', 'CELLC', 'CELLC']);
+check('the four networks all key to themselves',
+  ['MTN', 'Vodacom', 'Telkom', 'CellC'].map(portal.networkKey),
+  ['MTN', 'VODACOM', 'TELKOM', 'CELLC']);
+check('a shorthand people actually write is accepted',
+  [portal.networkKey('VOD'), portal.networkKey('CC')], ['VODACOM', 'CELLC']);
+check('a network that is not one of the four keys to nothing',
+  [portal.networkKey('Rain'), portal.networkKey(''), portal.networkKey('VODAOCM')],
+  ['', '', '']);
+
 const conn = portal.parsePerformanceLines(
-  'Team name,Month,Connections\nSOWETO,2026-09,450\nsoweto-east,2026-09,380\n',
+  'Team name,Month,Network,Connections\nSOWETO,2026-09,MTN,450\nsoweto-east,2026-09,Vodacom,380\n',
   'connections');
 check('the header is skipped and both rows load', conn.rows.length, 2);
 check('no errors on a clean file', conn.errors.length, 0);
@@ -256,6 +277,33 @@ check('but kept as typed for display', conn.rows[1].keyAsTyped, 'soweto-east');
 check('and the figure lands on the right field',
   [conn.rows[0].field, conn.rows[0].value], ['connections', 450]);
 check('the row says what it is keyed on', conn.rows[0].keyedOn, 'team');
+check('and which network the figure is for, normalised',
+  conn.rows.map(r => r.network), ['MTN', 'VODACOM']);
+
+/* One team's month is several rows, one per network, and they must stay several rows —
+   collapsing them would make one network's figure look like the team's whole month. */
+const twoNetworks = portal.parsePerformanceLines(
+  ['SOWETO,2026-09,MTN,320', 'SOWETO,2026-09,VODACOM,410'].join('\n'), 'connections');
+check('two networks for one team and month are two rows', twoNetworks.rows.length, 2);
+check('differing only in the network',
+  twoNetworks.rows.map(r => [r.key, r.month, r.network, r.value]),
+  [['SOWETO', '2026-09', 'MTN', 320], ['SOWETO', '2026-09', 'VODACOM', 410]]);
+
+// An unrecognised network is a bad line, not a fifth network.
+const badNetwork = portal.parsePerformanceLines('SOWETO,2026-09,Rain,450', 'connections');
+check('an unknown network is refused', badNetwork.rows.length, 0);
+check('and the message names the four that are accepted',
+  ['MTN', 'Vodacom', 'Cell C', 'Telkom'].every(n => badNetwork.errors[0].why.includes(n)), true);
+
+/* A team file saved before networks existed has three columns and its figure sitting
+   where the network now goes. "Network must be one of" against SOWETO,2026-09,600 tells
+   an admin nothing about what to do, so it says what to do. */
+const oldShape = portal.parsePerformanceLines('SOWETO,2026-09,600', 'stock');
+check('a team file in the old three-column shape is refused', oldShape.rows.length, 0);
+check('with the fix rather than the symptom',
+  oldShape.errors[0].why.includes('needs a Network column'), true);
+check('and its figure is never read as a network',
+  portal.networkKey('600'), '');
 
 /* Team names are typed twice — once in the staff list, once in the figures file — so
    they will not match on the nose. Single spaces are kept on purpose, or SOWETO and
@@ -267,12 +315,13 @@ check('but a real space still separates two teams',
   portal.teamKey('SOWETO') === portal.teamKey('SOWETO EAST'), false);
 check('and a name with nothing in it keys to nothing', portal.teamKey('  -- '), '');
 
-const stockFile = portal.parsePerformanceLines('SOWETO,2026-09,600', 'stock');
-check('stock is a team count against a month',
-  [stockFile.rows[0].field, stockFile.rows[0].month, stockFile.rows[0].value],
-  ['stock', '2026-09', 600]);
+const stockFile = portal.parsePerformanceLines('SOWETO,2026-09,TELKOM,600', 'stock');
+check('stock is a team count against a month and a network',
+  [stockFile.rows[0].field, stockFile.rows[0].month,
+   stockFile.rows[0].network, stockFile.rows[0].value],
+  ['stock', '2026-09', 'TELKOM', 600]);
 
-const act = portal.parsePerformanceLines('SOWETO,2026-09,380', 'activations');
+const act = portal.parsePerformanceLines('SOWETO,2026-09,MTN,380', 'activations');
 check('so are activations', [act.rows[0].month, act.rows[0].value], ['2026-09', 380]);
 
 const comm = portal.parsePerformanceLines('T042,2026-09,12500.00', 'commission');
@@ -282,18 +331,20 @@ check('commission is money', [comm.rows[0].field, comm.rows[0].value],
 /* A file of forty rows with three mistakes must load the thirty-seven and name the
    three, rather than failing whole and leaving the admin to hunt for them. */
 const messy = portal.parsePerformanceLines(
-  [',2026-09,450',            // no team name
-   'TEMBISA,2026-13,380',     // month 13 is not a month
-   'PMB,2026-09,forty',       // not a number
-   'MTHATHA,2026-09,410'      // fine
+  [',2026-09,MTN,450',            // no team name
+   'TEMBISA,2026-13,MTN,380',     // month 13 is not a month
+   'PMB,2026-09,Rain,410',        // not one of the four networks
+   'GIYANI,2026-09,MTN,forty',    // not a number
+   'MTHATHA,2026-09,MTN,410'      // fine
   ].join('\n'), 'connections');
 check('only the good row loads', messy.rows.map(r => r.key), ['MTHATHA']);
-check('and each bad one is reported', messy.errors.length, 3);
+check('and each bad one is reported', messy.errors.length, 4);
 check('with a reason that says what to fix',
-  messy.errors.map(e => e.why.includes('team name') || e.why.includes('month') || e.why.includes('whole number')),
-  [true, true, true]);
+  messy.errors.map(e => ['team name', 'month', 'network', 'whole number']
+    .some(fragment => e.why.includes(fragment))),
+  [true, true, true, true]);
 check('and the line itself, so it can be found in the file',
-  messy.errors[2].line, 'PMB,2026-09,forty');
+  messy.errors[3].line, 'GIYANI,2026-09,MTN,forty');
 
 /* South African Excel exports semicolons and comma decimals. In a semicolon file the
    comma is safely a decimal; in a comma file it splits the column, which is a real
@@ -310,16 +361,16 @@ check('and the message says why', splitDecimal.errors[0].why.includes('split acr
 check('the cents are never silently dropped', splitDecimal.rows.length, 0);
 // But a spreadsheet writes trailing empty cells, and those mean nothing.
 check('trailing empty columns are tolerated',
-  portal.parsePerformanceLines('T042,2026-09,38,,', 'activations').rows[0].value, 38);
+  portal.parsePerformanceLines('SOWETO,2026-09,MTN,38,,', 'activations').rows[0].value, 38);
 check('while a real extra column is refused',
-  portal.parsePerformanceLines('T042,2026-09,38,99', 'activations').errors.length, 1);
+  portal.parsePerformanceLines('SOWETO,2026-09,MTN,38,99', 'activations').errors.length, 1);
 
 check('an R and grouping spaces are tolerated',
   portal.parsePerformanceLines('T042,2026-09,R 12 500.50', 'commission').rows[0].value, 12500.5);
 check('a whole-rand amount needs no decimals',
   portal.parsePerformanceLines('T042,2026-09,12500', 'commission').rows[0].value, 12500);
 check('a negative figure is not a count',
-  portal.parsePerformanceLines('T042,2026-09,-5', 'activations').rows.length, 0);
+  portal.parsePerformanceLines('SOWETO,2026-09,MTN,-5', 'activations').rows.length, 0);
 
 /* The templates an admin downloads are generated from the same table the parser reads,
    so a column cannot be added to one without the other. Feeding each template back
@@ -337,33 +388,56 @@ Object.keys(portal.PERF_UPLOADS).forEach(kind => {
 const eightMonths = [];
 for (let m = 1; m <= 8; m++) {
   const month = `2026-0${m}`;
-  ['SOWETO', 'TEMBISA', 'PMB'].forEach(t => eightMonths.push(`${t},${month},100`));
+  ['SOWETO', 'TEMBISA', 'PMB'].forEach(t =>
+    portal.NETWORKS.forEach(n => eightMonths.push(`${t},${month},${n},100`)));
 }
 const many = portal.parsePerformanceLines(eightMonths.join(String.fromCharCode(10)), 'connections');
-check('every row of a multi-month file loads', many.rows.length, 24);
+check('every row of a multi-month file loads', many.rows.length, 8 * 3 * 4);
 check('with no errors', many.errors.length, 0);
 check('and eight distinct months come through',
   [...new Set(many.rows.map(r => r.month))].length, 8);
-check('each row keeping its own month', many.rows[3].month, '2026-02');
+check('and all four networks', [...new Set(many.rows.map(r => r.network))].sort(),
+  [...portal.NETWORKS].sort());
+check('each row keeping its own month', many.rows[12].month, '2026-02');
 
-// A row's document id is its key AND its month, which is what makes eight months eight
-// records rather than one overwritten eight times.
-const ids = new Set(many.rows.map(r => `${r.key}_${r.month}`));
-check('each team-and-month is its own record', ids.size, 24);
+/* A row's document id is its team, its month AND its network. Leaving the network out
+   would make a team's four networks one record overwritten four times, so a month would
+   show whichever network happened to be written last as the team's whole figure. */
+const ids = new Set(many.rows.map(r => `${r.key}_${r.month}_${r.network}`));
+check('each team, month and network is its own record', ids.size, 8 * 3 * 4);
+const withoutNetwork = new Set(many.rows.map(r => `${r.key}_${r.month}`));
+check('and dropping the network from the id would collide', withoutNetwork.size, 8 * 3);
 
-// Firestore commits at most 500 writes per batch. Eight months across 39 teams is 312
-// rows, which fits — but a single batch is a cliff rather than a slope: one row over and
-// the whole upload fails with an error about batch size, saying nothing about the file.
-// So the upload chunks, and the chunk size has to stay under the cap.
+/* The id above is RECONSTRUCTED from a parsed row, which proves the parts are all
+   present but not that the upload writes them. The id that matters is the one in
+   savePerformance, so it is read out of the source — the same way the chunk size below
+   is. Reconstructing it here and getting it wrong there is exactly the mistake that
+   would show one network's figure as a team's whole month. */
+const source = readFileSync(process.argv[2] ?? 'web/index.html', 'utf8');
+check('the upload writes a team document per team, month AND network',
+  source.includes('doc(db, \'perfTeams\', `${r.key}_${r.month}_${r.network}`)'), true);
+check('and commission per person and month, which has no network',
+  source.includes('const id = `${r.key}_${r.month}`;'), true);
+
+/* Firestore commits at most 500 writes per batch, and a batch is a cliff rather than a
+   slope: one row over and the whole upload fails with an error about batch size, saying
+   nothing about the file. So the upload chunks, and the chunk size has to stay under the
+   cap.
+
+   Networks multiplied the row count by four. Nine months across the 88 team names in
+   the figures, on four networks, is 3 168 rows in one file — eight chunks, where before
+   networks it was one. That is the number the chunking now has to carry. */
 const CHUNK = 400;
 const chunkCount = (n) => Math.ceil(n / CHUNK);
 check('the chunk size is under Firestore\'s cap', CHUNK < 500, true);
-check('eight months of team figures fits in one chunk', chunkCount(39 * 8), 1);
+check('a year of one network for 39 teams still fits in one chunk',
+  chunkCount(39 * 8), 1);
+check('but nine months of four networks across 88 teams does not',
+  chunkCount(88 * 9 * 4), 8);
 check('and a file that would breach the cap is split', chunkCount(648), 2);
 // Checked against the source, because the number that matters is the one in the code.
 check('the upload really does chunk at that size',
-  readFileSync(process.argv[2] ?? 'web/index.html', 'utf8')
-    .includes(`rows.slice(start, start + ${CHUNK})`), true);
+  source.includes(`rows.slice(start, start + ${CHUNK})`), true);
 
 console.log(failures === 0
   ? '\nPARSER TESTS OK'

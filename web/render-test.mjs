@@ -21,7 +21,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
   'visiblePerformanceRows', 'perfFilters', 'performanceTotals', 'TEAM_LEVEL_FIELDS',
-  'leaderboardRows', 'teamKey', 'performanceExportRows', 'monthsBack', 'PERF_HISTORY_MONTHS'
+  'leaderboardRows', 'teamKey', 'performanceExportRows', 'monthsBack', 'PERF_HISTORY_MONTHS',
+  'teamFiguresFor', 'networkKey', 'NETWORKS', 'NETWORK_LABELS', 'lbFilters'
 ]);
 
 let failures = 0;
@@ -494,8 +495,14 @@ check('clearing the filters restores everyone', portal.visiblePerformanceRows().
    after it, and a spreadsheet of shifted percentages looks perfectly reasonable. */
 const perfExport = portal.performanceExportRows('2026-09');
 check('the export has a header and a row per person', perfExport.length, 4);
+// Against the header's own width, not a literal: the check is that they AGREE.
 check('every row has as many fields as the header',
-  perfExport.slice(1).map(r => r.length), [12, 12, 12]);
+  perfExport.slice(1).map(r => r.length),
+  perfExport.slice(1).map(() => perfExport[0].length));
+check('and the network the figures are for is one of the columns',
+  perfExport[0].includes('Network'), true);
+check('which says so plainly when no single network is chosen',
+  perfExport[1][perfExport[0].indexOf('Network')], 'All networks');
 
 // Positions matter as much as the count, so the three percentages are checked where the
 // header says they are.
@@ -674,6 +681,130 @@ check('the board ranks on the same number the totals count',
   500 + 700 + 500 + 300);
 check('and a figure against a team nobody is on is reported, not counted',
   portal.leaderboardRows('2026-09', 'connections').unknownTeams, ['Ghost Town']);
+
+/* ---------------- figures split by network ---------------- */
+/* A team's month is now several rows, one per network. Two things can go quietly wrong
+   and both read as a good month rather than as an error, so both are pinned here:
+   summing a network twice, and summing figures uploaded before networks existed
+   alongside the ones that replaced them. */
+portal.data.employees = [
+  { id: 'n1', name: 'Ayanda', surname: 'Ncube', employeeNumber: 'N001',
+    province: 'Gauteng', teamName: 'Soweto' },
+  { id: 'n2', name: 'Bongi', surname: 'Ndlovu', employeeNumber: 'N002',
+    province: 'Gauteng', teamName: 'Tembisa' },
+  // Only ever sold Telkom, so has nothing at all on the other three.
+  { id: 'n3', name: 'Cebo', surname: 'Nkosi', employeeNumber: 'N003',
+    province: 'Limpopo', teamName: 'Tzaneen' }
+];
+portal.data.perfMonthly = [];
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', network: 'MTN',
+    stock: 100, connections: 60, activations: 30 },
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', network: 'VODACOM',
+    stock: 300, connections: 240, activations: 120 },
+  { teamKey: 'TEMBISA', team: 'Tembisa', month: '2026-09', network: 'MTN',
+    stock: 500, connections: 100, activations: 40 },
+  // One network only: its figure must survive, not be treated as no figure at all.
+  { teamKey: 'TZANEEN', team: 'Tzaneen', month: '2026-09', network: 'TELKOM',
+    stock: 200, connections: 150, activations: 90 }
+];
+
+const allNet = portal.teamFiguresFor('2026-09', '');
+check('with no network chosen a team is the sum of its networks',
+  [allNet['SOWETO'].stock, allNet['SOWETO'].connections, allNet['SOWETO'].activations],
+  [400, 300, 150]);
+check('and a team selling one network keeps that one figure',
+  allNet['TZANEEN'].stock, 200);
+
+const mtn = portal.teamFiguresFor('2026-09', 'MTN');
+check('choosing a network gives that network alone', mtn['SOWETO'].stock, 100);
+check('and leaves out a team with nothing on it', 'TZANEEN' in mtn, false);
+check('however the network was written',
+  portal.teamFiguresFor('2026-09', 'mtn')['SOWETO'].stock, 100);
+
+const telkom = portal.teamFiguresFor('2026-09', 'TELKOM');
+check('a different network gives different figures', telkom['TZANEEN'].connections, 150);
+check('and Soweto, which sells none of it, is absent', 'SOWETO' in telkom, false);
+
+/* The ratios must divide within the chosen network. Soweto on Vodacom converted 240 of
+   300; across all networks it converted 300 of 400. Dividing one network's connections
+   by every network's stock would report 60%, which is nobody's number. */
+check('a ratio divides within the network it is shown for',
+  portal.ratioPercent(portal.teamFiguresFor('2026-09', 'VODACOM')['SOWETO'].connections,
+    portal.teamFiguresFor('2026-09', 'VODACOM')['SOWETO'].stock).toFixed(1), '80.0');
+check('and across all of them uses both totals',
+  portal.ratioPercent(allNet['SOWETO'].connections, allNet['SOWETO'].stock).toFixed(1), '75.0');
+
+/* Figures uploaded before networks existed carry no network. Alone they still read, so
+   nothing already uploaded disappears. */
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', stock: 400, connections: 300 }
+];
+check('a figure from before networks existed is still read',
+  portal.teamFiguresFor('2026-09', '')['SOWETO'].stock, 400);
+check('but belongs to no network, so a network filter excludes it',
+  'SOWETO' in portal.teamFiguresFor('2026-09', 'MTN'), false);
+
+/* And the guard that matters: once networked figures arrive for that team and month,
+   the old network-free row is DROPPED. Counting both would report 800 stock for a team
+   that has 400, and a doubled total reads as a good month rather than as a fault. */
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', stock: 400, connections: 300 },
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', network: 'MTN',
+    stock: 100, connections: 60 },
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', network: 'VODACOM',
+    stock: 300, connections: 240 }
+];
+check('a networked upload replaces the network-free figure rather than adding to it',
+  portal.teamFiguresFor('2026-09', '')['SOWETO'].stock, 400);
+check('and its connections likewise',
+  portal.teamFiguresFor('2026-09', '')['SOWETO'].connections, 300);
+// Deliberately stated: 500 is what summing all three rows would give.
+check('which is not the sum of every row present',
+  portal.teamFiguresFor('2026-09', '')['SOWETO'].stock === 800, false);
+// The month is part of it: a different month's network-free row is untouched.
+portal.data.perfTeams.push(
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-08', stock: 999 });
+check('the replacement applies to that month only',
+  portal.teamFiguresFor('2026-08', '')['SOWETO'].stock, 999);
+
+/* The leaderboard reads the same helper, so a network changes the order. Across all
+   networks Soweto has 300 connections to Tembisa's 100; on MTN alone Tembisa's 100
+   beats Soweto's 60. */
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', network: 'MTN', connections: 60 },
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-09', network: 'VODACOM', connections: 240 },
+  { teamKey: 'TEMBISA', team: 'Tembisa', month: '2026-09', network: 'MTN', connections: 100 },
+  { teamKey: 'TZANEEN', team: 'Tzaneen', month: '2026-09', network: 'TELKOM', connections: 150 }
+];
+check('across all networks the board runs on the totals',
+  portal.leaderboardRows('2026-09', 'connections', '').rows.map(r => [r.team, r.position]),
+  [['Soweto', 1], ['Tzaneen', 2], ['Tembisa', 3]]);
+check('and one network reorders it',
+  portal.leaderboardRows('2026-09', 'connections', 'MTN').rows.map(r => [r.team, r.position]),
+  [['Tembisa', 1], ['Soweto', 2], ['Tzaneen', null]]);
+// A team with nothing on the chosen network is unranked, NOT last: a network it does
+// not sell is not a bad month, and the board hides the figures so nobody can check.
+check('a team that does not sell it is unranked rather than placed last',
+  portal.leaderboardRows('2026-09', 'connections', 'MTN').rows
+    .find(r => r.team === 'Tzaneen').position, null);
+
+// The tab's totals move with the filter too, since they count each team once off the
+// same rows the table shows.
+Object.assign(portal.perfFilters, { province: '', team: '', network: '', query: '' });
+check('the tiles total every network when none is chosen',
+  portal.performanceTotals(portal.performanceRows('2026-09', '')).connections,
+  60 + 240 + 100 + 150);
+check('and one network when one is',
+  portal.performanceTotals(portal.performanceRows('2026-09', 'MTN')).connections,
+  60 + 100);
+
+// And the export says which network its figures are, on every row.
+portal.perfFilters.network = 'VODACOM';
+const vodExport = portal.performanceExportRows('2026-09');
+check('the export names the chosen network on each row',
+  vodExport[1][vodExport[0].indexOf('Network')], 'Vodacom');
+portal.perfFilters.network = '';
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);
