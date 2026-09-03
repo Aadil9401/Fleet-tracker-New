@@ -1,0 +1,70 @@
+# How a team's month adds up across networks. THIS FILE IS THE SPECIFICATION.
+#
+# The same rule is implemented twice: the admin portal (web/index.html, teamFiguresFor)
+# and the phone app (Performance.kt, figuresFor). Nothing stops those drifting apart, and
+# if they do, the tab and the app will show the same team the same month as two different
+# numbers with nothing to say which is right.
+#
+# Two things here are worth more than they look:
+#
+#   Summing only over the networks that HAVE a figure. A team with MTN stock and no
+#   Vodacom stock keeps its MTN number. Treating the absent one as 0 would be arithmetic
+#   that happens to give the same answer; treating the whole thing as absent would throw
+#   a real figure away.
+#
+#   Dropping the network-free row once a networked one exists. Figures uploaded before
+#   networks existed carry no network. Counting those ALONGSIDE the ones that replaced
+#   them doubles the team's stock, and a doubled total reads as a good month rather than
+#   as a fault — which is the worst way for this to go wrong, because nobody looking at
+#   a good month goes hunting for a bug.
+#
+# ROWS COLUMN: the team's stored rows for one month, separated by "|". Each row is
+#   network:stock:connections:activations
+# with "-" for a figure that was never uploaded, and a network of "-" meaning a row from
+# before networks existed.
+#
+# NETWORK COLUMN: which network is being asked for. "-" means all of them.
+#
+# EXPECTED: stock, connections and activations for that request, "-" where there is
+# nothing to show. A dash is NOT a zero: a missing upload is not a month with no sales,
+# and showing 0 would make an incomplete upload look like a bad month.
+#
+# ABSENT means the team must not appear at all — distinct from appearing with dashes.
+name,rows,network,stock,connections,activations
+single-network-all,MTN:100:60:30,-,100,60,30
+single-network-itself,MTN:100:60:30,MTN,100,60,30
+single-network-other,MTN:100:60:30,VODACOM,ABSENT,ABSENT,ABSENT
+two-networks-summed,MTN:100:60:30|VODACOM:300:240:120,-,400,300,150
+two-networks-first,MTN:100:60:30|VODACOM:300:240:120,MTN,100,60,30
+two-networks-second,MTN:100:60:30|VODACOM:300:240:120,VODACOM,300,240,120
+four-networks-summed,MTN:10:5:1|VODACOM:20:10:2|CELLC:30:15:3|TELKOM:40:20:4,-,100,50,10
+# Summed only over the networks that have the figure. Vodacom has stock but no
+# activations; the MTN activations must survive rather than being lost or read as 0.
+partial-figures-all,MTN:100:60:30|VODACOM:300:-:-,-,400,60,30
+partial-figures-that-network,MTN:100:60:30|VODACOM:300:-:-,VODACOM,300,-,-
+# A figure of zero is real and different from a missing one: stock went out and nothing
+# came of it. That is information, and it must not turn into a dash.
+zero-is-not-missing,MTN:100:0:0,-,100,0,0
+zero-summed-with-a-real-figure,MTN:100:0:0|VODACOM:200:50:10,-,300,50,10
+# Nothing uploaded for that figure at all, on any network.
+all-networks-missing-one,MTN:100:60:-|VODACOM:200:40:-,-,300,100,-
+# Rows from before networks existed.
+legacy-alone,-:400:300:150,-,400,300,150
+legacy-has-no-network,-:400:300:150,MTN,ABSENT,ABSENT,ABSENT
+# THE GUARD. Summing all three rows would give 800 stock for a team that has 400.
+legacy-replaced-by-networked,-:400:300:-|MTN:100:60:30|VODACOM:300:240:120,-,400,300,150
+legacy-ignored-for-one-network,-:400:300:-|MTN:100:60:30,MTN,100,60,30
+# A single networked row is enough to retire the legacy one, even a thin one. The team's
+# stock is 100, not 500 — an admin who has re-uploaded MTN and not yet done Vodacom
+# should see an obviously incomplete month, not a plausible wrong one.
+one-networked-row-retires-legacy,-:400:300:150|MTN:100:-:-,-,100,-,-
+# Case and spacing in a stored network name are not identity.
+network-case-ignored,mtn:100:60:30,MTN,100,60,30
+network-spacing-ignored,Cell C:100:60:30,CELLC,100,60,30
+# A stored network nobody recognises is not a fifth network. It cannot be filtered to,
+# and it must not silently join the totals of the ones that can.
+unknown-network-is-not-a-network,RAIN:100:60:30,-,100,60,30
+unknown-network-not-filterable,RAIN:100:60:30,MTN,ABSENT,ABSENT,ABSENT
+# An unrecognised name behaves exactly like a legacy row, because that is what it is
+# from the reader's point of view: a figure that belongs to no network it knows.
+unknown-retired-by-networked,RAIN:400:300:150|MTN:100:60:30,-,100,60,30

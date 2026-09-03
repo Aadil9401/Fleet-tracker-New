@@ -50,6 +50,14 @@ jobs:
       - name: Portal matches the plate format spec
         run: node web/plate-format-test.mjs web/index.html plate-format-cases.csv
 
+      # And for the performance figures — how a team's month adds up across the four
+      # networks, and how teams are placed on the leaderboard. Both implemented on both
+      # sides, and both invisible when wrong: the tab and the app read the same documents,
+      # and the board hides the figures on purpose, so a drift shows one team two
+      # different answers with no way for anybody to tell which is right.
+      - name: Portal matches the performance spec
+        run: node web/performance-spec-test.mjs web/index.html performance-network-cases.csv performance-rank-cases.csv
+
       - name: Cloud Functions parse
         run: |
           node --check functions/index.js

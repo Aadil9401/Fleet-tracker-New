@@ -2,6 +2,7 @@ package co.za.cspc.fleettracker.data.repository
 
 import co.za.cspc.fleettracker.data.model.AppSettings
 import co.za.cspc.fleettracker.data.model.FuelLog
+import co.za.cspc.fleettracker.data.model.Performance
 import co.za.cspc.fleettracker.data.model.Role
 import co.za.cspc.fleettracker.data.model.TimeLog
 import co.za.cspc.fleettracker.data.model.UserProfile
@@ -48,6 +49,22 @@ class FleetRepository(
         }
 
         fun todayString(): String = dayFormat.format(Date())
+
+        private val monthFormat = SimpleDateFormat("yyyy-MM", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("Africa/Johannesburg")
+        }
+
+        /** The current yyyy-MM, in SAST — the key performance figures are filed under. */
+        fun thisMonthString(): String = monthFormat.format(Date())
+
+        /** Shifts a yyyy-MM by whole months, staying in SAST. */
+        fun shiftMonth(month: String, months: Int): String {
+            val parsed = runCatching { monthFormat.parse(month) }.getOrNull() ?: return month
+            val calendar = Calendar.getInstance(TimeZone.getTimeZone("Africa/Johannesburg"))
+            calendar.time = parsed
+            calendar.add(Calendar.MONTH, months)
+            return monthFormat.format(calendar.time)
+        }
 
         /** Shifts a yyyy-MM-dd date by whole days, staying in SAST. */
         fun shiftDate(date: String, days: Int): String {
@@ -634,6 +651,91 @@ class FleetRepository(
     suspend fun getSettings(): AppSettings {
         val snap = db.collection("config").document("settings").get().await()
         return snap.toObject(AppSettings::class.java) ?: AppSettings()
+    }
+
+    // ---------- Performance figures ----------
+
+    /**
+     * One stored row into the shape [Performance] works in.
+     *
+     * Read field by field with getLong rather than through toObject, for one reason that
+     * matters: a figure that was never uploaded is ABSENT from the document, and a data
+     * class with a Long default would read that as 0 — turning "not counted yet" into
+     * "sold none". getLong returns null for an absent field, and coerces whether the
+     * number was written as an integer or a double, which the portal and this app do
+     * differently.
+     */
+    private fun teamRowOf(snap: com.google.firebase.firestore.DocumentSnapshot): Performance.TeamRow {
+        val team = snap.getString("team") ?: ""
+        return Performance.TeamRow(
+            teamKey = snap.getString("teamKey") ?: Performance.teamKey(team),
+            team = team,
+            month = snap.getString("month") ?: "",
+            network = snap.getString("network") ?: "",
+            figures = Performance.Figures(
+                stock = snap.getLong("stock"),
+                connections = snap.getLong("connections"),
+                activations = snap.getLong("activations")
+            )
+        )
+    }
+
+    /**
+     * One team's rows for one month — at most one per network, so four documents.
+     *
+     * Deliberately narrow. This is what an employee's own figures need, and it is what
+     * loads when they open the screen; the whole month for every team is a separate call
+     * because it costs a hundred times as much.
+     */
+    suspend fun myTeamFigures(teamName: String, month: String): List<Performance.TeamRow> {
+        val key = Performance.teamKey(teamName)
+        if (key.isEmpty() || month.isEmpty()) return emptyList()
+        val snap = db.collection("perfTeams")
+            .whereEqualTo("teamKey", key)
+            .whereEqualTo("month", month)
+            .get().await()
+        return snap.documents.map { teamRowOf(it) }
+    }
+
+    /**
+     * Every team's rows for one month, which is what a leaderboard position needs.
+     *
+     * There is no cheaper way to know where a team stands than to read what every team
+     * did, so this is the expensive call in the app: around 350 documents a month once
+     * ninety teams are selling four networks. It is fetched once and held for the
+     * session rather than on every glance, and it is why the position is shown alongside
+     * the figures rather than being polled.
+     */
+    suspend fun allTeamFigures(month: String): List<Performance.TeamRow> {
+        if (month.isEmpty()) return emptyList()
+        val snap = db.collection("perfTeams")
+            .whereEqualTo("month", month)
+            .get().await()
+        return snap.documents.map { teamRowOf(it) }
+    }
+
+    /**
+     * This person's own commission for a month, or null if none was uploaded.
+     *
+     * Queried on the UID, not on the employee number. The rules permit a query provably
+     * restricted to the caller's own uid and refuse one asking for everybody's — and a
+     * security rule cannot normalise an employee number to compare it, which is why the
+     * uid is resolved and stored on the row when the file is uploaded.
+     *
+     * A row whose employee number matched nobody has an empty uid, so it belongs to no
+     * one and this returns nothing for it. That is right: the admin has to fix the number
+     * before it becomes somebody's pay.
+     */
+    suspend fun myCommission(uid: String, month: String): Double? {
+        if (uid.isEmpty() || month.isEmpty()) return null
+        val snap = db.collection("perfMonthly")
+            .whereEqualTo("uid", uid)
+            .whereEqualTo("month", month)
+            .get().await()
+        // Summed rather than taking the first, so a month somehow split over two
+        // documents reports the whole amount instead of half of it.
+        val amounts = snap.documents.mapNotNull { it.getDouble("commissionRands") }
+        return if (amounts.isEmpty()) null else amounts.sum()
     }
 
     suspend fun saveSettings(settings: AppSettings) {

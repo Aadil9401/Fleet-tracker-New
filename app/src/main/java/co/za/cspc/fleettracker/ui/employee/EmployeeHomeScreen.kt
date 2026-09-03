@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.*
@@ -44,6 +45,7 @@ private val dayLabelFormat = SimpleDateFormat("EEE d MMM yyyy", Locale.US).apply
 @Composable
 fun EmployeeHomeScreen(
     profile: UserProfile,
+    onPerformanceClick: () -> Unit,
     onLogout: () -> Unit,
     viewModel: EmployeeViewModel = viewModel()
 ) {
@@ -85,6 +87,17 @@ fun EmployeeHomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { StatusCard(state) }
+
+            item {
+                OutlinedButton(
+                    onClick = onPerformanceClick,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Leaderboard, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("My performance")
+                }
+            }
 
             // Directly under the status card rather than at the foot of the screen. The
             // result of what you just pressed — a greeting, or a failure — belongs where

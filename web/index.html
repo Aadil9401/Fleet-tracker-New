@@ -4153,10 +4153,20 @@ const lbFilters = { metric: 'connections', province: '', network: '', query: '' 
  * month — and it is the thing a leaderboard must not get wrong, because the figures are
  * hidden and nobody can check it.
  *
- * The teams come from the STAFF LIST, so a team that exists and has had nothing uploaded
- * appears unranked rather than vanishing. A team name that appears in the figures and on
- * nobody's record is returned separately: its figure counts towards nothing, and only
- * the admin can find out why.
+ * EVERY team with a figure for the month is ranked, whether or not anybody on the staff
+ * list is posted to it — and teams from the staff list are included too, so one that
+ * exists and has had nothing uploaded appears unranked rather than vanishing.
+ *
+ * Ranking only the staff-list teams was the obvious reading and it is wrong, because the
+ * phone app cannot do the same. An employee may read their own user document and no
+ * others, so the app has no way to know which teams are on the staff list; the only set
+ * both can agree on is "teams with a figure this month". Left as it was, the same team in
+ * the same month would have been shown one position in the portal and a different one on
+ * the phone, with nothing on either screen to say which was right and no way for anybody
+ * to check, because the board hides the figures on purpose.
+ *
+ * A team nobody is posted to is still named separately, since its figure counts towards
+ * nothing in the totals and only the admin can find out why.
  */
 function leaderboardRows(month, metric, network) {
   const field = metric === 'activations' ? 'activations' : 'connections';
@@ -4172,10 +4182,22 @@ function leaderboardRows(month, metric, network) {
     teams[key].people += 1;
   });
 
+  // Worked out before the figures' own teams are added below, so it stays the list of
+  // team names that match nobody rather than becoming empty.
   const unknownTeams = Object.values(figures)
     .filter(r => !teams[r.teamKey])
     .map(r => r.team || r.teamKey)
     .sort();
+
+  // A team that appears in the figures and on nobody's record is ranked all the same,
+  // carrying no province and no people — see the note above on why the phone app cannot
+  // do otherwise. It is the presence of a FIGURE that makes a team rankable, not the
+  // presence of staff.
+  Object.values(figures).forEach(r => {
+    if (!teams[r.teamKey]) {
+      teams[r.teamKey] = { key: r.teamKey, team: r.team || r.teamKey, province: '', people: 0 };
+    }
+  });
 
   const listed = Object.values(teams).map(t => {
     const row = figures[t.key];
@@ -4252,7 +4274,9 @@ function renderLeaderboard() {
           : `<b>${r.position}</b>`}</td>
         <td><div class="nm">${esc(r.team)}</div></td>
         <td>${r.province ? `<span class="chip">${esc(r.province)}</span>` : '—'}</td>
-        <td>${num(r.people)}</td>
+        <td>${r.people === 0
+          ? '<span class="meta">nobody on</span>'
+          : num(r.people)}</td>
       </tr>`).join('');
 }
 

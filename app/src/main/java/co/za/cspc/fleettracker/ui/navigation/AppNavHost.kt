@@ -19,6 +19,7 @@ import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.repository.FleetRepository
 import co.za.cspc.fleettracker.ui.admin.AdminDashboardScreen
 import co.za.cspc.fleettracker.ui.employee.EmployeeHomeScreen
+import co.za.cspc.fleettracker.ui.employee.PerformanceScreen
 import co.za.cspc.fleettracker.ui.login.LoginScreen
 import co.za.cspc.fleettracker.ui.login.SignUpScreen
 
@@ -26,6 +27,7 @@ private object Routes {
     const val LOGIN = "login"
     const val SIGN_UP = "signUp"
     const val EMPLOYEE = "employee"
+    const val PERFORMANCE = "performance"
     const val ADMIN = "admin"
 }
 
@@ -90,6 +92,7 @@ fun AppNavHost(repo: FleetRepository = FleetRepository()) {
             profile?.let { p ->
                 EmployeeHomeScreen(
                     profile = p,
+                    onPerformanceClick = { navController.navigate(Routes.PERFORMANCE) },
                     onLogout = {
                         repo.logout()
                         profile = null
@@ -97,6 +100,16 @@ fun AppNavHost(repo: FleetRepository = FleetRepository()) {
                             popUpTo(0) { inclusive = true }
                         }
                     }
+                )
+            }
+        }
+        composable(Routes.PERFORMANCE) {
+            // Guarded rather than assumed: a logout while this screen is on the back
+            // stack would otherwise recompose it against a null profile.
+            profile?.let { p ->
+                PerformanceScreen(
+                    profile = p,
+                    onBack = { navController.popBackStack() }
                 )
             }
         }

@@ -1,0 +1,45 @@
+# How teams are placed on the leaderboard. THIS FILE IS THE SPECIFICATION.
+#
+# Implemented twice: the admin portal (web/index.html, leaderboardRows) and the phone app
+# (Performance.kt, positions). The board deliberately HIDES the figures, so nobody looking
+# at it can check the order — which makes a drift between the two implementations
+# invisible to everyone except whoever gets told they came fourth.
+#
+# COMPETITION RANKING: teams on equal figures share a position and the next position
+# skips, so a tie for first is followed by third. Dense ranking would say second, which
+# reads as though somebody came second when nobody did.
+#
+# A team with NOTHING UPLOADED gets no position at all — not last place. Ranking it last
+# would be a judgement the data does not support: a missing file is not a bad month, and
+# a network a team does not sell is not a bad month either.
+#
+# FIGURES: each team's figure in the order the teams are given, separated by "|", with "-"
+# for a team that has nothing uploaded.
+#
+# EXPECTED: the position of each team in the SAME order, "-" for unranked.
+name,figures,expected
+single-team,500,1
+two-clear,700|500,1|2
+two-reversed,500|700,2|1
+three-descending,700|500|300,1|2|3
+three-ascending,300|500|700,3|2|1
+# Competition ranking: the tie shares second and the next team is fourth, not third.
+tie-for-second,700|500|500|300,1|2|2|4
+tie-for-first,700|700|500,1|1|3
+tie-for-first-of-three,500|500|500,1|1|1
+tie-at-the-bottom,700|300|300,1|2|2
+two-separate-ties,900|700|700|500|500,1|2|2|4|4
+# A team with nothing uploaded is unranked, and never last.
+one-missing,700|500|-,1|2|-
+missing-only,-,-
+all-missing,-|-|-,-|-|-
+missing-among-ties,700|500|-|500,1|2|-|2
+missing-first-in-the-list,-|700|500,-|1|2
+# Zero is a real figure and IS ranked. Stock went out and nothing came of it, which is
+# information; it places last rather than being treated as no data.
+zero-is-ranked,700|500|0,1|2|3
+zero-below-a-missing-team,700|0|-,1|2|-
+zero-tie,0|0,1|1
+only-zeros-and-missing,0|-|0,1|-|1
+# The whole board on one figure.
+everyone-tied,400|400|400|400,1|1|1|1

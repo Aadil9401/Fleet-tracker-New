@@ -641,14 +641,29 @@ check('a two-person team is one row, not two',
 check('and its people are counted',
   board.rows.find(r => r.team === 'Soweto').people, 2);
 
-// Tembisa 700, Polokwane and Soweto tied on 500, Nelspruit 300, Tzaneen unranked.
+/* Ghost Town 900, Tembisa 700, Polokwane and Soweto tied on 500, Nelspruit 300, Tzaneen
+   unranked.
+
+   Ghost Town is in the figures and on nobody's record, and it is RANKED — it has the
+   month's best figure and it takes first. Ranking only the teams somebody is posted to
+   was the obvious reading and it is wrong: an employee may read their own user document
+   and no others, so the phone app cannot know which teams are on the staff list. The
+   only set both implementations can agree on is "teams with a figure this month", and
+   without that agreement the same team in the same month would show one position here
+   and another on the phone, with the figures hidden so nobody could tell which was
+   right. */
 check('teams run highest first',
-  board.rows.map(r => r.team), ['Tembisa', 'Polokwane', 'Soweto', 'Nelspruit', 'Tzaneen']);
+  board.rows.map(r => r.team),
+  ['Ghost Town', 'Tembisa', 'Polokwane', 'Soweto', 'Nelspruit', 'Tzaneen']);
+check('a team with a figure and nobody on it is ranked, not set aside',
+  board.rows.find(r => r.team === 'Ghost Town').position, 1);
+check('and carries no people, which is what says its figure counts towards nothing',
+  board.rows.find(r => r.team === 'Ghost Town').people, 0);
 // Competition ranking: the tie for second is followed by FOURTH, not third. Dense
 // ranking would say third, which reads as though somebody came third when nobody did.
 // Nelspruit sits below the tie precisely so the two schemes give different answers here.
 check('equal figures share a position and the next one skips',
-  board.rows.map(r => r.position), [1, 2, 2, 4, null]);
+  board.rows.map(r => r.position), [1, 2, 3, 3, 5, null]);
 
 // The one thing a leaderboard must not get wrong: a missing upload is not last place.
 check('a team with nothing uploaded has no position, rather than being placed last',
@@ -667,18 +682,38 @@ check('no figure is carried on a board row',
 // Ranking on the other metric reorders it: Polokwane's 400 activations beat the rest.
 const byActivations = portal.leaderboardRows('2026-09', 'activations');
 check('ranking on activations gives a different order',
-  byActivations.rows.map(r => r.team), ['Polokwane', 'Soweto', 'Tembisa', 'Nelspruit', 'Tzaneen']);
+  byActivations.rows.map(r => r.team),
+  ['Polokwane', 'Soweto', 'Tembisa', 'Nelspruit', 'Ghost Town', 'Tzaneen']);
 check('with its own tie for second, and a fourth below it',
-  byActivations.rows.map(r => r.position), [1, 2, 2, 4, null]);
+  byActivations.rows.map(r => r.position), [1, 2, 2, 4, null, null]);
+/* Ghost Town led on connections and has no activations at all, so it drops to unranked
+   rather than to last. Being top of one board is not evidence about the other. */
+check('a team that led one board is unranked on the other rather than placed last',
+  byActivations.rows.find(r => r.team === 'Ghost Town').position, null);
 
 // The board and the Performance tiles must agree on what a team carries.
 // Soweto once (not twice for its two members), plus Tembisa, Polokwane and Nelspruit.
 // Tzaneen has nothing uploaded and adds nothing. Ghost Town's 900 counts towards
 // NOTHING, because nobody is on it — which is precisely why the board reports it by
 // name instead of letting it quietly inflate a total.
-check('the board ranks on the same number the totals count',
+/* The board and the tiles now cover deliberately different sets, and this is the pair of
+   assertions that says so out loud. The board ranks every team with a figure, Ghost Town
+   included. The tiles are built from the EMPLOYEE rows, so a team nobody is on
+   contributes nothing to them — its 900 connections are real, and they belong to no one
+   on the staff list. The board naming it is what keeps that visible rather than letting
+   the two numbers quietly disagree. */
+check('the tiles count only teams somebody is posted to',
   portal.performanceTotals(portal.performanceRows('2026-09')).connections,
   500 + 700 + 500 + 300);
+// Four teams make up that total; five are ranked. The fifth is Ghost Town.
+check('while the board ranks one more team than the tiles count',
+  portal.leaderboardRows('2026-09', 'connections').rows
+    .filter(r => r.position !== null).length,
+  5);
+check('and that team is the one nobody is posted to',
+  portal.leaderboardRows('2026-09', 'connections').rows
+    .filter(r => r.position !== null && r.people === 0).map(r => r.team),
+  ['Ghost Town']);
 check('and a figure against a team nobody is on is reported, not counted',
   portal.leaderboardRows('2026-09', 'connections').unknownTeams, ['Ghost Town']);
 
