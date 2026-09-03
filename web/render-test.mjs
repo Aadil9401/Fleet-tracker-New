@@ -380,7 +380,10 @@ portal.data.perfTeams = [
 ];
 portal.data.perfMonthly = [
   { numberKey: 'T042', employeeNumber: 'T042', uid: 'p1', month: '2026-09',
-    commissionRands: 12500.5 },
+    commissionRands: 12500.5, basicSalaryRands: 6200 },
+  // Basic pay with no commission: a real case, and it must not read as no pay at all.
+  { numberKey: 'T099', employeeNumber: 't-099', uid: 'p2', month: '2026-09',
+    basicSalaryRands: 6200 },
   // Uploaded against an employee number nobody has.
   { numberKey: 'GHOST9', employeeNumber: 'GHOST9', uid: '', month: '2026-09',
     commissionRands: 99 }
@@ -393,6 +396,21 @@ const nomsa = byName['Nomsa Dlamini'];
 check('all four figures are read off the month',
   [nomsa.stock, nomsa.connections, nomsa.activations, nomsa.commissionRands],
   [600, 450, 380, 12500.5]);
+
+/* Basic pay, which arrives in its own file and shares the person's document with
+   commission — so loading one must never look like it wiped the other. */
+check('basic pay is read alongside commission', nomsa.basicSalaryRands, 6200);
+check('and basic with no commission is basic, not nothing',
+  [byName['Sipho Khumalo'].basicSalaryRands, byName['Sipho Khumalo'].commissionRands],
+  [6200, null]);
+// Both are a person's own pay, so both are simply summed — no team de-duplication.
+const payTotals = portal.performanceTotals(portal.performanceRows('2026-09'));
+check('both are summed across people', [payTotals.basic, payTotals.commission],
+  [12400, 12500.5]);
+check('and neither moves when a network is chosen',
+  [portal.performanceTotals(portal.performanceRows('2026-09', 'MTN')).basic,
+   portal.performanceTotals(portal.performanceRows('2026-09', 'MTN')).commission],
+  [12400, 12500.5]);
 
 /* The three ratios. Each divides a figure by the earlier one it came from. */
 check('stock to connections', portal.ratioPercent(nomsa.connections, nomsa.stock).toFixed(1), '75.0');
@@ -501,6 +519,14 @@ check('every row has as many fields as the header',
   perfExport.slice(1).map(() => perfExport[0].length));
 check('and the network the figures are for is one of the columns',
   perfExport[0].includes('Network'), true);
+check('basic salary is its own column, next to commission',
+  [perfExport[0].includes('Basic salary R'), perfExport[0].includes('Commission R')],
+  [true, true]);
+const payRow = perfExport.find(r => r[0] === 'Nomsa Dlamini');
+check('and lands under its own heading',
+  [payRow[perfExport[0].indexOf('Basic salary R')],
+   payRow[perfExport[0].indexOf('Commission R')]],
+  ['6200.00', '12500.50']);
 check('which says so plainly when no single network is chosen',
   perfExport[1][perfExport[0].indexOf('Network')], 'All networks');
 

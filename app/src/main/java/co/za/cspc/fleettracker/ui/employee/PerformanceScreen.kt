@@ -155,24 +155,20 @@ fun PerformanceScreen(
 
             HorizontalDivider()
 
-            // Commission is this person's own pay, not the team's, and carries no
-            // network — so it does not change when the network above does.
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text("My commission", fontWeight = FontWeight.SemiBold)
-                    Text("Yours, not the team's. Same on every network.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(
-                    state.commissionRands?.rand() ?: "—",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+            // Basic and commission are this person's own pay, not the team's, and carry
+            // no network — so neither changes when the network above does.
+            Text("My pay", style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold)
+            MoneyRow("Basic salary", state.basicSalaryRands)
+            MoneyRow("Commission", state.commissionRands)
+            // Only added up when BOTH are in. Adding a known figure to an absent one
+            // would show a total that is really just half the story.
+            if (state.basicSalaryRands != null && state.commissionRands != null) {
+                MoneyRow("Total", state.basicSalaryRands + state.commissionRands, strong = true)
             }
+            Text("Yours, not the team's. The same on every network.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             HorizontalDivider()
 
@@ -257,6 +253,22 @@ private fun FigureRow(label: String, value: Long?) {
         Text(label)
         Text(
             value?.grouped() ?: "—",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun MoneyRow(label: String, value: Double?, strong: Boolean = false) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontWeight = if (strong) FontWeight.Bold else FontWeight.Normal)
+        Text(
+            value?.rand() ?: "—",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )

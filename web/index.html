@@ -811,7 +811,7 @@
             <th>Employee</th><th>Employee no</th>
             <th>Stock</th><th>Connections</th><th>Stock → conn</th>
             <th>Activations</th><th>Conn → act</th><th>Stock → act</th>
-            <th>Commission</th>
+            <th>Basic</th><th>Commission</th>
           </tr></thead>
           <tbody id="perfRows"></tbody>
         </table></div>
@@ -819,12 +819,12 @@
           <b>Stock, connections and activations are uploaded per team, per network</b>, so
           everyone in a team shows the same three figures — they are the team's. The tiles
           count each team once, not once per member. Commission is uploaded per employee
-          number and is each person's own, so it is always summed.
+          number and is each person's own, so it is always summed — as is basic salary.
           <br>
           With <b>All networks</b> chosen the three figures are the team's MTN, Vodacom,
           Cell C and Telkom figures added together; choose one network to see it on its
-          own. Commission carries no network — it is a person's pay, not a figure against
-          a product — so it does not change when the network does.
+          own. Basic salary and commission carry no network — they are a person's pay,
+          not a figure against a product — so they do not change when the network does.
           <br>
           Somebody with no team on their record can carry no team figures and will show
           dashes until a team is set on the Employees tab.
@@ -840,10 +840,11 @@
       <div class="card">
         <h2 class="section">Upload figures</h2>
         <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-          Four separate files, one figure each, all monthly. Stock, connections and
+          Five separate files, one figure each, all monthly. Stock, connections and
           activations are matched on <b>team name</b> because they are a team's figures,
-          and each row also names its <b>network</b>; commission is matched on
-          <b>employee number</b> because it is a person's own pay and has no network.
+          and each row also names its <b>network</b>; <b>basic salary</b> and
+          <b>commission</b> are matched on <b>employee number</b> because they are a
+          person's own pay, and neither has a network.
           <br>
           A team's month needs one row per network — four rows for a team selling all
           four. A network with nothing to report is left out rather than sent as 0, which
@@ -3108,6 +3109,13 @@ const PERF_UPLOADS = {
   commission: {
     label: 'Commission', field: 'commissionRands', kind: 'money', keyedOn: 'employee',
     sample: [['T042', '2026-09', '12500.00'], ['T099', '2026-09', '9800.50']]
+  },
+  // Basic pay, alongside commission and keyed the same way. Kept as its own upload
+  // rather than a second column on the commission file, so loading one never disturbs
+  // the other — the two arrive from the same sheet but not always in the same month.
+  basic: {
+    label: 'Basic salary', field: 'basicSalaryRands', kind: 'money', keyedOn: 'employee',
+    sample: [['T042', '2026-09', '6200.00'], ['T099', '2026-09', '6200.00']]
   }
 };
 
@@ -3730,7 +3738,8 @@ function performanceRows(month, network) {
         stock: figure(theirTeam, 'stock'),
         connections: figure(theirTeam, 'connections'),
         activations: figure(theirTeam, 'activations'),
-        commissionRands: figure(theirs, 'commissionRands')
+        commissionRands: figure(theirs, 'commissionRands'),
+        basicSalaryRands: figure(theirs, 'basicSalaryRands')
       };
     })
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -3842,9 +3851,10 @@ const TEAM_LEVEL_FIELDS = ['stock', 'connections', 'activations'];
  * A person with no team carries no team figures, so contributes nothing to those three.
  */
 function performanceTotals(rows) {
-  // Each person's own pay, so simply summed.
+  // Each person's own pay, so simply summed — both of them.
   const commission = rows.reduce((sum, r) => sum + (r.commissionRands || 0), 0);
-  const totals = { stock: 0, connections: 0, activations: 0, commission };
+  const basic = rows.reduce((sum, r) => sum + (r.basicSalaryRands || 0), 0);
+  const totals = { stock: 0, connections: 0, activations: 0, commission, basic };
 
   const seen = new Set();
   rows.forEach(r => {
@@ -3904,7 +3914,9 @@ function renderPerformance() {
     ['Activations', num(totals.activations), ''],
     ['Conn → act', percentLabel(ratioPercent(totals.activations, totals.connections)), ''],
     ['Stock → act', percentLabel(ratioPercent(totals.activations, totals.stock)), ''],
-    ['Commission', rand(totals.commission), '']
+    ['Basic', rand(totals.basic), ''],
+    ['Commission', rand(totals.commission), ''],
+    ['Basic + comm', rand(totals.basic + totals.commission), '']
   ].map(([cap, big, tone]) =>
     `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
@@ -3918,7 +3930,7 @@ function renderPerformance() {
   const figure = (value, format) => value === null ? '<span class="meta">—</span>' : format(value);
 
   $('perfRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="9" class="empty">${data.employees.length === 0
+    ? `<tr><td colspan="10" class="empty">${data.employees.length === 0
         ? 'No employees yet.'
         : 'Nobody matches that search.'}</td></tr>`
     : rows.map(r => `<tr>
@@ -3933,6 +3945,7 @@ function renderPerformance() {
         <td>${figure(r.activations, num)}</td>
         <td>${percentLabel(ratioPercent(r.activations, r.connections))}</td>
         <td>${percentLabel(ratioPercent(r.activations, r.stock))}</td>
+        <td>${figure(r.basicSalaryRands, rand)}</td>
         <td>${figure(r.commissionRands, rand)}</td>
       </tr>`).join('');
 
@@ -3941,9 +3954,10 @@ function renderPerformance() {
     <h2 class="section">Commission with no matching employee — ${esc(month)} (${
       unmatched.length})</h2>
     <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-      These employee numbers carry <b>commission for this month</b> but sit on no employee
-      record, so the money belongs to nobody and nobody can see it. Either the number is
-      mistyped in the file, or the person has not signed up yet.
+      These employee numbers carry <b>pay for this month</b> — basic salary, commission or
+      both — but sit on no employee record, so the money belongs to nobody and nobody can
+      see it. Either the number is mistyped in the file, or the person has not signed up
+      yet.
       <br>
       This counts the month shown above only — change the month to check another.
       <br>
@@ -4130,7 +4144,7 @@ function performanceExportRows(month) {
   const header = ['Employee', 'Employee number', 'Province', 'Team', 'Month', 'Network',
     'Stock', 'Connections', 'Stock to connection %',
     'Activations', 'Connection to activation %', 'Stock to activation %',
-    'Commission R'];
+    'Basic salary R', 'Commission R'];
   return [header, ...visiblePerformanceRows().map(r => [
     r.name, r.employeeNumber, r.province, r.team, month, network,
     r.stock === null ? '' : r.stock,
@@ -4139,6 +4153,7 @@ function performanceExportRows(month) {
     r.activations === null ? '' : r.activations,
     asPercent(ratioPercent(r.activations, r.connections)),
     asPercent(ratioPercent(r.activations, r.stock)),
+    r.basicSalaryRands === null ? '' : r.basicSalaryRands.toFixed(2),
     r.commissionRands === null ? '' : r.commissionRands.toFixed(2)
   ])];
 }

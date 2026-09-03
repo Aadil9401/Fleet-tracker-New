@@ -31,6 +31,7 @@ data class PerformanceUiState(
     val network: String = "",
     val teamName: String = "",
     val figures: Performance.Figures? = null,
+    val basicSalaryRands: Double? = null,
     val commissionRands: Double? = null,
     val connectionsStanding: Standing? = null,
     val activationsStanding: Standing? = null,
@@ -41,7 +42,8 @@ data class PerformanceUiState(
      * drawn as a row of dashes, which reads like a fault in the app.
      */
     val nothingYet: Boolean
-        get() = figures?.hasAnything != true && commissionRands == null
+        get() = figures?.hasAnything != true
+            && commissionRands == null && basicSalaryRands == null
 }
 
 /**
@@ -65,7 +67,7 @@ class PerformanceViewModel(
 
     /** Months already fetched, keyed by month, so paging back and forth reads once. */
     private val monthCache = mutableMapOf<String, List<Performance.TeamRow>>()
-    private val commissionCache = mutableMapOf<String, Double?>()
+    private val payCache = mutableMapOf<String, FleetRepository.MyPay>()
 
     fun load(profile: UserProfile, month: String = FleetRepository.thisMonthString()) {
         this.profile = profile
@@ -81,14 +83,17 @@ class PerformanceViewModel(
             // app down, which is a poor way to say "we could not load your figures".
             try {
                 val rows = monthCache.getOrPut(month) { repo.allTeamFigures(month) }
-                val commission = if (commissionCache.containsKey(month)) {
-                    commissionCache[month]
-                } else {
-                    runCatching { repo.myCommission(profile.uid, month) }
-                        .getOrNull()
-                        .also { commissionCache[month] = it }
+                // Their own pay is a nice-to-have next to the team's figures: if this
+                // one query fails, the rest of the screen should still draw.
+                val pay = payCache.getOrPut(month) {
+                    runCatching { repo.myPay(profile.uid, month) }
+                        .getOrDefault(FleetRepository.MyPay(null, null))
                 }
-                uiState = uiState.copy(loading = false, commissionRands = commission)
+                uiState = uiState.copy(
+                    loading = false,
+                    basicSalaryRands = pay.basicSalaryRands,
+                    commissionRands = pay.commissionRands
+                )
                 recompute(rows)
             } catch (e: Exception) {
                 uiState = uiState.copy(

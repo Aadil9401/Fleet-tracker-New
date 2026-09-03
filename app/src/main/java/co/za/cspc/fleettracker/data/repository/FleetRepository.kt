@@ -726,16 +726,25 @@ class FleetRepository(
      * one and this returns nothing for it. That is right: the admin has to fix the number
      * before it becomes somebody's pay.
      */
-    suspend fun myCommission(uid: String, month: String): Double? {
-        if (uid.isEmpty() || month.isEmpty()) return null
+    /** A person's own pay for a month. Either figure may be absent, which is not zero. */
+    data class MyPay(val basicSalaryRands: Double?, val commissionRands: Double?)
+
+    suspend fun myPay(uid: String, month: String): MyPay {
+        if (uid.isEmpty() || month.isEmpty()) return MyPay(null, null)
         val snap = db.collection("perfMonthly")
             .whereEqualTo("uid", uid)
             .whereEqualTo("month", month)
             .get().await()
+
         // Summed rather than taking the first, so a month somehow split over two
-        // documents reports the whole amount instead of half of it.
-        val amounts = snap.documents.mapNotNull { it.getDouble("commissionRands") }
-        return if (amounts.isEmpty()) null else amounts.sum()
+        // documents reports the whole amount instead of half of it. Null is kept as null
+        // rather than collapsing to 0.0 — an unpaid month and an uncounted one are
+        // different things to the person reading them.
+        fun total(field: String): Double? {
+            val amounts = snap.documents.mapNotNull { it.getDouble(field) }
+            return if (amounts.isEmpty()) null else amounts.sum()
+        }
+        return MyPay(total("basicSalaryRands"), total("commissionRands"))
     }
 
     suspend fun saveSettings(settings: AppSettings) {
