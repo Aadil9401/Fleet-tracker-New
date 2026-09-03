@@ -439,7 +439,7 @@ check('an employee with no figures still appears',
   [byName['Nothing Uploaded'].stock, byName['Nothing Uploaded'].connections], [null, null]);
 
 // A number matching nobody belongs to nobody and nobody can see it, so the admin must.
-const ghosts = portal.unmatchedPerformance();
+const ghosts = portal.unmatchedPerformance('2026-09');
 check('figures against an unknown employee number are surfaced', ghosts.map(g => g.key), ['GHOST9']);
 check('with how many rows are affected', ghosts[0].count, 1);
 

@@ -3777,13 +3777,24 @@ function visiblePerformanceRows() {
   });
 }
 
-/** Figures uploaded against an employee number that matches nobody on the staff list. */
-function unmatchedPerformance() {
+/**
+ * Commission uploaded against an employee number that matches nobody on the staff list,
+ * FOR ONE MONTH.
+ *
+ * Scoped to the month on purpose. It used to scan everything held in memory, which was
+ * two years of figures; now that a month is fetched only when it is asked for, the same
+ * code would have counted "however many months you happen to have opened" and the number
+ * would have crept up as an admin paged around, with the heading still saying it was the
+ * whole picture. A count tied to the month on screen is one that can be reconciled.
+ *
+ * Commission only. A team name that matches nobody is reported on the leaderboard, where
+ * a team with no people on it is the useful thing to see.
+ */
+function unmatchedPerformance(month) {
   const known = new Set(data.employees.map(e => numberKey(e.employeeNumber)).filter(Boolean));
   const seen = {};
-  // Commission only. A team name that matches nobody is reported on the leaderboard,
-  // where a team with no people on it is the useful thing to see.
   data.perfMonthly.forEach(r => {
+    if (month && r.month !== month) return;
     if (r.numberKey && !known.has(r.numberKey)) {
       seen[r.numberKey] = (seen[r.numberKey] || 0) + 1;
     }
@@ -3908,13 +3919,16 @@ function renderPerformance() {
         <td>${figure(r.commissionRands, rand)}</td>
       </tr>`).join('');
 
-  const unmatched = unmatchedPerformance();
+  const unmatched = unmatchedPerformance(month);
   $('perfUnmatchedCard').innerHTML = unmatched.length === 0 ? '' : `
-    <h2 class="section">Commission with no matching employee (${unmatched.length})</h2>
+    <h2 class="section">Commission with no matching employee — ${esc(month)} (${
+      unmatched.length})</h2>
     <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-      These employee numbers appear in an uploaded <b>commission</b> file but on no
-      employee record, so the money belongs to nobody and nobody can see it. Either the
-      number is mistyped in the file, or the person has not signed up yet.
+      These employee numbers carry <b>commission for this month</b> but sit on no employee
+      record, so the money belongs to nobody and nobody can see it. Either the number is
+      mistyped in the file, or the person has not signed up yet.
+      <br>
+      This counts the month shown above only — change the month to check another.
       <br>
       A <b>team</b> name that matches nobody is reported on the leaderboard instead,
       where a team with no people on it is the useful way to see it.
