@@ -24,7 +24,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'leaderboardRows', 'teamKey', 'performanceExportRows', 'monthsBack', 'PERF_HISTORY_MONTHS',
   'teamFiguresFor', 'networkKey', 'NETWORKS', 'NETWORK_LABELS', 'lbFilters',
   'tileFigureClass', 'rand', 'num', 'combinedPay',
-  'fyRows', 'fyTotals', 'fyExportRows'
+  'fyRows', 'fyTotals', 'fyExportRows', 'renderLogs'
 ]);
 
 let failures = 0;
@@ -1066,6 +1066,55 @@ check('and each lands under its own heading',
    ayandaMtn[fyExport[0].indexOf('Stock to connection %')],
    ayandaMtn[fyExport[0].indexOf('FY payable R')]],
   [1000, '40.0', '5600.00']);
+
+/* ---------------- amending a fuel entry ---------------- */
+/* Fuel is typed at a pump by somebody who wants to get going, so it arrives wrong
+   sometimes. The rules always let an admin fix it; there was nothing on screen to do it
+   with, which left a wrong figure in the fuel report AND in the vehicle's cost per
+   kilometre for good. */
+portal.data.fuelLogs = [
+  { id: 'f1', uid: 'u1', employeeName: 'Ayanda Ncube', date: '2026-09-01',
+    amountSpentRands: 1250.5, litres: 52.1, odometerKm: 85000 },
+  // Litres left blank, which is allowed — so there is no rand-per-litre to check.
+  { id: 'f2', uid: 'u2', employeeName: 'Bongi Ndlovu', date: '2026-09-02',
+    amountSpentRands: 990, litres: 0, odometerKm: 0 }
+];
+portal.data.recentTimeLogs = [];
+portal.renderLogs();
+const fuelHtml = writes()['fuelRows'] || '';
+
+check('every fuel row offers an amend', (fuelHtml.match(/fuel-edit/g) || []).length, 2);
+// The button carries the DOCUMENT id, not the row's position: a filtered or re-sorted
+// list would otherwise amend whichever entry happened to sit in that slot.
+check('and carries the document id rather than the row number',
+  [...fuelHtml.matchAll(/data-id="([^"]+)"/g)].map(m => m[1]), ['f1', 'f2']);
+check('rand per litre is shown as the sanity check on the pair',
+  fuelHtml.includes(portal.rand(1250.5 / 52.1)), true);
+check('and is a dash when litres were left blank',
+  fuelHtml.split('<tr>')[2].includes('—'), true);
+
+// The rest is Firestore work the harness stubs, so it is read out of src, declared
+// at the top of this file.
+// A correction must not introduce the kind of mistake it exists to fix.
+check('a negative amount is refused rather than saved',
+  src.includes("if (!Number.isFinite(amount) || amount < 0) problems.push('Amount must be R0 or more.');"),
+  true);
+check('and so are negative litres and a negative odometer',
+  ['Litres must be 0 or more', 'Odometer must be 0 or more'].every(m => src.includes(m)),
+  true);
+// The employee's own timestamp says when they filled up and must survive the correction;
+// a separate stamp records that somebody amended it.
+check('an amendment is stamped separately',
+  src.includes('amendedAtMillis: Date.now()') && src.includes('amendedByUid: currentUid'),
+  true);
+check('and leaves the time they actually filled up alone',
+  /amendedAtMillis[^;]{0,200}timestampMillis/.test(src), false);
+// Deleting names the entry in the question. "Are you sure" over a list of similar rows
+// is not a question anybody can answer correctly.
+check('a delete names the amount, the person and the date',
+  ['of fuel logged by', 'This cannot be undone'].every(m => src.includes(m)), true);
+check('and deletes that one document',
+  src.includes("deleteDoc(doc(db, 'fuelLogs', editingFuelId))"), true);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

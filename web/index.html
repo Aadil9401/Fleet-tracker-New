@@ -633,6 +633,40 @@
       </div>
     </div>
 
+    <!-- AMEND FUEL MODAL -->
+    <div id="fuelOverlay" class="overlay hidden">
+      <div class="modal">
+        <h2 class="section">Amend fuel entry</h2>
+        <p class="sub caps" style="font-size:.82rem;margin:0 0 var(--s3)" id="fuelEditSub"></p>
+        <div class="field">
+          <label for="fuelEditAmount">Amount spent (R)</label>
+          <input id="fuelEditAmount" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="fuelEditLitres">Litres</label>
+          <input id="fuelEditLitres" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="fuelEditOdo">Odometer at the pump (km)</label>
+          <input id="fuelEditOdo" type="number" min="0">
+        </div>
+        <p class="sub" style="font-size:.8rem" id="fuelEditPerLitre"></p>
+        <div id="fuelEditError"></div>
+        <p class="sub" style="font-size:.8rem">
+          What the employee typed is replaced. The odometer matters beyond this row: it is
+          what measures a vehicle's consumption from one fill to the next, so correcting a
+          mistyped reading fixes the cost per kilometre too.
+        </p>
+        <div class="row-actions" style="justify-content:space-between">
+          <button id="fuelEditDelete" class="outline danger">Delete entry</button>
+          <div class="row-actions">
+            <button id="fuelEditCancel" class="outline">Cancel</button>
+            <button id="fuelEditSave">Save changes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- EDIT DAY ENTRY MODAL -->
     <div id="entryOverlay" class="overlay hidden">
       <div class="modal">
@@ -967,7 +1001,7 @@
       <div class="card">
         <h2 class="section">Recent fuel logs</h2>
         <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th>Date</th><th>Amount</th><th>Litres</th><th>R/litre</th><th>Odometer</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Date</th><th>Amount</th><th>Litres</th><th>R/litre</th><th>Odometer</th><th></th></tr></thead>
           <tbody id="fuelRows"></tbody>
         </table></div>
       </div>
@@ -4887,7 +4921,7 @@ function renderLogs() {
   const times = data.recentTimeLogs.filter(matchesLogFilter);
 
   $('fuelRows').innerHTML = fuel.length === 0
-    ? `<tr><td colspan="6" class="empty">No fuel logs${logFilter ? ' for that name' : ''} in this period.</td></tr>`
+    ? `<tr><td colspan="7" class="empty">No fuel logs${logFilter ? ' for that name' : ''} in this period.</td></tr>`
     : fuel.map(f => {
         const amount = Number(f.amountSpentRands || 0);
         const litres = Number(f.litres || 0);
@@ -4900,8 +4934,13 @@ function renderLogs() {
           <td>${litres > 0 ? esc(litres) + ' L' : '—'}</td>
           <td>${perLitre}</td>
           <td>${km(f.odometerKm || 0)}</td>
+          <td><button class="outline fuel-edit" data-id="${esc(f.id)}">Amend</button></td>
         </tr>`;
       }).join('');
+
+  // Bound after the rows are written, since the rows are what carry the buttons.
+  document.querySelectorAll('button.fuel-edit').forEach(b =>
+    b.addEventListener('click', () => openFuelEdit(b.dataset.id)));
 
   $('timeRows').innerHTML = times.length === 0
     ? `<tr><td colspan="7" class="empty">No work days${logFilter ? ' for that name' : ''} in this period.</td></tr>`
@@ -4942,6 +4981,115 @@ $('exportEmployees').addEventListener('click', () => {
   // The count is in the filename, so a filtered export cannot be mistaken later for the
   // whole staff list once it is sitting in a downloads folder.
   downloadCsv(`employees-${rows.length - 1}-${todayString()}.csv`, rows);
+});
+
+/* ---------------- amending a fuel entry ---------------- */
+/**
+ * Fuel is typed in at a pump, one-handed, by somebody who wants to get going — so it
+ * arrives wrong sometimes: an amount with a digit too many, litres in the amount box, a
+ * mistyped odometer. The rules have always let an admin fix it; there was simply nothing
+ * on screen to do it with, which left the wrong figure in the fuel report and in the
+ * vehicle's cost per kilometre for good.
+ */
+let editingFuelId = null;
+
+function openFuelEdit(id) {
+  const log = data.fuelLogs.find(f => f.id === id);
+  if (!log) return;
+  editingFuelId = id;
+
+  $('fuelEditSub').textContent =
+    `${log.employeeName || 'Unknown'} · ${log.date || ''}`;
+  $('fuelEditAmount').value = Number(log.amountSpentRands || 0);
+  $('fuelEditLitres').value = Number(log.litres || 0) || '';
+  $('fuelEditOdo').value = Number(log.odometerKm || 0) || '';
+  $('fuelEditError').innerHTML = '';
+  showFuelPerLitre();
+  $('fuelOverlay').classList.remove('hidden');
+}
+
+/**
+ * Rand per litre as it is typed.
+ *
+ * The cheapest check there is on a fuel entry: a plausible amount and plausible litres
+ * can still be the wrong pair, and R4,50 or R98 a litre says so at a glance where the
+ * two figures on their own do not.
+ */
+function showFuelPerLitre() {
+  const amount = Number($('fuelEditAmount').value || 0);
+  const litres = Number($('fuelEditLitres').value || 0);
+  $('fuelEditPerLitre').textContent = litres > 0
+    ? `That works out to ${rand(amount / litres)} a litre.`
+    : 'Litres left blank, so there is no rand-per-litre to check against.';
+}
+
+['fuelEditAmount', 'fuelEditLitres'].forEach(id =>
+  $(id).addEventListener('input', showFuelPerLitre));
+
+const closeFuelEdit = () => {
+  $('fuelOverlay').classList.add('hidden');
+  editingFuelId = null;
+};
+$('fuelEditCancel').addEventListener('click', closeFuelEdit);
+
+$('fuelEditSave').addEventListener('click', async () => {
+  if (!editingFuelId) return;
+  const amount = Number($('fuelEditAmount').value);
+  const litres = $('fuelEditLitres').value === '' ? 0 : Number($('fuelEditLitres').value);
+  const odometer = $('fuelEditOdo').value === '' ? 0 : Number($('fuelEditOdo').value);
+
+  // Refused rather than saved as something else. A negative amount or a litres figure
+  // typed into the odometer box is a mistake being corrected, not one to introduce.
+  const problems = [];
+  if (!Number.isFinite(amount) || amount < 0) problems.push('Amount must be R0 or more.');
+  if (!Number.isFinite(litres) || litres < 0) problems.push('Litres must be 0 or more.');
+  if (!Number.isFinite(odometer) || odometer < 0) problems.push('Odometer must be 0 or more.');
+  if (problems.length) {
+    $('fuelEditError').innerHTML = `<div class="msg err">${esc(problems.join(' '))}</div>`;
+    return;
+  }
+
+  $('fuelEditSave').disabled = true;
+  try {
+    await updateDoc(doc(db, 'fuelLogs', editingFuelId), {
+      amountSpentRands: amount,
+      litres,
+      odometerKm: odometer,
+      // Stamped so a corrected entry can be told from one nobody has touched. The
+      // employee's own timestampMillis is left alone: it says when they filled up.
+      amendedAtMillis: Date.now(),
+      amendedByUid: currentUid || ''
+    });
+    closeFuelEdit();
+    showMsg('Fuel entry amended.');
+    await loadAll();
+  } catch (err) {
+    $('fuelEditError').innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  } finally {
+    $('fuelEditSave').disabled = false;
+  }
+});
+
+$('fuelEditDelete').addEventListener('click', async () => {
+  if (!editingFuelId) return;
+  const log = data.fuelLogs.find(f => f.id === editingFuelId);
+  if (!log) return;
+  // Named in the question, because "are you sure" on a list of similar rows is not a
+  // question anybody can answer correctly.
+  if (!confirm(`Delete ${rand(Number(log.amountSpentRands || 0))} of fuel logged by ${
+    log.employeeName || 'unknown'} on ${log.date}?\n\nThis cannot be undone.`)) return;
+
+  $('fuelEditDelete').disabled = true;
+  try {
+    await deleteDoc(doc(db, 'fuelLogs', editingFuelId));
+    closeFuelEdit();
+    showMsg('Fuel entry deleted.');
+    await loadAll();
+  } catch (err) {
+    $('fuelEditError').innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  } finally {
+    $('fuelEditDelete').disabled = false;
+  }
 });
 
 $('exportFuel').addEventListener('click', () => {
