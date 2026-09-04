@@ -620,6 +620,42 @@ check('a month already in hand is not read twice',
 check('and an upload invalidates what was cached',
   source.includes('perfMonthsLoaded.clear();'), true);
 
+/* ---------------- re-linking what belongs to somebody ---------------- */
+/* The portal matches a figure to a person by EMPLOYEE NUMBER, so it attaches the moment
+   they appear on the staff list. The phone cannot — a security rule cannot normalise an
+   employee number to compare it, so each row carries the uid, resolved at upload time.
+   A row uploaded BEFORE somebody signed up keeps an empty uid: the admin sees their pay
+   and they do not. Asserted against the source, because the harness stubs Firestore. */
+check('every uid-linked collection is covered',
+  ['perfMonthly', 'perfFy', 'debtLines', 'debtPayments']
+    .every(c => source.includes(`collection: '${c}'`)), true);
+
+/* THE GUARD THAT MATTERS. Only EMPTY uids are filled. Overwriting one that already
+   points at a person would move their pay onto a colleague — a far worse mistake than
+   the one this fixes, and a silent one. */
+check('it only looks at rows belonging to nobody',
+  source.includes("where('uid', '==', '')"), true);
+check('and there is no path that overwrites a uid already set',
+  /uid: f\.person\.id/.test(source) && !/where\('uid', '!=', ''\)/.test(source), true);
+// Merged rather than written whole, so linking a row cannot drop the figure on it.
+check('the figures on the row survive being linked',
+  source.includes('relinkedAtMillis: Date.now()') && source.includes('{ merge: true }'), true);
+
+// Queried on equality rather than read whole: an equality filter needs no composite
+// index and returns only the unlinked rows, so this stays cheap however many months
+// have built up behind it.
+check('it does not read every month to find them',
+  source.includes("getDocs(query(collection(db, name), where('uid', '==', '')))"), true);
+
+// Named in the question. "Link 34 rows" tells an admin nothing about whose they are.
+check('the confirmation names the people',
+  source.includes('people.join'), true);
+check('and it says nothing when there is nothing to do',
+  source.includes('Nothing to link'), true);
+// Chunked for Firestore's batch cap like every other write here.
+check('the writes chunk at the same size as the rest',
+  source.includes('start += 400') , true);
+
 /* ---------------- removing a month of one figure ---------------- */
 /* There was no way to take a figure back before this, and the only thing available was
    uploading zeros — which replaces "not counted" with "earned nothing", worse than the

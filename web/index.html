@@ -600,6 +600,7 @@
         <div class="toolbar">
           <button id="rosterUpload">Save staff list</button>
           <button id="rosterFill" class="outline">Fill from staff list</button>
+          <button id="relinkPay" class="outline">Re-link pay and debt</button>
           <button id="rosterClear" class="danger">Clear list</button>
         </div>
         <div class="count" id="rosterStatus"></div>
@@ -2756,6 +2757,102 @@ $('provinceFilter').addEventListener('change', (e) => {
   filters.province = e.target.value;
   renderEmployees();
 });
+
+/* ---------------- re-linking what belongs to somebody ---------------- */
+/**
+ * Every collection that is READ BY UID on the phone but UPLOADED BY EMPLOYEE NUMBER.
+ *
+ * That mismatch is the whole reason this exists. The portal matches a figure to a person
+ * by employee number, so it attaches the moment they appear on the staff list. The phone
+ * cannot: a security rule cannot normalise an employee number to compare it, so each row
+ * carries the uid, resolved at upload time. A row uploaded BEFORE somebody signed up
+ * keeps an empty uid — the admin sees their pay, and they do not.
+ */
+const UID_LINKED = [
+  { collection: 'perfMonthly', label: 'basic salary and commission' },
+  { collection: 'perfFy', label: 'FY' },
+  { collection: 'debtLines', label: 'stock taken' },
+  { collection: 'debtPayments', label: 'payments' }
+];
+
+/**
+ * Fills in the uid on rows whose employee number now matches somebody.
+ *
+ * ONLY empty uids. A row already pointing at a person is left alone even if the number
+ * says otherwise: overwriting one would move somebody's pay onto a colleague, which is a
+ * far worse mistake than the one this fixes. A wrong uid is a job for the admin who can
+ * see both records, not for a button.
+ *
+ * Queried on uid == '' rather than read whole. An equality filter needs no composite
+ * index and returns only the unlinked rows, so this stays cheap however many months of
+ * figures have built up behind it.
+ */
+async function relinkPayAndDebt() {
+  const byNumber = {};
+  data.employees.forEach(e => {
+    const key = numberKey(e.employeeNumber);
+    if (key) byNumber[key] = e;
+  });
+  if (Object.keys(byNumber).length === 0) {
+    showMsg('No employees with an employee number yet, so there is nothing to link to.', 'err');
+    return;
+  }
+
+  $('relinkPay').disabled = true;
+  try {
+    const found = [];
+    for (const { collection: name, label } of UID_LINKED) {
+      const snap = await getDocs(query(collection(db, name), where('uid', '==', '')));
+      snap.docs.forEach(d => {
+        const row = d.data();
+        const person = byNumber[numberKey(row.numberKey || row.employeeNumber)];
+        if (person) found.push({ collection: name, label, id: d.id, person });
+      });
+    }
+
+    if (found.length === 0) {
+      showMsg('Nothing to link — every figure already belongs to somebody.');
+      return;
+    }
+
+    // Named in the question. "Link 34 rows" tells an admin nothing about whose they are.
+    const people = [...new Set(found.map(f => fullName(f.person)))].sort();
+    if (!confirm(`Link ${found.length} row(s) to ${people.length} ${
+      people.length === 1 ? 'person' : 'people'}?\n\n${people.join('\n')}\n\n`
+      + 'They will then see these figures on their phone. Nothing already linked to '
+      + 'somebody is touched.')) return;
+
+    let linked = 0;
+    for (let start = 0; start < found.length; start += 400) {
+      const batch = writeBatch(db);
+      found.slice(start, start + 400).forEach(f => {
+        batch.set(doc(db, f.collection, f.id), {
+          uid: f.person.id,
+          // The name is stored alongside for the admin's own reading; the uid is what
+          // the phone actually queries on.
+          employeeName: fullName(f.person),
+          relinkedAtMillis: Date.now()
+        }, { merge: true });
+        linked++;
+      });
+      await batch.commit();
+    }
+
+    const byLabel = {};
+    found.forEach(f => { byLabel[f.label] = (byLabel[f.label] || 0) + 1; });
+    showMsg(`Linked ${linked} row(s): ${
+      Object.entries(byLabel).map(([l, n]) => `${n} of ${l}`).join(', ')}. `
+      + `${people.length} ${people.length === 1 ? 'person' : 'people'} can now see `
+      + 'these on their phone.');
+    await loadAll();
+  } catch (err) {
+    showMsg('Could not re-link: ' + err.message, 'err');
+  } finally {
+    $('relinkPay').disabled = false;
+  }
+}
+
+$('relinkPay').addEventListener('click', relinkPayAndDebt);
 
 /* ---------------- staff list (roster) ---------------- */
 $('rosterFile').addEventListener('change', async (e) => {
