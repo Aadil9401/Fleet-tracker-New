@@ -662,12 +662,12 @@ check('and a real nought paid is still nought',
   [portal.performanceTotals(zeroPaid).basic, portal.performanceTotals(zeroPaid).commission],
   [0, 0]);
 
-/* Basic and commission added, and only when BOTH are there.
+/* Basic and commission added, over whichever of them arrived.
 
-   Adding a known figure to an absent one made the combined tile equal the commission
-   tile exactly, which is what a broken sum looks like — two tiles side by side showing
-   the same amount. The rule is the same one the phone already applied, so this is the
-   pair of assertions that stops the two disagreeing again. */
+   Aadil's call, and he was asked: if one is missing the other should still total. What
+   makes it readable is the Basic tile beside it showing a DASH — so a combined figure
+   equal to commission is explained on the same screen, rather than looking like the
+   broken sum it looked like when Basic read "R0,00". */
 // The PORTAL's rule, not a copy of it — see combinedPay(). Re-implementing it here
 // proved only that the test agreed with itself, and a mutation that broke the real
 // rule passed.
@@ -677,13 +677,17 @@ check('the two add up when both are uploaded',
   bothPay(portal.performanceTotals(
     [member('A', 'Gauteng', 'Soweto', { basicSalaryRands: 6200, commissionRands: 5690 })])),
   11890);
-check('but commission alone does not become a combined total',
+check('commission alone still totals',
   bothPay(portal.performanceTotals(
     [member('A', 'Gauteng', 'Soweto', { commissionRands: 5690 })])),
-  null);
-check('nor does basic alone',
+  5690);
+check('and basic alone too',
   bothPay(portal.performanceTotals(
     [member('A', 'Gauteng', 'Soweto', { basicSalaryRands: 6200 })])),
+  6200);
+// But NEITHER uploaded is still a dash, not R0,00 — the distinction that survives.
+check('while neither uploaded is nothing at all',
+  bothPay(portal.performanceTotals([member('A', 'Gauteng', 'Soweto', { stock: 600 })])),
   null);
 // Two real noughts still add to a real nought, which is not the same as nothing.
 check('and two real noughts add to nought', bothPay(portal.performanceTotals(zeroPaid)), 0);

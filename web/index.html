@@ -4165,23 +4165,23 @@ const TEAM_LEVEL_FIELDS = ['stock', 'connections', 'activations'];
  * A person with no team carries no team figures, so contributes nothing to those three.
  */
 /**
- * Basic and commission added, and ONLY when both are there.
+ * Basic and commission added, over whichever of them arrived.
  *
- * Treating a missing basic as zero made the combined tile equal the commission tile
- * exactly. Two tiles side by side showing the same amount is what a broken sum looks
- * like, so it read as a fault in the arithmetic rather than as a month with no basic
- * uploaded — which is what Aadil reported.
+ * Aadil's call, and he was asked: if one is missing the other should still total. So a
+ * month with commission and no basic yet shows the commission as the combined figure
+ * rather than a dash.
  *
- * The phone already refused to add a known figure to an absent one. Extracted from the
- * render function so a test can reach it: the rule was being re-implemented inside the
- * test instead, which proved only that the test agreed with itself.
+ * What makes that readable is the pair of tiles beside it. Basic shows a DASH when it
+ * has not been uploaded, so the combined figure matching commission exactly is
+ * explained on the same screen rather than looking like a broken sum — which is what it
+ * did look like when Basic read "R0,00" instead of a dash.
  *
- * Two real noughts still add to a real nought. Being paid nothing is not the same as
- * nothing having been uploaded.
+ * Null only when NEITHER arrived. Two real noughts still add to a real nought: being
+ * paid nothing is not the same as nothing having been uploaded.
  */
 function combinedPay(totals) {
-  if (totals.basic === null || totals.commission === null) return null;
-  return totals.basic + totals.commission;
+  if (totals.basic === null && totals.commission === null) return null;
+  return (totals.basic ?? 0) + (totals.commission ?? 0);
 }
 
 function performanceTotals(rows) {
@@ -4351,6 +4351,7 @@ function renderPerformanceUploads() {
       <div class="toolbar" style="margin-top:var(--s2)">
         <button id="perfSave-${kind}">Save ${esc(spec.label.toLowerCase())}</button>
         <button id="perfTemplate-${kind}" class="outline">Download template</button>
+        <button id="perfClear-${kind}" class="outline danger">Remove a month</button>
       </div>
     </div>`).join('');
   $('perfUploads').dataset.built = 'yes';
@@ -4364,7 +4365,109 @@ function renderPerformanceUploads() {
       if (file) $('perfText-' + kind).value = await file.text();
     });
     $('perfSave-' + kind).addEventListener('click', () => savePerformance(kind));
+    $('perfClear-' + kind).addEventListener('click', () => clearPerformanceMonth(kind));
   });
+}
+
+/**
+ * Which figures a month holds, so a removal can say what it is about to remove.
+ *
+ * Counted from what has actually been fetched for that month, which is the same thing
+ * the tab is showing — so the number in the confirmation is the number on screen.
+ */
+function monthFigureCount(kind) {
+  const month = $('perfMonth').value || todayString().slice(0, 7);
+  const field = perfFigures(kind)[0].field;
+  const from = kind === 'fy' ? data.perfFy
+    : PERF_UPLOADS[kind].keyedOn === 'team' ? data.perfTeams
+    : data.perfMonthly;
+  return {
+    month,
+    rows: from.filter(r => r.month === month
+      && r[field] !== null && r[field] !== undefined).length
+  };
+}
+
+/**
+ * Removes ONE figure for ONE month.
+ *
+ * There was no way to take a figure back before this. Uploading zeros is not a removal —
+ * it replaces "not counted" with "earned nothing", which is worse than the mistake being
+ * corrected, and it was the only option available for a month uploaded by accident.
+ *
+ * Narrow on purpose. It clears the chosen figure for the chosen month and nothing else:
+ * commission for September leaves basic for September alone, and every other month
+ * untouched. On the documents pay and FY share, the figure's FIELD is deleted rather than
+ * the document, so removing commission cannot take basic with it.
+ *
+ * Confirmed by typing the month. A misclick on a button that deletes somebody's pay is
+ * not something a yes/no dialog protects against.
+ */
+async function clearPerformanceMonth(kind) {
+  const spec = PERF_UPLOADS[kind];
+  const { month, rows } = monthFigureCount(kind);
+  if (rows === 0) {
+    $('perfUploadStatus').innerHTML = `<span class="meta">No ${
+      esc(spec.label.toLowerCase())} stored for ${esc(month)} — nothing to remove.</span>`;
+    return;
+  }
+
+  const typed = prompt(
+    `Remove ${spec.label} for ${month}?\n\n`
+    + `${rows} figure(s) will be cleared. Nothing else is touched — other months, and `
+    + `other figures in this month, are left alone.\n\n`
+    + `Type the month (${month}) to confirm.`);
+  if (typed === null) return;
+  if (typed.trim() !== month) {
+    $('perfUploadStatus').innerHTML =
+      `<span style="color:var(--error)">That did not match ${esc(month)} — nothing removed.</span>`;
+    return;
+  }
+
+  const collectionName = kind === 'fy' ? 'perfFy'
+    : spec.keyedOn === 'team' ? 'perfTeams' : 'perfMonthly';
+  const fields = perfFigures(kind).map(f => f.field);
+
+  try {
+    const snap = await getDocs(query(collection(db, collectionName),
+      where('month', '==', month)));
+
+    // Only the documents that actually carry one of this file's figures, so a month of
+    // commission is not rewritten just to prove it had none.
+    const touched = snap.docs.filter(d => fields.some(f => {
+      const v = d.data()[f];
+      return v !== null && v !== undefined;
+    }));
+
+    let cleared = 0;
+    for (let start = 0; start < touched.length; start += 400) {
+      const batch = writeBatch(db);
+      touched.slice(start, start + 400).forEach(d => {
+        const rest = { ...d.data() };
+        fields.forEach(f => { delete rest[f]; });
+        // A document with no figures left is removed outright rather than left as an
+        // empty shell that still counts against the month's reads.
+        const hasFigures = Object.keys(PERF_UPLOADS)
+          .flatMap(k => perfFigures(k))
+          .some(f => rest[f.field] !== null && rest[f.field] !== undefined);
+        if (hasFigures) {
+          batch.set(doc(db, collectionName, d.id), rest);
+        } else {
+          batch.delete(doc(db, collectionName, d.id));
+        }
+        cleared++;
+      });
+      await batch.commit();
+    }
+
+    $('perfUploadStatus').innerHTML = `<span style="color:var(--primary)">Removed ${
+      esc(spec.label.toLowerCase())} for ${esc(month)} — ${cleared} document(s) changed. `
+      + `Other figures for that month are untouched.</span>`;
+    perfMonthsLoaded.delete(month);
+    await loadAll();
+  } catch (err) {
+    showMsg('Could not remove: ' + err.message, 'err');
+  }
 }
 
 /**

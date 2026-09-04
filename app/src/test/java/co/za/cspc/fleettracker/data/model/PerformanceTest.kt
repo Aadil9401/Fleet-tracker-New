@@ -255,22 +255,24 @@ class PerformanceTest {
     }
 
     /**
-     * The total a person is owed.
+     * The total a person is owed: whichever of the three arrived, added.
      *
-     * Basic and commission are paid every month, so an absent one means the file has not
-     * arrived and no total can be stated. FY is occasional, so its absence is normal and
-     * must not blank the total — which is the asymmetry worth pinning, because treating
-     * all three the same would leave most people with no total at all.
+     * Aadil's call, and he was asked: if one is missing the other two should still total.
+     * What keeps it honest is the three lines above the total, each showing a dash when
+     * its own figure has not been uploaded — the total is the sum of what is on screen.
      */
     @Test
-    fun totalPayNeedsPayButNotTheIncentive() {
+    fun totalPayAddsWhicheverArrived() {
         assertEquals(11800.0, Performance.totalPay(6200.0, 5600.0, null)!!, 0.001)
         assertEquals(20340.0, Performance.totalPay(6200.0, 5600.0, 8540.0)!!, 0.001)
-        // Missing basic or commission means the total cannot be stated.
-        assertNull(Performance.totalPay(null, 5600.0, 8540.0))
-        assertNull(Performance.totalPay(6200.0, null, 8540.0))
+        // Any one of them missing: the rest still total.
+        assertEquals(14140.0, Performance.totalPay(null, 5600.0, 8540.0)!!, 0.001)
+        assertEquals(14740.0, Performance.totalPay(6200.0, null, 8540.0)!!, 0.001)
+        assertEquals(8540.0, Performance.totalPay(null, null, 8540.0)!!, 0.001)
+        assertEquals(6200.0, Performance.totalPay(6200.0, null, null)!!, 0.001)
+        // NONE of them is still nothing at all, and shows a dash rather than R0,00.
         assertNull(Performance.totalPay(null, null, null))
-        // Two real noughts and no incentive still add to a real nought.
+        // Real noughts still add to a real nought.
         assertEquals(0.0, Performance.totalPay(0.0, 0.0, null)!!, 0.001)
     }
 

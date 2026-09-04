@@ -540,6 +540,38 @@ check('a month already in hand is not read twice',
 check('and an upload invalidates what was cached',
   source.includes('perfMonthsLoaded.clear();'), true);
 
+/* ---------------- removing a month of one figure ---------------- */
+/* There was no way to take a figure back before this, and the only thing available was
+   uploading zeros — which replaces "not counted" with "earned nothing", worse than the
+   mistake being corrected. Asserted against the source, because the harness stubs
+   Firestore and nothing here can observe the real writes.
+
+   The danger is breadth: a removal that took the whole document would take basic away
+   with commission, since the two share one document per person per month. */
+check('a removal clears only THIS file\'s fields',
+  source.includes('fields.forEach(f => { delete rest[f]; });'), true);
+check('and the fields come from the file being removed, not all of them',
+  source.includes('const fields = perfFigures(kind).map(f => f.field);'), true);
+check('it is scoped to one month by an equality on the month',
+  source.includes("where('month', '==', month)"), true);
+// A document left with no figures at all is removed rather than kept as an empty shell
+// that still costs a read every time the month is loaded.
+check('a document with nothing left is deleted outright',
+  source.includes('batch.delete(doc(db, collectionName, d.id));'), true);
+check('and one with figures left is rewritten without them',
+  source.includes('batch.set(doc(db, collectionName, d.id), rest);'), true);
+// Typing the month, not a yes/no box: this deletes somebody's pay.
+check('it is confirmed by typing the month',
+  source.includes("if (typed.trim() !== month) {"), true);
+check('and the cached month is dropped so the tab re-reads what is left',
+  source.includes('perfMonthsLoaded.delete(month);'), true);
+// Each of the six files gets its own button, so a month of one figure can go without
+// disturbing the other five.
+check('every upload has a remove button',
+  (source.match(/perfClear-/g) || []).length >= 2, true);
+check('and it goes to the right collection for the kind',
+  source.includes("const collectionName = kind === 'fy' ? 'perfFy'"), true);
+
 /* Firestore commits at most 500 writes per batch, and a batch is a cliff rather than a
    slope: one row over and the whole upload fails with an error about batch size, saying
    nothing about the file. So the upload chunks, and the chunk size has to stay under the

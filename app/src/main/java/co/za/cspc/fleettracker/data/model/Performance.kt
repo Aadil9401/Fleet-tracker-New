@@ -167,7 +167,12 @@ object Performance {
      * screen does not reshuffle itself between loads.
      */
     fun fyInOrder(rows: List<Fy>): List<Fy> =
-        FY_NETWORKS.mapNotNull { network -> rows.firstOrNull { networkKey(it.network) == network } }
+        FY_NETWORKS.mapNotNull { network ->
+            // The network comes back CANONICAL, not as it happened to be stored. A row
+            // saved as "mtn" is the same row as one saved as "MTN", and a caller that
+            // has to normalise it again is a caller that can forget to.
+            rows.firstOrNull { networkKey(it.network) == network }?.copy(network = network)
+        }
 
     /**
      * Every network's FY amount added together — what the person is actually owed.
@@ -181,20 +186,26 @@ object Performance {
     }
 
     /**
-     * What a person is owed for a month: basic, plus commission, plus FY.
+     * What a person is owed for a month: basic, plus commission, plus FY — over whichever
+     * of the three arrived.
      *
-     * Basic and commission are paid every month, so an absent one means the file has not
-     * arrived and the total cannot be stated — it returns null and the line shows a dash.
-     * FY is an OCCASIONAL incentive, so its absence is the normal case and must not blank
-     * the total; it is added when it is there.
+     * Aadil's call, and he was asked: if one is missing the other two should still total.
+     * A month with pay but no FY totals the pay; a month with FY before the payroll file
+     * lands totals the FY.
+     *
+     * What keeps that honest is the three lines above it, each showing a DASH when its
+     * own figure has not been uploaded. The total is the sum of what is on screen, and
+     * what is not on screen is visibly not there.
+     *
+     * Null only when NONE of the three arrived. Real noughts still add to a real nought:
+     * being paid nothing is not the same as nothing having been uploaded.
      *
      * Lives here rather than on the UI state so it can be unit tested. A rule about
      * somebody's pay that only a screen can reach is a rule nothing checks.
      */
     fun totalPay(basicRands: Double?, commissionRands: Double?, fyRands: Double?): Double? {
-        val basic = basicRands ?: return null
-        val commission = commissionRands ?: return null
-        return basic + commission + (fyRands ?: 0.0)
+        if (basicRands == null && commissionRands == null && fyRands == null) return null
+        return (basicRands ?: 0.0) + (commissionRands ?: 0.0) + (fyRands ?: 0.0)
     }
 
     /**
