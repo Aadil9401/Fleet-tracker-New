@@ -3862,19 +3862,40 @@ const TEAM_LEVEL_FIELDS = ['stock', 'connections', 'activations'];
  * A person with no team carries no team figures, so contributes nothing to those three.
  */
 function performanceTotals(rows) {
-  // Each person's own pay, so simply summed — both of them.
-  const commission = rows.reduce((sum, r) => sum + (r.commissionRands || 0), 0);
-  const basic = rows.reduce((sum, r) => sum + (r.basicSalaryRands || 0), 0);
-  const totals = { stock: 0, connections: 0, activations: 0, commission, basic };
+  /*
+   * NULL where nothing was uploaded, and that is the whole point of this shape.
+   *
+   * These used to start at 0 and be added to, so a figure nobody had uploaded came out
+   * as 0 and the tile read "R0,00" — which says the team earned nothing, not that the
+   * file has not arrived. The table under it showed a dash for the very same figure, so
+   * one screen gave two answers, and the wrong one was the confident-looking one.
+   *
+   * A real 0 is kept as 0. Stock issued and nothing sold is a result; no stock file is
+   * not. The two must not look the same.
+   */
+  const sumOf = (pick, from) => {
+    const present = from.map(pick).filter(v => v !== null && v !== undefined);
+    return present.length === 0 ? null : present.reduce((sum, v) => sum + Number(v), 0);
+  };
 
+  // Each person's own pay, so summed over every row with no de-duplication.
+  const totals = {
+    commission: sumOf(r => r.commissionRands, rows),
+    basic: sumOf(r => r.basicSalaryRands, rows)
+  };
+
+  // A team's figure counted once per TEAM present, not once per person on it.
+  const firstPerTeam = [];
   const seen = new Set();
   rows.forEach(r => {
     if (!r.teamKey || seen.has(r.teamKey)) return;
     seen.add(r.teamKey);
-    TEAM_LEVEL_FIELDS.forEach(field => {
-      if (r[field] !== null && r[field] !== undefined) totals[field] += Number(r[field]);
-    });
+    firstPerTeam.push(r);
   });
+  TEAM_LEVEL_FIELDS.forEach(field => {
+    totals[field] = sumOf(r => r[field], firstPerTeam);
+  });
+
   return totals;
 }
 
@@ -3918,16 +3939,25 @@ function renderPerformance() {
 
   // Every ratio here divides the two totals. The mean of everybody's conversion rate
   // is not the team's conversion rate, and it flatters whoever was given least stock.
+  // A dash, never a nought — the same rule the table under these tiles follows.
+  const count = (v) => v === null ? '—' : num(v);
+  const money = (v) => v === null ? '—' : rand(v);
+  // Added only over what is actually there: basic alone is basic, and neither uploaded
+  // is a dash rather than R0,00.
+  const pay = totals.basic === null && totals.commission === null
+    ? null
+    : (totals.basic ?? 0) + (totals.commission ?? 0);
+
   $('perfTiles').innerHTML = [
-    ['Stock', num(totals.stock), ''],
-    ['Connections', num(totals.connections), ''],
+    ['Stock', count(totals.stock), ''],
+    ['Connections', count(totals.connections), ''],
     ['Stock → conn', percentLabel(ratioPercent(totals.connections, totals.stock)), ''],
-    ['Activations', num(totals.activations), ''],
+    ['Activations', count(totals.activations), ''],
     ['Conn → act', percentLabel(ratioPercent(totals.activations, totals.connections)), ''],
     ['Stock → act', percentLabel(ratioPercent(totals.activations, totals.stock)), ''],
-    ['Basic', rand(totals.basic), ''],
-    ['Commission', rand(totals.commission), ''],
-    ['Basic + comm', rand(totals.basic + totals.commission), '']
+    ['Basic', money(totals.basic), ''],
+    ['Commission', money(totals.commission), ''],
+    ['Basic + comm', money(pay), '']
   ].map(([cap, big, tone]) =>
     `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');

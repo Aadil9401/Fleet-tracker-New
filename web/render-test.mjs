@@ -624,14 +624,49 @@ check('one team name is one team, wherever its people are posted',
 // — but their own commission still counts.
 const noTeam = [member('A', 'Gauteng', '', { commissionRands: 3000 })];
 check('a person with no team adds no team figures',
-  portal.performanceTotals(noTeam).stock, 0);
+  portal.performanceTotals(noTeam).stock, null);
 check('but their commission is still theirs', portal.performanceTotals(noTeam).commission, 3000);
 
-// A figure nobody uploaded must not become a zero.
+/* A figure nobody uploaded is NULL, so the tile shows a dash.
+   This pair of assertions used to want 0 — under this very name. The totals started at
+   zero and were added to, so a file that had not arrived came out as 0 and the tile read
+   "R0,00" or "0", which says the team sold none rather than that nothing was counted
+   yet. The table directly beneath showed a dash for the same figure, so one screen gave
+   two answers and the confident-looking one was wrong. */
 const partly = [member('A', 'Gauteng', 'Soweto', { stock: 600 })];
-check('a figure never uploaded is skipped rather than counted as 0',
+check('a figure never uploaded is null rather than counted as 0',
   [portal.performanceTotals(partly).stock, portal.performanceTotals(partly).connections],
+  [600, null]);
+
+/* And the distinction that makes it worth the trouble: a REAL zero survives. Stock
+   issued and nothing sold is a result and must not read as a missing file. */
+const soldNothing = [member('A', 'Gauteng', 'Soweto', { stock: 600, connections: 0 })];
+check('but a real zero is kept as a zero',
+  [portal.performanceTotals(soldNothing).stock, portal.performanceTotals(soldNothing).connections],
   [600, 0]);
+
+// The same rule for pay, which is where it was noticed: a month with no pay file must
+// not read as a month nobody was paid.
+const noPay = [member('A', 'Gauteng', 'Soweto', { stock: 600 })];
+check('no pay uploaded is null, not R0,00',
+  [portal.performanceTotals(noPay).basic, portal.performanceTotals(noPay).commission],
+  [null, null]);
+const basicOnly = [member('A', 'Gauteng', 'Soweto', { basicSalaryRands: 6200 })];
+check('basic uploaded without commission gives basic and a dash',
+  [portal.performanceTotals(basicOnly).basic, portal.performanceTotals(basicOnly).commission],
+  [6200, null]);
+const zeroPaid = [member('A', 'Gauteng', 'Soweto', { basicSalaryRands: 0, commissionRands: 0 })];
+check('and a real nought paid is still nought',
+  [portal.performanceTotals(zeroPaid).basic, portal.performanceTotals(zeroPaid).commission],
+  [0, 0]);
+
+/* A ratio over a figure that was never uploaded is unknown, not 0% — which follows for
+   free once the total is null, and is the reason it has to be null rather than 0. */
+check('and a percentage over a missing figure is unknown',
+  portal.percentLabel(portal.ratioPercent(
+    portal.performanceTotals(partly).connections,
+    portal.performanceTotals(partly).stock)),
+  '—');
 
 /* ---------------- the leaderboard ---------------- */
 // By team, ranked highest first, positions only. The figures are hidden, so nobody can
