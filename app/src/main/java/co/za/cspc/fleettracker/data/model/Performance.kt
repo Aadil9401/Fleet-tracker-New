@@ -186,6 +186,19 @@ object Performance {
     }
 
     /**
+     * What is payable on ONE network.
+     *
+     * The combined figure is what gets paid, but it is not what gets queried — an
+     * argument about FY is always about one network, so each amount has to be readable
+     * on its own rather than worked back out of a total.
+     */
+    fun fyAmountOn(rows: List<Fy>, network: String): Double? {
+        val wanted = networkKey(network)
+        val present = rows.filter { networkKey(it.network) == wanted }.mapNotNull { it.amountRands }
+        return if (present.isEmpty()) null else present.sum()
+    }
+
+    /**
      * What a person is owed for a month: basic, plus commission, plus FY — over whichever
      * of the three arrived.
      *

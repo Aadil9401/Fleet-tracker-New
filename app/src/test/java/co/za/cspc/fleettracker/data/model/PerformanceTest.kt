@@ -255,6 +255,36 @@ class PerformanceTest {
     }
 
     /**
+     * Each network's FY payable on its own.
+     *
+     * The combined figure is what gets paid; this is what gets queried, because an
+     * argument about FY is always about one network and nobody should have to subtract
+     * one amount from a total to find the other.
+     */
+    @Test
+    fun fyAmountIsReadablePerNetwork() {
+        val both = listOf(
+            Performance.Fy("MTN", 1000, 400, 5600.0),
+            Performance.Fy("TELKOM", 600, 210, 2940.0)
+        )
+        assertEquals(5600.0, Performance.fyAmountOn(both, "MTN")!!, 0.001)
+        assertEquals(2940.0, Performance.fyAmountOn(both, "TELKOM")!!, 0.001)
+        // The two add up to the combined figure, which is the thing that gets paid.
+        assertEquals(
+            Performance.fyTotal(both)!!,
+            Performance.fyAmountOn(both, "MTN")!! + Performance.fyAmountOn(both, "TELKOM")!!,
+            0.001
+        )
+        // However the network was written.
+        assertEquals(5600.0, Performance.fyAmountOn(both, "mtn")!!, 0.001)
+        // A network with nothing on it is null, so it shows as a dash rather than R0,00.
+        assertNull(Performance.fyAmountOn(both.take(1), "TELKOM"))
+        assertNull(Performance.fyAmountOn(emptyList(), "MTN"))
+        // And a network FY does not even run on has nothing either.
+        assertNull(Performance.fyAmountOn(both, "VODACOM"))
+    }
+
+    /**
      * The total a person is owed: whichever of the three arrived, added.
      *
      * Aadil's call, and he was asked: if one is missing the other two should still total.

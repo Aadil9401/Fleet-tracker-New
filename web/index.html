@@ -438,6 +438,7 @@
     <button data-tab="employees">Employees</button>
     <button data-tab="vehicles">Vehicles</button>
     <button data-tab="performance">Performance</button>
+    <button data-tab="fy">FY</button>
     <button data-tab="logs">Logs</button>
   </nav>
 
@@ -882,9 +883,49 @@
         </p>
       </div>
 
+      <div class="card" id="perfUnmatchedCard"></div>
+
+      <div class="card">
+        <h2 class="section">Upload figures</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          Stock, connections and activations are a team's figures; basic salary and
+          commission are a person's pay. <b>FY has its own tab</b>, and is uploaded there.
+          <br><br>
+          Five separate files, one figure each, all monthly. Stock, connections and
+          activations are matched on <b>team name</b> because they are a team's figures,
+          and each row also names its <b>network</b>; <b>basic salary</b> and
+          <b>commission</b> are matched on <b>employee number</b> because they are a
+          person's own pay, and neither has a network.
+          <br>
+          A team's month needs one row per network — four rows for a team selling all
+          four. A network with nothing to report is left out rather than sent as 0, which
+          is what keeps "sold none" and "not counted yet" apart on the tab.
+          <br>
+          One file can carry several months — put the month on each row. Uploading the
+          same month again corrects it rather than adding to it, and uploading one figure
+          never wipes another.
+        </p>
+        <div id="perfUploads"></div>
+        <div class="count" id="perfUploadStatus"></div>
+      </div>
+    </section>
+
+    <!-- FY -->
+    <section id="tab-fy" class="hidden">
       <div class="card">
         <div class="toolbar">
-          <h2 class="section" style="margin:0">FY incentive</h2>
+          <div>
+            <label for="fyMonth">Month</label>
+            <input id="fyMonth" type="month">
+          </div>
+          <div>
+            <label for="fyNetwork">Network</label>
+            <select id="fyNetwork"></select>
+          </div>
+          <div class="grow">
+            <label for="fySearch">Search</label>
+            <input id="fySearch" type="search" placeholder="Name, employee number, province or team">
+          </div>
           <button id="exportFy" class="outline">Export CSV</button>
         </div>
         <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)">
@@ -907,27 +948,21 @@
         </table></div>
       </div>
 
-      <div class="card" id="perfUnmatchedCard"></div>
-
       <div class="card">
-        <h2 class="section">Upload figures</h2>
+        <h2 class="section">Upload FY</h2>
         <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-          Five separate files, one figure each, all monthly. Stock, connections and
-          activations are matched on <b>team name</b> because they are a team's figures,
-          and each row also names its <b>network</b>; <b>basic salary</b> and
-          <b>commission</b> are matched on <b>employee number</b> because they are a
-          person's own pay, and neither has a network.
+          <b>One row per person per month</b>, with each network's three figures in its own
+          columns — so both payables sit side by side and the row can be checked at a
+          glance.
           <br>
-          A team's month needs one row per network — four rows for a team selling all
-          four. A network with nothing to report is left out rather than sent as 0, which
-          is what keeps "sold none" and "not counted yet" apart on the tab.
+          Leave a network's three columns <b>empty</b> for somebody who was not on it.
+          Filling in only some of a network's three is refused, because an amount with no
+          figures behind it cannot be checked.
           <br>
-          One file can carry several months — put the month on each row. Uploading the
-          same month again corrects it rather than adding to it, and uploading one figure
-          never wipes another.
+          Uploading the same month again corrects it rather than adding to it.
         </p>
-        <div id="perfUploads"></div>
-        <div class="count" id="perfUploadStatus"></div>
+        <div id="fyUploads"></div>
+        <div class="count" id="fyUploadStatus"></div>
       </div>
     </section>
 
@@ -1600,7 +1635,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['today','reports','employees','vehicles','performance','logs'].forEach(t =>
+    ['today','reports','employees','vehicles','performance','fy','logs'].forEach(t =>
       $('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
     $('globalMsg').innerHTML = '';
 
@@ -1614,6 +1649,10 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
       $('perfMonth').value = todayString().slice(0, 7);
     }
     if (btn.dataset.tab === 'performance') showPerformance();
+    if (btn.dataset.tab === 'fy' && !$('fyMonth').value) {
+      $('fyMonth').value = todayString().slice(0, 7);
+    }
+    if (btn.dataset.tab === 'fy') showFy();
     if (btn.dataset.tab === 'logs' && !$('lbMonth').value) {
       $('lbMonth').value = todayString().slice(0, 7);
     }
@@ -1631,6 +1670,7 @@ function renderAll() {
   renderEmployees();
   renderVehicles();
   renderPerformance();
+  renderFy();
   renderLeaderboard();
   renderLogs();
 }
@@ -3221,16 +3261,29 @@ const PERF_UPLOADS = {
   fy: {
     label: 'FY incentive',
     keyedOn: 'employee',
-    network: true,
+    /*
+     * WIDE: one row per person per month, with each network's three figures as its own
+     * columns — so both payables sit side by side on one line.
+     *
+     * Aadil fills this in by hand, occasionally, and asked for it this way round after
+     * seeing the tall version: a person's MTN and Telkom amounts on one row is what he
+     * is actually reading off. It costs a shape the other five files do not have, and it
+     * buys a file somebody can check at a glance.
+     *
+     * Stored per network all the same — one document per person, month AND network — so
+     * one line here becomes two documents. The parser expands it; nothing downstream
+     * knows the difference.
+     */
+    layout: 'wide',
     networks: FY_NETWORKS,
     figures: [
-      { label: 'FY stock', field: 'fyStock', kind: 'count' },
-      { label: 'FY connections', field: 'fyConnections', kind: 'count' },
-      { label: 'FY amount', field: 'fyAmountRands', kind: 'money' }
+      { label: 'stock', field: 'fyStock', kind: 'count' },
+      { label: 'connections', field: 'fyConnections', kind: 'count' },
+      { label: 'payable', field: 'fyAmountRands', kind: 'money' }
     ],
     sample: [
-      ['T042', '2026-08', 'MTN', '1000', '400', '5600.00'],
-      ['T042', '2026-08', 'TELKOM', '600', '210', '2940.00']
+      ['T042', '2026-08', '1000', '400', '5600.00', '600', '210', '2940.00'],
+      ['T099', '2026-08', '500', '125', '1750.00', '', '', '']
     ]
   }
 };
@@ -3293,25 +3346,44 @@ const perfFigures = (kind) => {
 };
 
 /**
- * Whether this upload carries a network column.
+ * A WIDE file repeats its figures once per network, as columns, instead of naming one
+ * network per row. Only FY is laid out that way — see its entry above.
+ */
+const perfIsWide = (kind) => PERF_UPLOADS[kind].layout === 'wide';
+
+/**
+ * Whether this upload names a network in a COLUMN of its own.
  *
  * Stated on the spec rather than inferred from what it is keyed on. It used to be
  * "team figures have one, employee figures do not", which was true until FY arrived —
- * paid to a person AND split by network.
+ * paid to a person and split by network. A wide file has no such column: its networks
+ * are in the headings.
  */
-const perfHasNetwork = (kind) =>
-  PERF_UPLOADS[kind].network ?? (PERF_UPLOADS[kind].keyedOn === 'team');
+const perfHasNetwork = (kind) => !perfIsWide(kind)
+  && (PERF_UPLOADS[kind].network ?? (PERF_UPLOADS[kind].keyedOn === 'team'));
 
 /** Which networks this upload accepts. FY runs on two of the four. */
 const perfNetworks = (kind) => PERF_UPLOADS[kind].networks ?? NETWORKS;
 
 /** The columns one upload has, and therefore where each figure sits. */
-const perfColumns = (kind) => [
-  perfKeyLabel(kind),
-  'Month',
-  ...(perfHasNetwork(kind) ? ['Network'] : []),
-  ...perfFigures(kind).map(f => f.label)
-];
+const perfColumns = (kind) => {
+  if (perfIsWide(kind)) {
+    return [
+      perfKeyLabel(kind),
+      'Month',
+      // "MTN stock, MTN connections, MTN payable, Telkom stock, ..." — generated, so the
+      // headings cannot disagree with the networks the figures are read into.
+      ...perfNetworks(kind).flatMap(network =>
+        perfFigures(kind).map(f => `${NETWORK_LABELS[network]} ${f.label}`))
+    ];
+  }
+  return [
+    perfKeyLabel(kind),
+    'Month',
+    ...(perfHasNetwork(kind) ? ['Network'] : []),
+    ...perfFigures(kind).map(f => f.label)
+  ];
+};
 
 /** The template for one upload, header first — what the Download template button gives. */
 const perfTemplateRows = (kind) => [perfColumns(kind), ...PERF_UPLOADS[kind].sample];
@@ -3403,6 +3475,68 @@ function parsePerformanceLines(text, kind) {
     const width = perfColumns(kind).length;
     // Where the figures start: after the key, the month, and the network if there is one.
     const firstFigure = hasNetwork ? 3 : 2;
+
+    /*
+     * A WIDE row — FY only — carries every network's figures as columns, and becomes ONE
+     * ROW PER NETWORK here. Nothing downstream knows the difference: the writer, the
+     * reader and the screens all see the same per-network rows they always did.
+     *
+     * A network whose cells are ALL blank is skipped rather than refused. Somebody who
+     * only sold MTN leaves the Telkom columns empty, and that is a normal file, not a
+     * mistake. A network with SOME of its cells filled is a different matter and is
+     * refused by name — half an incentive is not something to store.
+     */
+    if (perfIsWide(kind)) {
+      if (!isMonth(period)) return errors.push({ line, why: 'month must be yyyy-mm' });
+      if (parts.length > width) {
+        return errors.push({ line, why: 'more columns than this file should have' });
+      }
+
+      const networks = perfNetworks(kind);
+      const made = [];
+      let bad = null;
+
+      networks.forEach((network, n) => {
+        if (bad) return;
+        const at = 2 + n * figures.length;
+        const cells = figures.map((_, i) => String(parts[at + i] ?? '').trim());
+        if (cells.every(c => c === '')) return;
+
+        const values = {};
+        figures.forEach((f, i) => {
+          if (bad) return;
+          const label = `${NETWORK_LABELS[network]} ${f.label}`;
+          if (cells[i] === '') { bad = label + ' is blank'; return; }
+          const parsed = f.kind === 'money' ? perfMoney(cells[i]) : perfCount(cells[i]);
+          if (parsed === null) {
+            bad = label + (f.kind === 'money' ? ' must be an amount' : ' must be a whole number');
+            return;
+          }
+          values[f.field] = parsed;
+        });
+        if (bad) return;
+
+        made.push({
+          keyAsTyped: key,
+          key: numberKey(key),
+          keyedOn: spec.keyedOn,
+          month: period,
+          network,
+          field: figures[0].field,
+          value: values[figures[0].field],
+          values
+        });
+      });
+
+      if (bad) return errors.push({ line, why: bad });
+      // A row with every network left blank is a person with no FY that month, which is
+      // not an error and not a row — it is simply nothing to store.
+      if (made.length === 0) {
+        return errors.push({ line, why: 'no figures on this row for any network' });
+      }
+      made.forEach(r => rows.push(r));
+      return;
+    }
 
     // An extra column means the row is not the shape this file is supposed to be, and
     // the commonest cause is a comma decimal splitting the figure in two. That used to
@@ -4041,18 +4175,25 @@ function fyRows(month, network) {
 }
 
 /**
- * FY on screen, after the same province, team and search filters as the table above.
+ * FY's own filters.
+ *
+ * It borrowed the Performance tab's while it lived on that tab, which meant a province
+ * chosen for the team figures silently narrowed the incentive too. On its own tab it
+ * needs its own, or the two would go on interfering with each other invisibly.
+ */
+const fyFilters = { network: '', query: '' };
+
+/**
+ * FY on screen, after its own network and search filters.
  *
  * The month is a PARAMETER defaulting to the picker, not read from the picker outright.
  * The export calls this with the month it was given, and a function that quietly went
  * and looked the month up again could export a different month from the one it names in
  * the filename.
  */
-function visibleFyRows(month = $('perfMonth').value || todayString().slice(0, 7)) {
-  const q = perfFilters.query.trim().toLowerCase();
-  return fyRows(month, perfFilters.network).filter(r => {
-    if (perfFilters.province && r.province !== perfFilters.province) return false;
-    if (perfFilters.team && r.team !== perfFilters.team) return false;
+function visibleFyRows(month = $('fyMonth').value || todayString().slice(0, 7)) {
+  const q = fyFilters.query.trim().toLowerCase();
+  return fyRows(month, fyFilters.network).filter(r => {
     if (!q) return true;
     return [r.name, r.province, r.team, NETWORK_LABELS[r.network]]
       .some(v => String(v ?? '').toLowerCase().includes(q))
@@ -4068,18 +4209,43 @@ function visibleFyRows(month = $('perfMonth').value || todayString().slice(0, 7)
  * above follow, and for the same reason.
  */
 function fyTotals(rows) {
-  const sumOf = (pick) => {
-    const present = rows.map(pick).filter(v => v !== null && v !== undefined);
+  const sumOf = (pick, from = rows) => {
+    const present = from.map(pick).filter(v => v !== null && v !== undefined);
     return present.length === 0 ? null : present.reduce((a, b) => a + Number(b), 0);
   };
+
+  /*
+   * What is payable on EACH network as well as altogether.
+   *
+   * The combined figure is what gets paid, but it is not what gets queried — an argument
+   * about FY is always about one network, so the two amounts have to be readable on
+   * their own rather than worked back out of a total.
+   *
+   * Built from FY_NETWORKS so a third network needs no new tile, and null where that
+   * network has nothing, which shows as a dash rather than R0,00.
+   */
+  const amountByNetwork = {};
+  FY_NETWORKS.forEach(network => {
+    amountByNetwork[network] =
+      sumOf(r => r.amount, rows.filter(r => networkKey(r.network) === network));
+  });
+
   return {
     stock: sumOf(r => r.stock),
     connections: sumOf(r => r.connections),
-    amount: sumOf(r => r.amount)
+    amount: sumOf(r => r.amount),
+    amountByNetwork
   };
 }
 
 function renderFy() {
+  $('fyNetwork').innerHTML = [`<option value="">All networks</option>`,
+    ...FY_NETWORKS.map(n =>
+      `<option value="${n}" ${n === fyFilters.network ? 'selected' : ''}>${
+        esc(NETWORK_LABELS[n])}</option>`)].join('');
+
+  renderPerformanceUploads('fyUploads');
+
   const rows = visibleFyRows();
   const totals = fyTotals(rows);
   const count = (v) => v === null ? '—' : num(v);
@@ -4089,7 +4255,11 @@ function renderFy() {
     ['FY stock', count(totals.stock)],
     ['FY connections', count(totals.connections)],
     ['Stock → conn', percentLabel(ratioPercent(totals.connections, totals.stock))],
-    ['FY payable', money(totals.amount)]
+    // Each network's payable, then the combined figure. Generated from FY_NETWORKS so
+    // the tiles cannot fall out of step with the networks FY actually runs on.
+    ...FY_NETWORKS.map(network =>
+      [NETWORK_LABELS[network] + ' payable', money(totals.amountByNetwork[network])]),
+    ['FY payable total', money(totals.amount)]
   ].map(([cap, big]) =>
     `<div class="tile"><div class="big${tileFigureClass(big)}">${esc(big)}</div><div class="cap">${
       esc(cap)}</div></div>`).join('');
@@ -4102,7 +4272,7 @@ function renderFy() {
 
   $('fyRows').innerHTML = rows.length === 0
     ? `<tr><td colspan="7" class="empty">No FY uploaded for this month${
-        perfFilters.network ? ' on ' + esc(NETWORK_LABELS[networkKey(perfFilters.network)]) : ''
+        fyFilters.network ? ' on ' + esc(NETWORK_LABELS[networkKey(fyFilters.network)]) : ''
       }.</td></tr>`
     : rows.map(r => `<tr>
         <td><div class="nm">${esc(r.name || '—')}</div>${
@@ -4365,14 +4535,24 @@ function renderPerformance() {
       </div></div>`).join('')}`;
   $('perfUnmatchedCard').classList.toggle('hidden', unmatched.length === 0);
 
-  renderFy();
   renderPerformanceUploads();
 }
 
-/** The three upload cards, built from the same table the parser reads. */
-function renderPerformanceUploads() {
-  if ($('perfUploads').dataset.built === 'yes') return;
-  $('perfUploads').innerHTML = Object.entries(PERF_UPLOADS).map(([kind, spec]) => `
+/**
+ * FY is uploaded on its own tab; everything else on the Performance tab.
+ *
+ * Split by where the figure is READ rather than by anything about the file, so the box
+ * you upload in is on the same screen as the figures it produces.
+ */
+const perfUploadKinds = (container) => Object.keys(PERF_UPLOADS)
+  .filter(kind => (kind === 'fy') === (container === 'fyUploads'));
+
+/** The upload cards, built from the same table the parser reads. */
+function renderPerformanceUploads(container = 'perfUploads') {
+  if ($(container).dataset.built === 'yes') return;
+  $(container).innerHTML = perfUploadKinds(container).map(kind => {
+    const spec = PERF_UPLOADS[kind];
+    return `
     <div class="field" style="border-top:1px solid var(--surface-variant);padding-top:var(--s3)">
       <label>${esc(spec.label)} — one row per ${
         perfKeyLabel(kind) === 'Team name' ? 'team' : 'person'} per month${
@@ -4387,10 +4567,11 @@ function renderPerformanceUploads() {
         <button id="perfTemplate-${kind}" class="outline">Download template</button>
         <button id="perfClear-${kind}" class="outline danger">Remove a month</button>
       </div>
-    </div>`).join('');
-  $('perfUploads').dataset.built = 'yes';
+    </div>`;
+  }).join('');
+  $(container).dataset.built = 'yes';
 
-  Object.keys(PERF_UPLOADS).forEach(kind => {
+  perfUploadKinds(container).forEach(kind => {
     $('perfTemplate-' + kind).addEventListener('click', () => {
       downloadCsv(`performance-${kind}-template.csv`, perfTemplateRows(kind));
     });
@@ -4439,9 +4620,11 @@ function monthFigureCount(kind) {
  */
 async function clearPerformanceMonth(kind) {
   const spec = PERF_UPLOADS[kind];
+  // Reported beside the figures it removed, which for FY is its own tab.
+  const status = kind === 'fy' ? 'fyUploadStatus' : 'perfUploadStatus';
   const { month, rows } = monthFigureCount(kind);
   if (rows === 0) {
-    $('perfUploadStatus').innerHTML = `<span class="meta">No ${
+    $(status).innerHTML = `<span class="meta">No ${
       esc(spec.label.toLowerCase())} stored for ${esc(month)} — nothing to remove.</span>`;
     return;
   }
@@ -4453,7 +4636,7 @@ async function clearPerformanceMonth(kind) {
     + `Type the month (${month}) to confirm.`);
   if (typed === null) return;
   if (typed.trim() !== month) {
-    $('perfUploadStatus').innerHTML =
+    $(status).innerHTML =
       `<span style="color:var(--error)">That did not match ${esc(month)} — nothing removed.</span>`;
     return;
   }
@@ -4494,7 +4677,7 @@ async function clearPerformanceMonth(kind) {
       await batch.commit();
     }
 
-    $('perfUploadStatus').innerHTML = `<span style="color:var(--primary)">Removed ${
+    $(status).innerHTML = `<span style="color:var(--primary)">Removed ${
       esc(spec.label.toLowerCase())} for ${esc(month)} — ${cleared} document(s) changed. `
       + `Other figures for that month are untouched.</span>`;
     perfMonthsLoaded.delete(month);
@@ -4521,9 +4704,12 @@ async function savePerformance(kind) {
   const text = $('perfText-' + kind).value;
   if (!text.trim()) { showMsg('Choose a file or paste the figures first.', 'err'); return; }
 
+  // FY reports on its own tab, beside its own figures.
+  const status = kind === 'fy' ? 'fyUploadStatus' : 'perfUploadStatus';
+
   const { rows, errors } = parsePerformanceLines(text, kind);
   if (rows.length === 0) {
-    $('perfUploadStatus').innerHTML = `<span style="color:var(--error)">Nothing to save. ${
+    $(status).innerHTML = `<span style="color:var(--error)">Nothing to save. ${
       errors.length} line(s) could not be read.</span>` +
       errors.slice(0, 8).map(e => `<div class="meta">${esc(e.why)} — ${esc(e.line)}</div>`).join('');
     return;
@@ -4592,7 +4778,7 @@ async function savePerformance(kind) {
     }
 
     const months = [...new Set(rows.map(r => r.month))].sort();
-    $('perfUploadStatus').innerHTML =
+    $(status).innerHTML =
       `<span style="color:var(--primary)">Saved ${rows.length} row(s) of ${
         esc(spec.label.toLowerCase())}. ${matched} matched ${
         spec.keyedOn === 'team' ? 'a team on the staff list' : 'an employee'}${
@@ -4669,8 +4855,34 @@ function performanceExportRows(month) {
   ])];
 }
 
+$('fyMonth').min = monthsBack(PERF_HISTORY_MONTHS);
+$('fyMonth').max = todayString().slice(0, 7);
+$('fyMonth').addEventListener('change', () => showFy());
+$('fyNetwork').addEventListener('change', (e) => {
+  fyFilters.network = e.target.value;
+  renderFy();
+});
+$('fySearch').addEventListener('input', (e) => {
+  fyFilters.query = e.target.value;
+  renderFy();
+});
+
+/** Fetch then draw, the same way the Performance tab and the leaderboard do. */
+async function showFy() {
+  const month = $('fyMonth').value || todayString().slice(0, 7);
+  $('appView').classList.add('busy');
+  try {
+    await loadPerfMonth(month);
+    renderFy();
+  } catch (err) {
+    showMsg('Could not load FY: ' + err.message, 'err');
+  } finally {
+    $('appView').classList.remove('busy');
+  }
+}
+
 $('exportFy').addEventListener('click', () => {
-  const month = $('perfMonth').value || todayString().slice(0, 7);
+  const month = $('fyMonth').value || todayString().slice(0, 7);
   downloadCsv(`fy-${month}.csv`, fyExportRows(month));
 });
 

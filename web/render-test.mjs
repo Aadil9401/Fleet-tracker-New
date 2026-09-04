@@ -24,7 +24,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'leaderboardRows', 'teamKey', 'performanceExportRows', 'monthsBack', 'PERF_HISTORY_MONTHS',
   'teamFiguresFor', 'networkKey', 'NETWORKS', 'NETWORK_LABELS', 'lbFilters',
   'tileFigureClass', 'rand', 'num', 'combinedPay',
-  'fyRows', 'fyTotals', 'fyExportRows', 'renderLogs'
+  'fyRows', 'fyTotals', 'fyExportRows', 'renderLogs', 'FY_NETWORKS'
 ]);
 
 let failures = 0;
@@ -1015,15 +1015,38 @@ check('totals sum every row', [fyT.stock, fyT.connections, fyT.amount],
 check('and the total conversion divides the two totals',
   portal.percentLabel(portal.ratioPercent(fyT.connections, fyT.stock)), '34,4%');
 
+/* Each network's payable on its own, then the combined figure. The combined one is what
+   gets paid; the separate ones are what gets queried, because an argument about FY is
+   always about one network and nobody should have to subtract to find it. */
+check('each network has its own payable',
+  [fyT.amountByNetwork.MTN, fyT.amountByNetwork.TELKOM], [5600 + 1750 + 1260, 2940]);
+check('and they add up to the combined figure',
+  fyT.amountByNetwork.MTN + fyT.amountByNetwork.TELKOM, fyT.amount);
+// A network with nothing is a DASH, not R0,00 — the same rule as everywhere else.
+const mtnOnly = portal.fyTotals(portal.fyRows('2026-08', 'MTN'));
+check('a network with nothing shows as nothing',
+  [mtnOnly.amountByNetwork.MTN, mtnOnly.amountByNetwork.TELKOM], [8610, null]);
+check('and the total then equals the one network that has something',
+  mtnOnly.amount, mtnOnly.amountByNetwork.MTN);
+check('with nothing uploaded at all, every payable is a dash',
+  portal.FY_NETWORKS.map(n => portal.fyTotals(portal.fyRows('2026-09', '')).amountByNetwork[n]),
+  [null, null]);
+// Built from FY_NETWORKS, so a third network would get a tile without anyone adding one.
+check('a payable is worked out for every network FY runs on',
+  Object.keys(portal.fyTotals(fyAug).amountByNetwork), portal.FY_NETWORKS);
+
 check('a network narrows it', portal.fyRows('2026-08', 'MTN').length, 3);
 check('to that network only',
   portal.fyRows('2026-08', 'TELKOM').map(r => r.numberKey), ['T042']);
 // FY runs on two networks, so choosing a third shows nothing rather than showing MTN.
 check('a network FY does not run on shows nothing, not the wrong figures',
   portal.fyRows('2026-08', 'VODACOM').length, 0);
+// The VALUES rather than the shape: deep-equalling the object broke the moment a
+// per-network breakdown was added to it, which is not a change worth a failing test.
 check('and its totals are dashes rather than noughts',
-  portal.fyTotals(portal.fyRows('2026-08', 'VODACOM')),
-  { stock: null, connections: null, amount: null });
+  ['stock', 'connections', 'amount'].map(f =>
+    portal.fyTotals(portal.fyRows('2026-08', 'VODACOM'))[f]),
+  [null, null, null]);
 
 check('a month is its own', portal.fyRows('2026-07', '').length, 1);
 check('and a month with nothing uploaded is empty', portal.fyRows('2026-09', '').length, 0);

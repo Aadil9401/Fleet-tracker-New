@@ -170,6 +170,15 @@ fun PerformanceScreen(
                 Text("FY incentive", style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold)
                 state.fy.forEach { row -> FyCard(row) }
+                // Each network's payable, then the combined — so the section adds up on
+                // its own rather than sending someone to My pay to find the total.
+                Performance.FY_NETWORKS.forEach { network ->
+                    val amount = Performance.fyAmountOn(state.fy, network)
+                    if (amount != null) {
+                        MoneyRow(Performance.networkLabel(network) + " payable", amount)
+                    }
+                }
+                MoneyRow("FY payable total", state.fyTotalRands, strong = true)
             }
 
             HorizontalDivider()

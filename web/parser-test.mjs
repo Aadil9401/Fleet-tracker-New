@@ -33,7 +33,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
-  'perfFigures', 'perfNetworks', 'FY_NETWORKS'
+  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide'
 ]);
 
 let failures = 0;
@@ -397,7 +397,14 @@ Object.keys(portal.PERF_UPLOADS).forEach(kind => {
   const csv = portal.perfTemplateRows(kind).map(r => r.join(',')).join('\n');
   const back = portal.parsePerformanceLines(csv, kind);
   check(`the ${kind} template parses cleanly through its own parser`, back.errors.length, 0);
-  check(`and yields its sample rows`, back.rows.length, portal.PERF_UPLOADS[kind].sample.length);
+  // A WIDE file's row becomes one row per network, so the parsed count is not the
+  // template's row count — it is the number of networks actually filled in.
+  const expected = portal.perfIsWide(kind)
+    ? portal.PERF_UPLOADS[kind].sample.reduce((n, row) =>
+        n + portal.perfNetworks(kind).filter((_, i) =>
+          String(row[2 + i * portal.perfFigures(kind).length] ?? '').trim() !== '').length, 0)
+    : portal.PERF_UPLOADS[kind].sample.length;
+  check(`and yields its sample rows`, back.rows.length, expected);
 });
 
 /* ---------------- several months in one file ---------------- */
@@ -449,75 +456,78 @@ check('FY goes to its own collection, apart from pay',
 check('and every figure on the row is written, not just the first',
   (source.match(/\.\.\.r\.values,/g) || []).length, 2);
 
-/* ---------------- FY: one upload, three figures ---------------- */
-check('FY has six columns, in this order',
+/* ---------------- FY: one wide row, two networks ---------------- */
+/* FY is the only WIDE upload: one row per person per month, with each network's three
+   figures as its own columns, so both payables sit side by side on a line somebody can
+   check at a glance. It is stored per network all the same, so ONE row here becomes TWO
+   documents — and that expansion is the thing worth pinning, because nothing downstream
+   knows it happened. */
+check('FY is a wide file and the others are not',
+  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfIsWide(k)), ['fy']);
+check('its columns carry each network by name',
   portal.perfColumns('fy'),
-  ['Employee number', 'Month', 'Network', 'FY stock', 'FY connections', 'FY amount']);
-check('and it is the only upload carrying more than one figure',
-  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfFigures(k).length > 1), ['fy']);
-check('the other five carry exactly one each',
-  Object.keys(portal.PERF_UPLOADS).map(k => portal.perfFigures(k).length),
-  [1, 1, 1, 1, 1, 3]);
-
-/* FY is keyed on a PERSON and yet split by network — the combination that broke the old
-   rule of "team figures have a network, employee figures do not". */
-check('FY is keyed on an employee but still has a network',
-  [portal.perfKeyLabel('fy'), portal.perfHasNetwork('fy')], ['Employee number', true]);
-check('while basic and commission have none',
-  [portal.perfHasNetwork('basic'), portal.perfHasNetwork('commission')], [false, false]);
-
-// FY runs on two of the four networks, and the narrower list is enforced.
-check('FY accepts only MTN and Telkom', portal.perfNetworks('fy'), ['MTN', 'TELKOM']);
-check('while the team figures accept all four', portal.perfNetworks('stock'), portal.NETWORKS);
+  ['Employee number', 'Month',
+   'MTN stock', 'MTN connections', 'MTN payable',
+   'Telkom stock', 'Telkom connections', 'Telkom payable']);
+// A wide file has NO network column: its networks are in the headings.
+check('and it has no network column of its own', portal.perfHasNetwork('fy'), false);
+check('while the team figures still do', portal.perfHasNetwork('stock'), true);
+check('it is keyed on an employee', portal.perfKeyLabel('fy'), 'Employee number');
+check('and still runs on two networks only', portal.perfNetworks('fy'), ['MTN', 'TELKOM']);
 
 const fy = portal.parsePerformanceLines(
-  'Employee number,Month,Network,FY stock,FY connections,FY amount\n'
-  + 'T042,2026-08,MTN,1000,400,5600.00\n'
-  + 'T042,2026-08,Telkom,600,210,2940.00\n', 'fy');
-check('a clean FY file loads both rows', fy.rows.length, 2);
+  portal.perfColumns('fy').join(',') + '\n'
+  + 'T042,2026-08,1000,400,5600.00,600,210,2940.00\n', 'fy');
+check('one wide row becomes one row per network', fy.rows.length, 2);
 check('with no errors', fy.errors.length, 0);
-check('all three figures come through on one row',
-  fy.rows[0].values, { fyStock: 1000, fyConnections: 400, fyAmountRands: 5600 });
-check('and the network is normalised', fy.rows.map(r => r.network), ['MTN', 'TELKOM']);
-// One person, one month, two networks: two records, not one overwritten twice.
-check('the same person on two networks is two records',
+check('each carrying its own network', fy.rows.map(r => r.network), ['MTN', 'TELKOM']);
+check('and its own three figures',
+  fy.rows.map(r => r.values),
+  [{ fyStock: 1000, fyConnections: 400, fyAmountRands: 5600 },
+   { fyStock: 600, fyConnections: 210, fyAmountRands: 2940 }]);
+// Both rows are the same person and month, differing only in the network — which is
+// what makes them two documents rather than one written twice.
+check('both belong to the same person and month',
+  new Set(fy.rows.map(r => r.key + '_' + r.month)).size, 1);
+check('and become two records',
   new Set(fy.rows.map(r => `${r.key}_${r.month}_${r.network}`)).size, 2);
 
-// A network FY does not run on is refused even though it is a real network elsewhere.
-const fyVodacom = portal.parsePerformanceLines('T042,2026-08,VODACOM,600,210,2940.00', 'fy');
-check('an FY row for Vodacom is refused', fyVodacom.rows.length, 0);
-check('and the message names only the networks FY runs on',
-  fyVodacom.errors[0].why, 'network must be MTN or Telkom');
-// But the same network is perfectly fine on a team file.
-check('while Vodacom is fine for stock',
-  portal.parsePerformanceLines('SOWETO,2026-08,VODACOM,600', 'stock').rows.length, 1);
+/* A network left entirely blank is somebody who only sold the other one — a normal file,
+   not a mistake. This is the case that would be maddening if it were refused. */
+const mtnOnly = portal.parsePerformanceLines('T099,2026-08,500,125,1750.00,,,', 'fy');
+check('a network left blank is skipped, not refused', mtnOnly.rows.length, 1);
+check('leaving the network that was filled in', mtnOnly.rows[0].network, 'MTN');
+check('and no error for the blank one', mtnOnly.errors.length, 0);
+const telkomOnly = portal.parsePerformanceLines('T099,2026-08,,,,600,210,2940.00', 'fy');
+check('either way round', [telkomOnly.rows.length, telkomOnly.rows[0].network], [1, 'TELKOM']);
 
-/* Each figure is checked by its own kind, and a blank one is named. Half a row of an
-   incentive is not something to store, so one bad figure refuses the line. */
-check('a blank amount says which figure is blank',
-  portal.parsePerformanceLines('T042,2026-08,MTN,1000,400', 'fy').errors[0].why,
-  'FY amount is blank');
-check('and so does a blank in the middle of the row',
-  portal.parsePerformanceLines('T042,2026-08,MTN,1000,,5600.00', 'fy').errors[0].why,
-  'FY connections is blank');
-check('a stock that is not a number refuses the whole row',
-  portal.parsePerformanceLines('T042,2026-08,MTN,abc,400,5600.00', 'fy').rows.length, 0);
-check('naming the figure at fault',
-  portal.parsePerformanceLines('T042,2026-08,MTN,abc,400,5600.00', 'fy').errors[0].why,
-  'FY stock must be a whole number');
-// A real zero is a real result: stock allocated and nothing connected.
-check('but a real zero loads',
-  portal.parsePerformanceLines('T042,2026-08,MTN,1000,0,0.00', 'fy').rows[0].values,
+/* But a network with SOME of its cells filled is half an incentive, and is refused by
+   name — storing it would pay an amount with no figures behind it, or figures with no
+   amount. */
+check('a network missing one of its three is refused',
+  portal.parsePerformanceLines('T042,2026-08,1000,400,,600,210,2940.00', 'fy').rows.length, 0);
+check('naming the network and the figure',
+  portal.parsePerformanceLines('T042,2026-08,1000,400,,600,210,2940.00', 'fy').errors[0].why,
+  'MTN payable is blank');
+check('and the same for the other network',
+  portal.parsePerformanceLines('T042,2026-08,1000,400,5600.00,600,210', 'fy').errors[0].why,
+  'Telkom payable is blank');
+check('a figure that is not a number says which one',
+  portal.parsePerformanceLines('T042,2026-08,abc,400,5600.00,,,', 'fy').errors[0].why,
+  'MTN stock must be a whole number');
+// A row with nothing on it at all is reported rather than silently producing no rows.
+check('a row blank on every network is reported',
+  portal.parsePerformanceLines('T042,2026-08,,,,,,', 'fy').errors[0].why,
+  'no figures on this row for any network');
+check('and a bad month is still a bad month',
+  portal.parsePerformanceLines('T042,2026-13,1000,400,5600.00,,,', 'fy').errors[0].why,
+  'month must be yyyy-mm');
+// A real zero is a real result: stock allocated, nothing connected, nothing payable.
+check('a real zero loads',
+  portal.parsePerformanceLines('T042,2026-08,1000,0,0.00,,,', 'fy').rows[0].values,
   { fyStock: 1000, fyConnections: 0, fyAmountRands: 0 });
-
-/* A comma decimal and a genuine extra column both make the row too wide, and they used
-   to give the same message — sending an admin to hunt for a decimal point that was
-   never there. */
-check('a comma decimal in a comma file is called what it is',
-  portal.parsePerformanceLines('T042,2026-08,MTN,1000,400,5600,50', 'fy').errors[0].why
-    .includes('split across two columns'), true);
 check('while a real extra column is not',
-  portal.parsePerformanceLines('T042,2026-08,MTN,1000,400,5600.00,9', 'fy').errors[0].why,
+  portal.parsePerformanceLines('T042,2026-08,1000,400,5600.00,600,210,2940.00,9', 'fy').errors[0].why,
   'more columns than this file should have');
 
 /* Reads, which networks made four times as expensive.
