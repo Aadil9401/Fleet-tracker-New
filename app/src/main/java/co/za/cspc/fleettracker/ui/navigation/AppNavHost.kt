@@ -19,6 +19,7 @@ import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.repository.FleetRepository
 import co.za.cspc.fleettracker.ui.admin.AdminDashboardScreen
 import co.za.cspc.fleettracker.ui.employee.EmployeeHomeScreen
+import co.za.cspc.fleettracker.ui.employee.DebtScreen
 import co.za.cspc.fleettracker.ui.employee.PerformanceScreen
 import co.za.cspc.fleettracker.ui.login.LoginScreen
 import co.za.cspc.fleettracker.ui.login.SignUpScreen
@@ -28,6 +29,7 @@ private object Routes {
     const val SIGN_UP = "signUp"
     const val EMPLOYEE = "employee"
     const val PERFORMANCE = "performance"
+    const val DEBT = "debt"
     const val ADMIN = "admin"
 }
 
@@ -93,6 +95,7 @@ fun AppNavHost(repo: FleetRepository = FleetRepository()) {
                 EmployeeHomeScreen(
                     profile = p,
                     onPerformanceClick = { navController.navigate(Routes.PERFORMANCE) },
+                    onDebtClick = { navController.navigate(Routes.DEBT) },
                     onLogout = {
                         repo.logout()
                         profile = null
@@ -108,6 +111,16 @@ fun AppNavHost(repo: FleetRepository = FleetRepository()) {
             // stack would otherwise recompose it against a null profile.
             profile?.let { p ->
                 PerformanceScreen(
+                    profile = p,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+        composable(Routes.DEBT) {
+            // Guarded rather than assumed: a logout while this screen is on the back
+            // stack would otherwise recompose it against a null profile.
+            profile?.let { p ->
+                DebtScreen(
                     profile = p,
                     onBack = { navController.popBackStack() }
                 )

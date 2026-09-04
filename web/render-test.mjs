@@ -24,7 +24,9 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'leaderboardRows', 'teamKey', 'performanceExportRows', 'monthsBack', 'PERF_HISTORY_MONTHS',
   'teamFiguresFor', 'networkKey', 'NETWORKS', 'NETWORK_LABELS', 'lbFilters',
   'tileFigureClass', 'rand', 'num', 'combinedPay',
-  'fyRows', 'fyTotals', 'fyExportRows', 'renderLogs', 'FY_NETWORKS'
+  'fyRows', 'fyTotals', 'fyExportRows', 'renderLogs', 'FY_NETWORKS',
+  'debtInvoices', 'debtByEmployee', 'debtExportRows', 'debtFilters',
+  'parseDebtLines', 'DEBT_COLUMNS', 'DEBT_SAMPLE', 'daysSince', 'productKey'
 ]);
 
 let failures = 0;
@@ -1138,6 +1140,192 @@ check('a delete names the amount, the person and the date',
   ['of fuel logged by', 'This cannot be undone'].every(m => src.includes(m)), true);
 check('and deletes that one document',
   src.includes("deleteDoc(doc(db, 'fuelLogs', editingFuelId))"), true);
+
+/* ---------------- what employees owe ---------------- */
+/* An invoice is the unit with a balance; its lines are what it is made of. Payments are
+   recorded against the INVOICE because that is how people pay — a part payment is money
+   off the invoice, not off the third product on it. */
+portal.data.employees = [
+  { id: 'd1', name: 'Ayanda', surname: 'Ncube', employeeNumber: 'T042',
+    province: 'Gauteng', teamName: 'Soweto' },
+  { id: 'd2', name: 'Bongi', surname: 'Ndlovu', employeeNumber: 'T099',
+    province: 'Limpopo', teamName: 'Tzaneen' }
+];
+portal.data.debtLines = [
+  // One invoice, three products — the case that makes an invoice the unit.
+  { id: 'l1', numberKey: 'T042', employeeNumber: 'T042', uid: 'd1',
+    invoiceNumber: 'INV-1001', invoiceDate: '2026-03-14', product: 'Airtime',
+    quantity: 50, amountRands: 12500 },
+  { id: 'l2', numberKey: 'T042', employeeNumber: 'T042', uid: 'd1',
+    invoiceNumber: 'INV-1001', invoiceDate: '2026-03-14', product: 'SIM packs',
+    quantity: 20, amountRands: 4000 },
+  { id: 'l3', numberKey: 'T042', employeeNumber: 'T042', uid: 'd1',
+    invoiceNumber: 'INV-1001', invoiceDate: '2026-03-14', product: 'Devices',
+    quantity: 2, amountRands: 9000 },
+  { id: 'l4', numberKey: 'T099', employeeNumber: 'T099', uid: 'd2',
+    invoiceNumber: 'INV-1042', invoiceDate: '2026-08-20', product: 'Airtime',
+    quantity: 30, amountRands: 7500 },
+  { id: 'l5', numberKey: 'T099', employeeNumber: 'T099', uid: 'd2',
+    invoiceNumber: 'INV-1050', invoiceDate: '2026-08-28', product: 'Devices',
+    quantity: 1, amountRands: 4500 },
+  // An invoice against a number nobody has: still owed, must stay visible.
+  { id: 'l6', numberKey: 'T900', employeeNumber: 'T900', uid: '',
+    invoiceNumber: 'INV-1099', invoiceDate: '2026-07-01', product: 'Airtime',
+    quantity: 10, amountRands: 2500 }
+];
+portal.data.debtPayments = [
+  { id: 'pay1', numberKey: 'T099', invoiceNumber: 'INV-1042',
+    amountRands: 2500, paidDate: '2026-09-01' },
+  { id: 'pay2', numberKey: 'T099', invoiceNumber: 'INV-1050',
+    amountRands: 4500, paidDate: '2026-09-02' }
+];
+
+const invoices = portal.debtInvoices();
+check('lines are grouped into invoices', invoices.length, 4);
+const inv1001 = invoices.find(i => i.invoiceNumber === 'INV-1001');
+check('an invoice carries all its products', inv1001.lines.length, 3);
+check('and is billed the sum of them', inv1001.billed, 25500);
+
+/* A PART payment comes off the invoice's balance and leaves the rest owing. This is the
+   case an all-or-nothing "mark paid" could not express, and Aadil chose it deliberately. */
+const inv1042 = invoices.find(i => i.invoiceNumber === 'INV-1042');
+check('a part payment leaves the balance owing',
+  [inv1042.billed, inv1042.paid, inv1042.outstanding], [7500, 2500, 5000]);
+check('and the invoice is not settled', inv1042.settled, false);
+
+// Paid in full: settled, and NOT reported as owing R0,00.
+const inv1050 = invoices.find(i => i.invoiceNumber === 'INV-1050');
+check('paid in full is settled', [inv1050.settled, inv1050.outstanding], [true, 0]);
+// A settled invoice has no age: days outstanding is about a debt, and there is none.
+check('and has no days outstanding to report', inv1050.daysOutstanding, null);
+check('while an unpaid one does', inv1042.daysOutstanding !== null, true);
+
+/* Oldest first, because that is the one to chase — the whole point of the tab. */
+check('invoices come back oldest first',
+  invoices.map(i => i.invoiceNumber),
+  ['INV-1001', 'INV-1099', 'INV-1042', 'INV-1050']);
+
+// An invoice against a number nobody has still appears, with no name rather than being
+// dropped. That is real money owed.
+const ghostInvoice = invoices.find(i => i.invoiceNumber === 'INV-1099');
+check('an invoice matching nobody is still listed',
+  [ghostInvoice.name, ghostInvoice.outstanding], ['', 2500]);
+
+/* Per person, most owing first: the list is a list of who to phone. */
+const people = portal.debtByEmployee();
+check('people come back most owing first',
+  people.map(r => [r.name || r.employeeNumber, r.outstanding]),
+  [['Ayanda Ncube', 25500], ['T900', 2500], ['Bongi Ndlovu', 5000]]
+    .sort((a, b) => b[1] - a[1]));
+const bongi = people.find(r => r.name === 'Bongi Ndlovu');
+check('a person totals across their invoices',
+  [bongi.invoices, bongi.billed, bongi.paid, bongi.outstanding], [2, 12000, 7000, 5000]);
+check('and counts only the unpaid ones as owing', bongi.unpaid, 1);
+// The oldest UNPAID invoice, not the oldest invoice: a settled one is not a problem.
+check('the oldest unpaid is the one that matters',
+  bongi.oldestUnpaidDate, '2026-08-20');
+
+/* Ageing. The number that gets people to pay, and the reason a big fresh balance is not
+   the same problem as a small one from March. */
+// Computed relative to today rather than written as a fixed date: an assertion that
+// says "2026-09-01 is three days ago" is true for one day and wrong from then on.
+const dayString = (offset) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const pad = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+};
+check('days outstanding counts from the invoice date',
+  [portal.daysSince(dayString(-3)), portal.daysSince(dayString(-90))], [3, 90]);
+check('today is nought days', portal.daysSince(dayString(0)), 0);
+check('and an unparseable date ages to nothing rather than to a wild number',
+  [portal.daysSince(''), portal.daysSince('01/09/2026'), portal.daysSince(null)],
+  [null, null, null]);
+
+/* An invoice's age comes from the EARLIEST date on its lines, so adding a line to an old
+   invoice cannot quietly reset how long it has been outstanding. */
+portal.data.debtLines.push({
+  id: 'l7', numberKey: 'T042', employeeNumber: 'T042', uid: 'd1',
+  invoiceNumber: 'INV-1001', invoiceDate: '2026-09-01', product: 'Cables',
+  quantity: 5, amountRands: 500
+});
+check('a line added later does not reset an invoice\'s age',
+  portal.debtInvoices().find(i => i.invoiceNumber === 'INV-1001').invoiceDate, '2026-03-14');
+check('but it does add to what is billed',
+  portal.debtInvoices().find(i => i.invoiceNumber === 'INV-1001').billed, 26000);
+portal.data.debtLines.pop();
+
+/* An invoice paid to the last cent must read as settled rather than owing R0,00 —
+   0.1 + 0.2 is not 0.3 in binary, and a balance of R0,00 that will not clear is the kind
+   of thing somebody argues about. */
+portal.data.debtLines.push({
+  id: 'l8', numberKey: 'T500', employeeNumber: 'T500', uid: '',
+  invoiceNumber: 'INV-CENTS', invoiceDate: '2026-08-01', product: 'Airtime',
+  quantity: 1, amountRands: 0.30
+});
+portal.data.debtPayments.push(
+  { id: 'pay3', numberKey: 'T500', invoiceNumber: 'INV-CENTS', amountRands: 0.10 },
+  { id: 'pay4', numberKey: 'T500', invoiceNumber: 'INV-CENTS', amountRands: 0.20 });
+const cents = portal.debtInvoices().find(i => i.invoiceNumber === 'INV-CENTS');
+check('two part payments to the last cent settle the invoice',
+  [cents.settled, cents.outstanding], [true, 0]);
+portal.data.debtLines.pop();
+portal.data.debtPayments.splice(-2, 2);
+
+/* The upload takes the same six things the form asks for, and refuses the rest by name. */
+check('the template parses cleanly through its own parser',
+  portal.parseDebtLines([portal.DEBT_COLUMNS.join(','),
+    ...portal.DEBT_SAMPLE.map(r => r.join(','))].join('\n')).errors.length, 0);
+check('and yields a row per line', portal.parseDebtLines(
+  [portal.DEBT_COLUMNS.join(','), ...portal.DEBT_SAMPLE.map(r => r.join(','))].join('\n')
+).rows.length, portal.DEBT_SAMPLE.length);
+// The comma-decimal trap, the same one the pay files have: reading the whole rands and
+// dropping the cents in silence is worse than refusing the line.
+check('a comma decimal in a comma file is named for what it is',
+  portal.parseDebtLines('T042,INV-1,2026-09-01,Airtime,50,12500,50')
+    .errors[0].why.includes('split across two columns'), true);
+check('while a real extra column is not',
+  portal.parseDebtLines('T042,INV-1,2026-09-01,Airtime,50,12500.00,9').errors[0].why,
+  'more columns than this file should have');
+// A semicolon file's comma IS a decimal, which is how South African Excel writes it.
+check('a semicolon file reads its comma decimal',
+  portal.parseDebtLines('T042;INV-1;2026-09-01;Airtime;50;12500,50').rows[0].amountRands,
+  12500.5);
+check('a missing column is named rather than counted',
+  portal.parseDebtLines('T042,INV-1,2026-09-01,Airtime,50').errors[0].why,
+  'Amount owing is blank');
+check('a date in the wrong shape is refused',
+  portal.parseDebtLines('T042,INV-1,01/09/2026,Airtime,50,12500.00').errors[0].why,
+  'invoice date must be yyyy-mm-dd');
+// Zero owing is not a debt, and storing it would put an invoice on the tab that is
+// settled the moment it arrives.
+check('and nothing owing is not a line',
+  portal.parseDebtLines('T042,INV-1,2026-09-01,Airtime,50,0').errors[0].why,
+  'amount owing must be more than R0');
+// A product typed two ways is one product, so the picker and the totals agree.
+check('a product name is normalised for matching',
+  [portal.productKey(' Airtime '), portal.productKey('AIRTIME'), portal.productKey('air-time')],
+  ['AIRTIME', 'AIRTIME', 'AIR TIME']);
+
+/* The export's columns. A header and a row that disagree by one shifts every amount
+   after it, and a debtors sheet of shifted amounts looks perfectly reasonable. */
+Object.assign(portal.debtFilters, { show: 'all', query: '' });
+const debtExport = portal.debtExportRows();
+check('the export has a header and a row per invoice LINE',
+  debtExport.length - 1, portal.data.debtLines.length);
+check('every row has as many fields as the header',
+  debtExport.slice(1).map(r => r.length),
+  debtExport.slice(1).map(() => debtExport[0].length));
+const airtimeLine = debtExport.find(r => r[4] === 'INV-1001' && r[7] === 'Airtime');
+check('the line amount and the invoice balance are both there',
+  [airtimeLine[debtExport[0].indexOf('Line amount R')],
+   airtimeLine[debtExport[0].indexOf('Invoice billed R')],
+   airtimeLine[debtExport[0].indexOf('Invoice owing R')]],
+  ['12500.00', '25500.00', '25500.00']);
+// So a sheet can be totalled by product without reconstructing which lines shared an
+// invoice — which is what repeating the balance on each line is for.
+check('and the invoice is named on every one of its lines',
+  debtExport.filter(r => r[4] === 'INV-1001').length, 3);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

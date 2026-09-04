@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -46,6 +47,7 @@ private val dayLabelFormat = SimpleDateFormat("EEE d MMM yyyy", Locale.US).apply
 fun EmployeeHomeScreen(
     profile: UserProfile,
     onPerformanceClick: () -> Unit,
+    onDebtClick: () -> Unit,
     onLogout: () -> Unit,
     viewModel: EmployeeViewModel = viewModel()
 ) {
@@ -96,6 +98,17 @@ fun EmployeeHomeScreen(
                     Icon(Icons.Filled.Leaderboard, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("My performance")
+                }
+            }
+
+            item {
+                OutlinedButton(
+                    onClick = onDebtClick,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.ReceiptLong, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("What I owe")
                 }
             }
 

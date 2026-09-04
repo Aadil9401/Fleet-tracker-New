@@ -1,6 +1,7 @@
 package co.za.cspc.fleettracker.data.repository
 
 import co.za.cspc.fleettracker.data.model.AppSettings
+import co.za.cspc.fleettracker.data.model.Debt
 import co.za.cspc.fleettracker.data.model.FuelLog
 import co.za.cspc.fleettracker.data.model.Performance
 import co.za.cspc.fleettracker.data.model.Role
@@ -772,6 +773,57 @@ class FleetRepository(
                 amountRands = it.getDouble("fyAmountRands")
             )
         }
+    }
+
+    // ---------- What I owe ----------
+
+    /**
+     * This person's own invoices, with their lines and their payments.
+     *
+     * Two queries, both on the UID, and for the same reason the pay ones are: the rules
+     * permit a query provably restricted to the caller's own uid and refuse one asking
+     * for everybody's. A colleague's balance is none of their business.
+     *
+     * Read field by field rather than through data classes, so a field an older document
+     * happens not to have reads as its default instead of failing the whole mapping.
+     */
+    suspend fun myDebt(uid: String): List<Debt.Invoice> {
+        if (uid.isEmpty()) return emptyList()
+
+        val lines = db.collection("debtLines").whereEqualTo("uid", uid).get().await()
+        val payments = db.collection("debtPayments").whereEqualTo("uid", uid).get().await()
+
+        val paymentsByInvoice = payments.documents
+            .map {
+                Debt.Payment(
+                    invoiceNumber = it.getString("invoiceNumber") ?: "",
+                    amountRands = it.getDouble("amountRands") ?: 0.0,
+                    paidDate = it.getString("paidDate") ?: "",
+                    note = it.getString("note") ?: ""
+                )
+            }
+            .groupBy { it.invoiceNumber }
+
+        // Grouped by invoice number, which is what the lines share and what a payment
+        // names. The earliest date on any line is the invoice's date, so a line added
+        // later cannot reset how long it has been outstanding.
+        return lines.documents
+            .groupBy { it.getString("invoiceNumber") ?: "" }
+            .map { (invoiceNumber, docs) ->
+                Debt.Invoice(
+                    invoiceNumber = invoiceNumber,
+                    invoiceDate = docs.mapNotNull { it.getString("invoiceDate") }
+                        .filter { it.isNotBlank() }.minOrNull() ?: "",
+                    lines = docs.map {
+                        Debt.Line(
+                            product = it.getString("product") ?: "",
+                            quantity = it.getLong("quantity") ?: 0L,
+                            amountRands = it.getDouble("amountRands") ?: 0.0
+                        )
+                    },
+                    payments = paymentsByInvoice[invoiceNumber] ?: emptyList()
+                )
+            }
     }
 
     suspend fun saveSettings(settings: AppSettings) {

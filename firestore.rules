@@ -177,6 +177,30 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // WHAT AN EMPLOYEE OWES for stock taken, and what they have paid against it.
+    //
+    // Two collections rather than one. An invoice line and a payment are different
+    // things with different lifetimes — a line is issued once and does not change, while
+    // payments arrive against it over weeks — and keeping them apart means recording a
+    // payment can never disturb the invoice it is paying.
+    //
+    // Same access shape as pay: a query provably restricted to the caller's own uid is
+    // permitted, one asking for everybody's is refused. Somebody's debt is their own
+    // business, and a colleague's balance is none of theirs.
+    match /debtLines/{lineId} {
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /debtPayments/{paymentId} {
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
     // Single settings document used by the app + Cloud Functions.
     match /config/{docId} {
       allow read: if isSignedIn();
