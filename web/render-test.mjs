@@ -26,7 +26,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'tileFigureClass', 'rand', 'num', 'combinedPay',
   'fyRows', 'fyTotals', 'fyExportRows', 'renderLogs', 'FY_NETWORKS',
   'debtInvoices', 'debtByEmployee', 'debtExportRows', 'debtFilters',
-  'parseDebtLines', 'DEBT_COLUMNS', 'DEBT_SAMPLE', 'daysSince', 'productKey'
+  'parseDebtLines', 'DEBT_COLUMNS', 'DEBT_SAMPLE', 'daysSince', 'productKey',
+  'normaliseDate', 'renderDebt', 'renderFy', 'fyFilters', 'monthFigureCount'
 ]);
 
 let failures = 0;
@@ -1294,9 +1295,13 @@ check('a semicolon file reads its comma decimal',
 check('a missing column is named rather than counted',
   portal.parseDebtLines('T042,INV-1,2026-09-01,Airtime,50').errors[0].why,
   'Amount owing is blank');
-check('a date in the wrong shape is refused',
-  portal.parseDebtLines('T042,INV-1,01/09/2026,Airtime,50,12500.00').errors[0].why,
-  'invoice date must be yyyy-mm-dd');
+// 01/09/2026 is now READ rather than refused — see the review findings at the end of
+// this file. What is still refused is something that is not a date at all.
+check('a spreadsheet date is read, not refused',
+  portal.parseDebtLines('T042,INV-1,01/09/2026,Airtime,50,12500.00').rows[0].invoiceDate,
+  '2026-09-01');
+check('while something that is not a date is still refused',
+  portal.parseDebtLines('T042,INV-1,tomorrow,Airtime,50,12500.00').rows.length, 0);
 // Zero owing is not a debt, and storing it would put an invoice on the tab that is
 // settled the moment it arrives.
 check('and nothing owing is not a line',
@@ -1326,6 +1331,100 @@ check('the line amount and the invoice balance are both there',
 // invoice — which is what repeating the balance on each line is for.
 check('and the invoice is named on every one of its lines',
   debtExport.filter(r => r[4] === 'INV-1001').length, 3);
+
+/* ---------------- what the review pass turned up ---------------- */
+
+/* A STRAY SPACE IN AN INVOICE NUMBER WAS SILENT DATA LOSS.
+   The document id is built from the normalised number, so "INV-1042" and "INV 1042"
+   share one — the second write replaced the first line. But the grouping used the number
+   exactly as typed, so the screen showed two invoices with the payment on only one of
+   them. A wrong balance and a missing line, from a space. */
+portal.data.employees = [];
+portal.data.debtLines = [
+  { id: 'x1', numberKey: 'T042', employeeNumber: 'T042', invoiceNumber: 'INV-1042',
+    invoiceDate: '2026-09-01', product: 'Airtime', quantity: 1, amountRands: 100 },
+  { id: 'x2', numberKey: 'T042', employeeNumber: 'T042', invoiceNumber: 'INV 1042',
+    invoiceDate: '2026-09-01', product: 'Devices', quantity: 1, amountRands: 200 }
+];
+portal.data.debtPayments = [
+  { id: 'xp', numberKey: 'T042', invoiceNumber: 'INV-1042', amountRands: 100 }
+];
+const oneInvoice = portal.debtInvoices();
+check('a stray space is the same invoice', oneInvoice.length, 1);
+check('with both its lines', oneInvoice[0].lines.length, 2);
+check('and the payment against it',
+  [oneInvoice[0].billed, oneInvoice[0].paid, oneInvoice[0].outstanding], [300, 100, 200]);
+check('shown as it was typed on its first line', oneInvoice[0].invoiceNumber, 'INV-1042');
+
+/* THE TWO DEBT TABLES ANSWERED THE SEARCH SEPARATELY.
+   Typing a product name filtered the invoices correctly and emptied the people table,
+   because a person row has no product on it to match. An empty table beside a full one
+   reads as a fault, and the placeholder promises the search covers products. The people
+   table is now a rollup of exactly the invoices shown. */
+portal.data.employees = [
+  { id: 'r1', name: 'Ayanda', surname: 'Ncube', employeeNumber: 'T042',
+    province: 'Gauteng', teamName: 'Soweto' },
+  { id: 'r2', name: 'Bongi', surname: 'Ndlovu', employeeNumber: 'T099',
+    province: 'Limpopo', teamName: 'Tzaneen' }
+];
+portal.data.debtLines = [
+  { id: 'y1', numberKey: 'T042', employeeNumber: 'T042', invoiceNumber: 'INV-1042',
+    invoiceDate: '2026-03-14', product: 'Airtime', quantity: 50, amountRands: 12500 },
+  { id: 'y2', numberKey: 'T099', employeeNumber: 'T099', invoiceNumber: 'INV-2000',
+    invoiceDate: '2026-08-01', product: 'SIM packs', quantity: 10, amountRands: 3000 }
+];
+portal.data.debtPayments = [
+  { id: 'yp', numberKey: 'T099', invoiceNumber: 'INV-2000', amountRands: 3000 }
+];
+
+const debtTables = (show, query) => {
+  Object.assign(portal.debtFilters, { show, query });
+  portal.renderDebt();
+  return {
+    people: ['Ayanda', 'Bongi'].filter(n => (writes()['debtPeopleRows'] || '').includes(n)),
+    invoices: [...new Set([...(writes()['debtInvoiceRows'] || '')
+      .matchAll(/INV-\d+/g)].map(m => m[0]))]
+  };
+};
+
+check('searching a product keeps the person who bought it',
+  debtTables('owing', 'airtime'), { people: ['Ayanda'], invoices: ['INV-1042'] });
+check('and searching an invoice number does too',
+  debtTables('owing', 'INV-1042'), { people: ['Ayanda'], invoices: ['INV-1042'] });
+// The show filter agrees between the two as well: settled shows only who has settled.
+check('showing settled lists only the person who paid',
+  debtTables('settled', ''), { people: ['Bongi'], invoices: ['INV-2000'] });
+check('and owing only the person who has not',
+  debtTables('owing', ''), { people: ['Ayanda'], invoices: ['INV-1042'] });
+check('everything shows both', debtTables('all', ''),
+  { people: ['Ayanda', 'Bongi'], invoices: ['INV-1042', 'INV-2000'] });
+// A search matching nothing empties BOTH, which is the honest answer.
+check('and a search matching nothing empties both',
+  debtTables('owing', 'nonsense'), { people: [], invoices: [] });
+Object.assign(portal.debtFilters, { show: 'owing', query: '' });
+
+/* A DEBT DATE, HOWEVER A SPREADSHEET WROTE IT.
+   The same failure the FY months had, fixed before the first debt file rather than
+   after it. Day-first for the slashed form, because that is what South Africa writes —
+   01/09/2026 is the first of September. */
+check('a date is read whatever shape it came in',
+  ['2026-09-01', '2026/09/01', '2026-9-1', '01/09/2026', '1/9/26', '1-Sep-26',
+   '1 September 2026', 'Sep-1-2026'].map(portal.normaliseDate),
+  ['2026-09-01', '2026-09-01', '2026-09-01', '2026-09-01', '2026-09-01', '2026-09-01',
+   '2026-09-01', '2026-09-01']);
+check('a slashed date is read DAY first, as South Africa writes it',
+  portal.normaliseDate('01/09/2026'), '2026-09-01');
+check('but something that is not a date is still refused',
+  ['32/01/2026', '01/13/2026', 'not a date', '', 'tomorrow'].map(portal.normaliseDate),
+  ['', '', '', '', '']);
+// And it is the NORMALISED date that is stored, or an invoice would age from a string
+// nothing can subtract.
+check('the normalised date is what gets stored',
+  portal.parseDebtLines('T042,INV-1,01/09/2026,Airtime,50,12500.00').rows[0].invoiceDate,
+  '2026-09-01');
+check('and a bad one names the shapes that work',
+  portal.parseDebtLines('T042,INV-1,tomorrow,Airtime,50,12500.00').errors[0].why
+    .includes('01/09/2026'), true);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

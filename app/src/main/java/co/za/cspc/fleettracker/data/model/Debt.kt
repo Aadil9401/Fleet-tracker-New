@@ -17,6 +17,22 @@ import java.util.Locale
  */
 object Debt {
 
+    /**
+     * An invoice number reduced to something comparable: uppercased, punctuation dropped,
+     * runs of space collapsed. "INV-1042" and "INV 1042" are one invoice.
+     *
+     * Matches the portal's productKey, which is what its document ids are built from.
+     * Grouping on the number as typed made a stray space into a second invoice, with the
+     * payment sitting on only one of them.
+     */
+    fun invoiceKey(value: String?): String = (value ?: "")
+        .uppercase(Locale.ROOT)
+        .map { if (it in 'A'..'Z' || it in '0'..'9') it else ' ' }
+        .joinToString("")
+        .split(" ")
+        .filter { it.isNotEmpty() }
+        .joinToString(" ")
+
     /** One product on an invoice. */
     data class Line(
         val product: String,

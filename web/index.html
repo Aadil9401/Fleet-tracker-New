@@ -926,6 +926,10 @@
             <input id="fyMonth" type="month">
           </div>
           <div>
+            <label for="fyProvince">Province</label>
+            <select id="fyProvince"></select>
+          </div>
+          <div>
             <label for="fyNetwork">Network</label>
             <select id="fyNetwork"></select>
           </div>
@@ -4417,7 +4421,7 @@ function fyRows(month, network) {
  * chosen for the team figures silently narrowed the incentive too. On its own tab it
  * needs its own, or the two would go on interfering with each other invisibly.
  */
-const fyFilters = { network: '', query: '' };
+const fyFilters = { province: '', network: '', query: '' };
 
 /**
  * FY on screen, after its own network and search filters.
@@ -4430,6 +4434,7 @@ const fyFilters = { network: '', query: '' };
 function visibleFyRows(month = $('fyMonth').value || todayString().slice(0, 7)) {
   const q = fyFilters.query.trim().toLowerCase();
   return fyRows(month, fyFilters.network).filter(r => {
+    if (fyFilters.province && r.province !== fyFilters.province) return false;
     if (!q) return true;
     return [r.name, r.province, r.team, NETWORK_LABELS[r.network]]
       .some(v => String(v ?? '').toLowerCase().includes(q))
@@ -4475,6 +4480,21 @@ function fyTotals(rows) {
 }
 
 function renderFy() {
+  /*
+   * Only provinces with FY this month, so the list stays short and cannot offer one with
+   * nobody in it. Built from the month's rows BEFORE the province filter is applied, or
+   * choosing a province would leave itself as the only option.
+   */
+  const monthRows = fyRows($('fyMonth').value || todayString().slice(0, 7), fyFilters.network);
+  const provinces = [...new Set(monthRows.map(r => r.province).filter(Boolean))].sort();
+  // A province that no longer has anything is dropped rather than left selected and
+  // silently showing nothing.
+  if (fyFilters.province && !provinces.includes(fyFilters.province)) fyFilters.province = '';
+  $('fyProvince').innerHTML = [`<option value="">All provinces</option>`,
+    ...provinces.map(v =>
+      `<option value="${esc(v)}" ${v === fyFilters.province ? 'selected' : ''}>${
+        esc(v)}</option>`)].join('');
+
   $('fyNetwork').innerHTML = [`<option value="">All networks</option>`,
     ...FY_NETWORKS.map(n =>
       `<option value="${n}" ${n === fyFilters.network ? 'selected' : ''}>${
@@ -4507,9 +4527,10 @@ function renderFy() {
   const figure = (v, format) => v === null ? '<span class="meta">—</span>' : format(v);
 
   $('fyRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="7" class="empty">No FY uploaded for this month${
+    ? `<tr><td colspan="7" class="empty">No FY for this month${
         fyFilters.network ? ' on ' + esc(NETWORK_LABELS[networkKey(fyFilters.network)]) : ''
-      }.</td></tr>`
+      }${fyFilters.province ? ' in ' + esc(fyFilters.province) : ''}${
+        fyFilters.query ? ' matching that search' : ''}.</td></tr>`
     : rows.map(r => `<tr>
         <td><div class="nm">${esc(r.name || '—')}</div>${
           [r.province, r.team].filter(Boolean).length
@@ -4827,7 +4848,16 @@ function renderPerformanceUploads(container = 'perfUploads') {
  * the tab is showing — so the number in the confirmation is the number on screen.
  */
 function monthFigureCount(kind) {
-  const month = $('perfMonth').value || todayString().slice(0, 7);
+  /*
+   * The month from the picker on the tab this figure LIVES on.
+   *
+   * This read perfMonth for everything, which was right until FY moved to its own tab
+   * with its own month. Removing a month of FY would then have deleted whichever month
+   * the Performance tab happened to be showing — and named that month in the
+   * confirmation, so the wrong answer looked like the right one.
+   */
+  const picker = kind === 'fy' ? 'fyMonth' : 'perfMonth';
+  const month = $(picker).value || todayString().slice(0, 7);
   const field = perfFigures(kind)[0].field;
   const from = kind === 'fy' ? data.perfFy
     : PERF_UPLOADS[kind].keyedOn === 'team' ? data.perfTeams
@@ -5094,6 +5124,10 @@ function performanceExportRows(month) {
 $('fyMonth').min = monthsBack(PERF_HISTORY_MONTHS);
 $('fyMonth').max = todayString().slice(0, 7);
 $('fyMonth').addEventListener('change', () => showFy());
+$('fyProvince').addEventListener('change', (e) => {
+  fyFilters.province = e.target.value;
+  renderFy();
+});
 $('fyNetwork').addEventListener('change', (e) => {
   fyFilters.network = e.target.value;
   renderFy();
@@ -5163,15 +5197,23 @@ function debtInvoices() {
     if (key) byNumber[key] = e;
   });
 
+  /*
+   * Grouped on the NORMALISED invoice number, the same one the document id uses.
+   *
+   * It grouped on the number exactly as typed, which the document id does not: "INV-1042"
+   * and "INV 1042" share one id, so the second write replaced the first line — while the
+   * screen showed them as two invoices with the payment sitting on only one. Silent data
+   * loss and a wrong balance from a stray space.
+   */
   const paidBy = {};
   data.debtPayments.forEach(pay => {
-    const key = `${pay.numberKey}|${pay.invoiceNumber}`;
+    const key = `${pay.numberKey}|${productKey(pay.invoiceNumber)}`;
     paidBy[key] = (paidBy[key] || 0) + Number(pay.amountRands || 0);
   });
 
   const invoices = {};
   data.debtLines.forEach(line => {
-    const key = `${line.numberKey}|${line.invoiceNumber}`;
+    const key = `${line.numberKey}|${productKey(line.invoiceNumber)}`;
     if (!invoices[key]) {
       const person = byNumber[line.numberKey];
       invoices[key] = {
@@ -5217,10 +5259,20 @@ function debtInvoices() {
     || String(a.invoiceNumber).localeCompare(String(b.invoiceNumber)));
 }
 
-/** One row per person who owes or has ever owed, with their balance. */
-function debtByEmployee() {
+/**
+ * One row per person, rolled up from the invoices GIVEN to it.
+ *
+ * It used to roll up every invoice and then be filtered on its own, which meant the two
+ * tables answered the search separately: typing a product name filtered the invoice list
+ * correctly and emptied the people list entirely, because a person row has no product on
+ * it to match. An empty table beside a full one reads as a fault.
+ *
+ * Taking the invoices as an argument makes the people table a summary of exactly what is
+ * on screen below it, by construction rather than by keeping two filters in step.
+ */
+function debtByEmployee(invoices = debtInvoices()) {
   const people = {};
-  debtInvoices().forEach(inv => {
+  invoices.forEach(inv => {
     if (!people[inv.numberKey]) {
       people[inv.numberKey] = {
         numberKey: inv.numberKey,
@@ -5280,9 +5332,8 @@ const shownInvoices = () => debtInvoices()
 
 function renderDebt() {
   const invoices = shownInvoices();
-  const people = debtByEmployee().filter(matchesDebt)
-    .filter(person => debtFilters.show === 'all' || debtFilters.show === 'settled'
-      ? true : person.outstanding > 0);
+  // A summary of the invoices below, not a separately filtered list.
+  const people = debtByEmployee(invoices);
 
   /*
    * Totals over EVERY invoice, not just the filtered ones.
@@ -5519,7 +5570,9 @@ async function deleteDebtInvoice(key) {
     // sit in the collection forever, counting towards nothing and reconciling to nothing.
     data.debtPayments
       .filter(pay => pay.numberKey === invoice.numberKey
-        && pay.invoiceNumber === invoice.invoiceNumber)
+        // Matched on the normalised number, like the grouping — otherwise a payment
+        // recorded against "INV 1042" outlives the invoice it was paying.
+        && productKey(pay.invoiceNumber) === productKey(invoice.invoiceNumber))
       .forEach(pay => batch.delete(doc(db, 'debtPayments', pay.id)));
     await batch.commit();
     showMsg(`Invoice ${invoice.invoiceNumber} deleted.`);
@@ -5527,6 +5580,54 @@ async function deleteDebtInvoice(key) {
   } catch (err) {
     showMsg('Could not delete: ' + err.message, 'err');
   }
+}
+
+/**
+ * A date cell as yyyy-MM-dd, however it was written — or '' if it is not a date.
+ *
+ * The same lesson as the months: a spreadsheet writes "01/09/2026" or "1-Sep-26", and
+ * insisting on one shape puts the work of being a computer onto the person with the
+ * data. This is the identical failure the FY upload hit, fixed here before the first
+ * debt file rather than after it.
+ *
+ * A DAY-FIRST reading for the slashed form, because that is what South Africa writes:
+ * 01/09/2026 is the first of September, not the ninth of January. Ambiguous either way,
+ * so it is stated rather than guessed at, and yyyy-MM-dd is always read as itself.
+ */
+function normaliseDate(value) {
+  const text = String(value ?? '').trim();
+  const pad = (n) => String(n).padStart(2, '0');
+
+  const iso = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return Number(m) >= 1 && Number(m) <= 12 && Number(d) >= 1 && Number(d) <= 31
+      ? `${y}-${pad(m)}-${pad(d)}` : '';
+  }
+
+  // d/m/yyyy and d/m/yy — day first.
+  const dayFirst = text.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+  if (dayFirst) {
+    const [, d, m, yRaw] = dayFirst;
+    const year = yRaw.length <= 2 ? `20${yRaw.padStart(2, '0')}` : yRaw;
+    return Number(m) >= 1 && Number(m) <= 12 && Number(d) >= 1 && Number(d) <= 31
+      ? `${year}-${pad(m)}-${pad(d)}` : '';
+  }
+
+  // 1-Sep-26, 1 September 2026, and the same with the day after the month.
+  const named = text.toUpperCase().match(/^(\d{1,2})[-\/ ]+([A-Z]+)[-\/ ]+(\d{2,4})$/)
+    || text.toUpperCase().match(/^([A-Z]+)[-\/ ]+(\d{1,2})[-\/ ]+(\d{2,4})$/);
+  if (named) {
+    const dayText = /^\d+$/.test(named[1]) ? named[1] : named[2];
+    const monthName = /^\d+$/.test(named[1]) ? named[2] : named[1];
+    const month = MONTH_NAMES[monthName];
+    if (!month) return '';
+    const year = named[3].length <= 2 ? `20${named[3].padStart(2, '0')}` : named[3];
+    return Number(dayText) >= 1 && Number(dayText) <= 31
+      ? `${year}-${month}-${pad(dayText)}` : '';
+  }
+
+  return '';
 }
 
 /** The columns a debt upload has — the same six the form asks for. */
@@ -5583,10 +5684,15 @@ function parseDebtLines(text) {
     }
 
     const [number, invoiceNumber, invoiceDate, product, qtyCell, amountCell] = parts;
+    // Normalised below, and it is the normalised one that is stored.
     if (!numberKey(number)) return errors.push({ line, why: 'no employee number' });
     if (!invoiceNumber) return errors.push({ line, why: 'no invoice number' });
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(invoiceDate)) {
-      return errors.push({ line, why: 'invoice date must be yyyy-mm-dd' });
+    const date = normaliseDate(invoiceDate);
+    if (!date) {
+      return errors.push({
+        line,
+        why: 'invoice date is not a date — 2026-09-01, 01/09/2026 and 1-Sep-26 all work'
+      });
     }
     if (!product) return errors.push({ line, why: 'no product' });
 
@@ -5600,7 +5706,7 @@ function parseDebtLines(text) {
       employeeNumber: number,
       numberKey: numberKey(number),
       invoiceNumber,
-      invoiceDate,
+      invoiceDate: date,
       product,
       productKey: productKey(product),
       quantity,

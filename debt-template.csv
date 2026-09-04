@@ -1,0 +1,4 @@
+Employee number,Invoice number,Invoice date,Product,Quantity,Amount owing
+T042,INV-1042,2026-09-01,Airtime,50,12500.00
+T042,INV-1042,2026-09-01,SIM packs,20,4000.00
+T099,INV-1043,2026-09-02,Devices,2,9000.00

@@ -793,6 +793,9 @@ class FleetRepository(
         val lines = db.collection("debtLines").whereEqualTo("uid", uid).get().await()
         val payments = db.collection("debtPayments").whereEqualTo("uid", uid).get().await()
 
+        // Keyed on the NORMALISED invoice number, like the portal's grouping and its
+        // document ids. On the number as typed, a stray space became a second invoice
+        // with the payment on only one of them.
         val paymentsByInvoice = payments.documents
             .map {
                 Debt.Payment(
@@ -802,16 +805,18 @@ class FleetRepository(
                     note = it.getString("note") ?: ""
                 )
             }
-            .groupBy { it.invoiceNumber }
+            .groupBy { Debt.invoiceKey(it.invoiceNumber) }
 
         // Grouped by invoice number, which is what the lines share and what a payment
         // names. The earliest date on any line is the invoice's date, so a line added
         // later cannot reset how long it has been outstanding.
         return lines.documents
-            .groupBy { it.getString("invoiceNumber") ?: "" }
-            .map { (invoiceNumber, docs) ->
+            .groupBy { Debt.invoiceKey(it.getString("invoiceNumber")) }
+            .map { (key, docs) ->
                 Debt.Invoice(
-                    invoiceNumber = invoiceNumber,
+                    // Shown as it was typed on the first of its lines; grouped on the key.
+                    invoiceNumber = docs.firstNotNullOfOrNull { it.getString("invoiceNumber") }
+                        ?: key,
                     invoiceDate = docs.mapNotNull { it.getString("invoiceDate") }
                         .filter { it.isNotBlank() }.minOrNull() ?: "",
                     lines = docs.map {
@@ -821,7 +826,7 @@ class FleetRepository(
                             amountRands = it.getDouble("amountRands") ?: 0.0
                         )
                     },
-                    payments = paymentsByInvoice[invoiceNumber] ?: emptyList()
+                    payments = paymentsByInvoice[key] ?: emptyList()
                 )
             }
     }
