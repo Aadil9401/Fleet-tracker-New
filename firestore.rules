@@ -159,6 +159,24 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // FY — an incentive paid per person, per month, PER NETWORK, and nobody else's
+    // business either.
+    //
+    // Its own collection rather than more fields on perfMonthly, for two reasons. The
+    // network is part of the identity here and is not on a commission row, so the
+    // document ids differ. And FY connections are not the team's connections: keeping
+    // them apart is what stops an incentive's figures reaching the team percentages and
+    // the leaderboard.
+    //
+    // Same access shape as perfMonthly: a query provably restricted to the caller's own
+    // uid is permitted, one asking for everybody's is refused outright.
+    match /perfFy/{rowId} {
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
     // Single settings document used by the app + Cloud Functions.
     match /config/{docId} {
       allow read: if isSignedIn();

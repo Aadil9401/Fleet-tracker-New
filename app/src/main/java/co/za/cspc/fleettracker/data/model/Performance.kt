@@ -30,6 +30,14 @@ object Performance {
      */
     val NETWORKS = listOf("MTN", "VODACOM", "CELLC", "TELKOM")
 
+    /**
+     * The networks FY is paid on — a narrower list than the team figures.
+     *
+     * Matches FY_NETWORKS in the portal. FY is only run on these two, and a row for
+     * another network is refused on upload rather than stored where nothing shows it.
+     */
+    val FY_NETWORKS = listOf("MTN", "TELKOM")
+
     /** How a network is written on screen, which is not how it is stored. */
     fun networkLabel(network: String): String = when (networkKey(network)) {
         "MTN" -> "MTN"
@@ -133,6 +141,60 @@ object Performance {
             connections = total { it.connections },
             activations = total { it.activations }
         )
+    }
+
+    /**
+     * One person's FY for a month on one network: the stock allocated, the connections
+     * made off it, and the amount payable.
+     *
+     * Null means never uploaded, which is not zero — the same rule as everywhere else
+     * here. FY is an occasional incentive, so absent is the normal case.
+     */
+    data class Fy(
+        val network: String,
+        val stock: Long? = null,
+        val connections: Long? = null,
+        val amountRands: Double? = null
+    ) {
+        /** Connections over stock, for this network alone. */
+        val conversion: Double? get() = ratioPercent(connections, stock)
+    }
+
+    /**
+     * FY rows in a fixed order, one per network FY runs on, keeping only what arrived.
+     *
+     * Ordered by FY_NETWORKS rather than by whatever order Firestore returned, so the
+     * screen does not reshuffle itself between loads.
+     */
+    fun fyInOrder(rows: List<Fy>): List<Fy> =
+        FY_NETWORKS.mapNotNull { network -> rows.firstOrNull { networkKey(it.network) == network } }
+
+    /**
+     * Every network's FY amount added together — what the person is actually owed.
+     *
+     * Null when no FY arrived at all, so the line reads as a dash rather than R0,00.
+     * Summed over the networks that HAVE an amount, so one network alone still shows.
+     */
+    fun fyTotal(rows: List<Fy>): Double? {
+        val present = rows.mapNotNull { it.amountRands }
+        return if (present.isEmpty()) null else present.sum()
+    }
+
+    /**
+     * What a person is owed for a month: basic, plus commission, plus FY.
+     *
+     * Basic and commission are paid every month, so an absent one means the file has not
+     * arrived and the total cannot be stated — it returns null and the line shows a dash.
+     * FY is an OCCASIONAL incentive, so its absence is the normal case and must not blank
+     * the total; it is added when it is there.
+     *
+     * Lives here rather than on the UI state so it can be unit tested. A rule about
+     * somebody's pay that only a screen can reach is a rule nothing checks.
+     */
+    fun totalPay(basicRands: Double?, commissionRands: Double?, fyRands: Double?): Double? {
+        val basic = basicRands ?: return null
+        val commission = commissionRands ?: return null
+        return basic + commission + (fyRands ?: 0.0)
     }
 
     /**

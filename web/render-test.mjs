@@ -23,7 +23,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'visiblePerformanceRows', 'perfFilters', 'performanceTotals', 'TEAM_LEVEL_FIELDS',
   'leaderboardRows', 'teamKey', 'performanceExportRows', 'monthsBack', 'PERF_HISTORY_MONTHS',
   'teamFiguresFor', 'networkKey', 'NETWORKS', 'NETWORK_LABELS', 'lbFilters',
-  'tileFigureClass', 'rand', 'num', 'combinedPay'
+  'tileFigureClass', 'rand', 'num', 'combinedPay',
+  'fyRows', 'fyTotals', 'fyExportRows'
 ]);
 
 let failures = 0;
@@ -954,6 +955,113 @@ const vodExport = portal.performanceExportRows('2026-09');
 check('the export names the chosen network on each row',
   vodExport[1][vodExport[0].indexOf('Network')], 'Vodacom');
 portal.perfFilters.network = '';
+
+/* ---------------- FY, the incentive paid per person per network ---------------- */
+/* Its own collection and its own card, and the point of both is separation: FY
+   connections are NOT the team's connections. If the two ever met, an incentive's
+   figures would land in the team conversion percentages and on the leaderboard, where
+   they would look like sales nobody could account for. */
+portal.data.employees = [
+  { id: 'f1', name: 'Ayanda', surname: 'Ncube', employeeNumber: 'T042',
+    province: 'Gauteng', teamName: 'Soweto' },
+  { id: 'f2', name: 'Bongi', surname: 'Ndlovu', employeeNumber: 'T099',
+    province: 'Limpopo', teamName: 'Tzaneen' }
+];
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'Soweto', month: '2026-08', network: 'MTN',
+    stock: 100, connections: 60, activations: 30 }
+];
+portal.data.perfMonthly = [
+  { numberKey: 'T042', uid: 'f1', month: '2026-08', basicSalaryRands: 6200,
+    commissionRands: 5000 }
+];
+portal.data.perfFy = [
+  { numberKey: 'T042', employeeNumber: 'T042', uid: 'f1', month: '2026-08',
+    network: 'MTN', fyStock: 1000, fyConnections: 400, fyAmountRands: 5600 },
+  { numberKey: 'T042', employeeNumber: 'T042', uid: 'f1', month: '2026-08',
+    network: 'TELKOM', fyStock: 600, fyConnections: 210, fyAmountRands: 2940 },
+  { numberKey: 'T099', employeeNumber: 'T099', uid: 'f2', month: '2026-08',
+    network: 'MTN', fyStock: 500, fyConnections: 125, fyAmountRands: 1750 },
+  // An FY row against a number nobody has: real money, and it must stay visible.
+  { numberKey: 'T900', employeeNumber: 'T900', uid: '', month: '2026-08',
+    network: 'MTN', fyStock: 300, fyConnections: 90, fyAmountRands: 1260 },
+  { numberKey: 'T042', employeeNumber: 'T042', uid: 'f1', month: '2026-07',
+    network: 'MTN', fyStock: 900, fyConnections: 300, fyAmountRands: 4200 }
+];
+
+const fyAug = portal.fyRows('2026-08', '');
+check('one row per person per network', fyAug.length, 4);
+check('the same person appears once per network',
+  fyAug.filter(r => r.numberKey === 'T042').map(r => r.network), ['MTN', 'TELKOM']);
+check('each row carries its own three figures',
+  [fyAug[0].stock, fyAug[0].connections, fyAug[0].amount], [1000, 400, 5600]);
+
+/* The conversion divides WITHIN a network. Ayanda converted 400 of 1 000 on MTN and 210
+   of 600 on Telkom; mixing them would report neither. */
+check('the conversion is that network\'s connections over its own stock',
+  fyAug.filter(r => r.numberKey === 'T042')
+    .map(r => portal.percentLabel(portal.ratioPercent(r.connections, r.stock))),
+  ['40,0%', '35,0%']);
+
+// Totals are summed over every row with NO de-duplication: FY belongs to a person, and
+// one person on two networks earned both amounts.
+const fyT = portal.fyTotals(fyAug);
+check('totals sum every row', [fyT.stock, fyT.connections, fyT.amount],
+  [2400, 825, 11550]);
+check('and the total conversion divides the two totals',
+  portal.percentLabel(portal.ratioPercent(fyT.connections, fyT.stock)), '34,4%');
+
+check('a network narrows it', portal.fyRows('2026-08', 'MTN').length, 3);
+check('to that network only',
+  portal.fyRows('2026-08', 'TELKOM').map(r => r.numberKey), ['T042']);
+// FY runs on two networks, so choosing a third shows nothing rather than showing MTN.
+check('a network FY does not run on shows nothing, not the wrong figures',
+  portal.fyRows('2026-08', 'VODACOM').length, 0);
+check('and its totals are dashes rather than noughts',
+  portal.fyTotals(portal.fyRows('2026-08', 'VODACOM')),
+  { stock: null, connections: null, amount: null });
+
+check('a month is its own', portal.fyRows('2026-07', '').length, 1);
+check('and a month with nothing uploaded is empty', portal.fyRows('2026-09', '').length, 0);
+
+// A row matching nobody still shows, with no name rather than being dropped.
+const ghost = fyAug.find(r => r.numberKey === 'T900');
+check('an FY row against an unknown number is still listed', ghost !== undefined, true);
+check('with no name on it', [ghost.name, ghost.amount], ['', 1260]);
+
+/* THE SEPARATION, asserted rather than assumed. Soweto's team connections are 60. FY
+   added 400 on MTN for somebody on that team, and the team figure must not budge. */
+check('FY does not touch the team figures',
+  portal.performanceTotals(portal.performanceRows('2026-08', '')).connections, 60);
+check('nor the team conversion',
+  portal.percentLabel(portal.ratioPercent(
+    portal.performanceTotals(portal.performanceRows('2026-08', '')).connections,
+    portal.performanceTotals(portal.performanceRows('2026-08', '')).stock)), '60,0%');
+check('nor the leaderboard',
+  portal.leaderboardRows('2026-08', 'connections', '').rows
+    .find(r => r.team === 'Soweto').position, 1);
+// And pay is untouched too: FY is its own figure, not part of basic or commission.
+check('and FY is not folded into pay',
+  [portal.performanceTotals(portal.performanceRows('2026-08', '')).basic,
+   portal.performanceTotals(portal.performanceRows('2026-08', '')).commission],
+  [6200, 5000]);
+
+/* The export's columns. A header and a row that disagree by one shifts every amount
+   after it, and a payroll sheet of shifted amounts looks perfectly reasonable. */
+Object.assign(portal.perfFilters, { province: '', team: '', network: '', query: '' });
+const fyExport = portal.fyExportRows('2026-08');
+check('the FY export has a header and a row per FY row', fyExport.length, 5);
+check('every row has as many fields as the header',
+  fyExport.slice(1).map(r => r.length), fyExport.slice(1).map(() => fyExport[0].length));
+check('the conversion is written out alongside the figures behind it',
+  ['FY stock', 'FY connections', 'Stock to connection %', 'FY payable R']
+    .every(h => fyExport[0].includes(h)), true);
+const ayandaMtn = fyExport.find(r => r[1] === 'T042' && r[5] === 'MTN');
+check('and each lands under its own heading',
+  [ayandaMtn[fyExport[0].indexOf('FY stock')],
+   ayandaMtn[fyExport[0].indexOf('Stock to connection %')],
+   ayandaMtn[fyExport[0].indexOf('FY payable R')]],
+  [1000, '40.0', '5600.00']);
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

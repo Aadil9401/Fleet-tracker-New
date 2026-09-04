@@ -181,6 +181,99 @@ class PerformanceTest {
             Performance.ratioPercent(all.connections, all.stock)))
     }
 
+    /* ---------------- FY, the incentive paid per person per network ---------------- */
+
+    /**
+     * FY runs on two of the four networks. Held here as well as in the portal because a
+     * third network appearing on one side and not the other would show an employee an
+     * amount their admin cannot see, or the reverse.
+     */
+    @Test
+    fun fyRunsOnTwoNetworks() {
+        assertEquals(listOf("MTN", "TELKOM"), Performance.FY_NETWORKS)
+        // A narrower list than the team figures, which take all four.
+        assertEquals(4, Performance.NETWORKS.size)
+    }
+
+    /**
+     * Order comes from FY_NETWORKS, not from whatever order the rows arrived in, so the
+     * screen does not reshuffle itself between loads.
+     */
+    @Test
+    fun fyRowsComeBackInAFixedOrder() {
+        val telkom = Performance.Fy("TELKOM", 600, 210, 2940.0)
+        val mtn = Performance.Fy("MTN", 1000, 400, 5600.0)
+        assertEquals(
+            listOf("MTN", "TELKOM"),
+            Performance.fyInOrder(listOf(telkom, mtn)).map { it.network }
+        )
+        // However the network was written.
+        assertEquals(
+            listOf("MTN"),
+            Performance.fyInOrder(listOf(Performance.Fy("mtn", 1, 1, 1.0))).map { it.network }
+        )
+        // One network alone is one row, not a padded pair of two.
+        assertEquals(1, Performance.fyInOrder(listOf(mtn)).size)
+        assertTrue(Performance.fyInOrder(emptyList()).isEmpty())
+        // A network FY does not run on is dropped rather than shown with no home.
+        assertTrue(Performance.fyInOrder(listOf(Performance.Fy("VODACOM", 1, 1, 1.0))).isEmpty())
+    }
+
+    /** The conversion divides within one network, never across two. */
+    @Test
+    fun fyConversionIsPerNetwork() {
+        assertEquals("40,0%", Performance.percentLabel(
+            Performance.Fy("MTN", 1000, 400, 5600.0).conversion))
+        assertEquals("35,0%", Performance.percentLabel(
+            Performance.Fy("TELKOM", 600, 210, 2940.0).conversion))
+        // Stock allocated and nothing connected is a real 0%, not a dash.
+        assertEquals("0,0%", Performance.percentLabel(
+            Performance.Fy("MTN", 1000, 0, 0.0).conversion))
+        // No stock means the conversion cannot be worked out at all.
+        assertEquals("—", Performance.percentLabel(
+            Performance.Fy("MTN", null, 400, 5600.0).conversion))
+    }
+
+    /**
+     * The FY line under My pay is every network added together. Null when none arrived,
+     * so it reads as a dash rather than R0,00 — the difference between "no incentive this
+     * month" and "nobody has uploaded it".
+     */
+    @Test
+    fun fyTotalAddsTheNetworksThatArrived() {
+        val both = listOf(
+            Performance.Fy("MTN", 1000, 400, 5600.0),
+            Performance.Fy("TELKOM", 600, 210, 2940.0)
+        )
+        assertEquals(8540.0, Performance.fyTotal(both)!!, 0.001)
+        assertEquals(5600.0, Performance.fyTotal(both.take(1))!!, 0.001)
+        assertNull(Performance.fyTotal(emptyList()))
+        // A row with figures but no amount contributes nothing and does not invent a zero.
+        assertNull(Performance.fyTotal(listOf(Performance.Fy("MTN", 1000, 400, null))))
+        // A real nought paid is a real nought.
+        assertEquals(0.0, Performance.fyTotal(listOf(Performance.Fy("MTN", 1000, 0, 0.0)))!!, 0.001)
+    }
+
+    /**
+     * The total a person is owed.
+     *
+     * Basic and commission are paid every month, so an absent one means the file has not
+     * arrived and no total can be stated. FY is occasional, so its absence is normal and
+     * must not blank the total — which is the asymmetry worth pinning, because treating
+     * all three the same would leave most people with no total at all.
+     */
+    @Test
+    fun totalPayNeedsPayButNotTheIncentive() {
+        assertEquals(11800.0, Performance.totalPay(6200.0, 5600.0, null)!!, 0.001)
+        assertEquals(20340.0, Performance.totalPay(6200.0, 5600.0, 8540.0)!!, 0.001)
+        // Missing basic or commission means the total cannot be stated.
+        assertNull(Performance.totalPay(null, 5600.0, 8540.0))
+        assertNull(Performance.totalPay(6200.0, null, 8540.0))
+        assertNull(Performance.totalPay(null, null, null))
+        // Two real noughts and no incentive still add to a real nought.
+        assertEquals(0.0, Performance.totalPay(0.0, 0.0, null)!!, 0.001)
+    }
+
     private companion object {
         const val NETWORK_SPEC = "performance-network-cases.csv"
         const val RANK_SPEC = "performance-rank-cases.csv"

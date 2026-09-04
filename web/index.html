@@ -848,6 +848,31 @@
         </p>
       </div>
 
+      <div class="card">
+        <div class="toolbar">
+          <h2 class="section" style="margin:0">FY incentive</h2>
+          <button id="exportFy" class="outline">Export CSV</button>
+        </div>
+        <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)">
+          Paid to a <b>person</b>, per month, per network — not to a team. Kept apart from
+          the figures above on purpose: FY connections are not the team's connections, so
+          they never reach the conversion percentages or the leaderboard.
+          <br>
+          One row per person per network, so somebody on both networks appears twice. The
+          conversion is that network's connections over that network's stock.
+        </p>
+        <div id="fyTiles" class="tiles"></div>
+        <div class="count" id="fyShowing"></div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Employee</th><th>Employee no</th><th>Network</th>
+            <th>FY stock</th><th>FY connections</th><th>Stock → conn</th>
+            <th>FY payable</th>
+          </tr></thead>
+          <tbody id="fyRows"></tbody>
+        </table></div>
+      </div>
+
       <div class="card" id="perfUnmatchedCard"></div>
 
       <div class="card">
@@ -998,7 +1023,7 @@ const db = getFirestore(app);
 // Everything loaded for the signed-in admin.
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
   recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [],
-  perfMonthly: [], perfTeams: [] };
+  perfMonthly: [], perfTeams: [], perfFy: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -1453,6 +1478,7 @@ async function loadAll() {
       // here so the month on screen is re-read rather than kept from the load before.
       perfMonthly: [],
       perfTeams: [],
+      perfFy: [],
       // uid → the most recent date that person has any entry for.
       // Every fill in the window, grouped by vehicle, for the tank-to-tank figure.
       fuelByVehicle: rows(fuelHistory).reduce((acc, f) => {
@@ -1494,15 +1520,17 @@ const perfMonthsLoaded = new Set();
 /** Fetches one month's figures unless they are already in hand. */
 async function loadPerfMonth(month) {
   if (!month || perfMonthsLoaded.has(month)) return;
-  const [teams, monthly] = await Promise.all([
+  const [teams, monthly, fy] = await Promise.all([
     getDocs(query(collection(db, 'perfTeams'), where('month', '==', month))),
-    getDocs(query(collection(db, 'perfMonthly'), where('month', '==', month)))
+    getDocs(query(collection(db, 'perfMonthly'), where('month', '==', month))),
+    getDocs(query(collection(db, 'perfFy'), where('month', '==', month)))
   ]);
   const rows = (snap) => snap.docs.map(d => ({ id: d.id, ...d.data() }));
   // Replaced rather than appended, so re-reading a month after an upload cannot leave
   // the figure it corrected sitting alongside the correction.
   data.perfTeams = data.perfTeams.filter(r => r.month !== month).concat(rows(teams));
   data.perfMonthly = data.perfMonthly.filter(r => r.month !== month).concat(rows(monthly));
+  data.perfFy = data.perfFy.filter(r => r.month !== month).concat(rows(fy));
   perfMonthsLoaded.add(month);
 }
 
@@ -3106,6 +3134,18 @@ const digits = (s) => {
  * perfMonthly, one per person per month. Both are merged, so uploading one figure never
  * wipes another.
  */
+/**
+ * The networks FY is paid on.
+ *
+ * A narrower list than the team figures, because FY is only run on these two. An FY row
+ * for Vodacom or Cell C is refused rather than stored where nothing will ever show it.
+ *
+ * Declared ABOVE the uploads table on purpose: the FY entry names it, and a const used
+ * before its declaration throws while the module is still evaluating, which leaves the
+ * whole page inert with nothing in the console to say why.
+ */
+const FY_NETWORKS = ['MTN', 'TELKOM'];
+
 const PERF_UPLOADS = {
   stock: {
     label: 'Stock', field: 'stock', kind: 'count', keyedOn: 'team',
@@ -3129,6 +3169,35 @@ const PERF_UPLOADS = {
   basic: {
     label: 'Basic salary', field: 'basicSalaryRands', kind: 'money', keyedOn: 'employee',
     sample: [['T042', '2026-09', '6200.00'], ['T099', '2026-09', '6200.00']]
+  },
+
+  /*
+   * FY — an incentive paid to a PERSON, per month, per network.
+   *
+   * Three figures on one row, which is what makes it the only upload with more than one:
+   * the stock allocated, the connections made off it, and the amount payable. The three
+   * belong together because the amount cannot be checked without the two figures behind
+   * it, and a conversion worked out across two separate uploads would silently divide one
+   * month's stock by another month's connections.
+   *
+   * Stored in its OWN collection, deliberately. FY connections are not the team's
+   * connections; letting the two meet would put an incentive's figures into the team
+   * percentages and onto the leaderboard, where they do not belong.
+   */
+  fy: {
+    label: 'FY incentive',
+    keyedOn: 'employee',
+    network: true,
+    networks: FY_NETWORKS,
+    figures: [
+      { label: 'FY stock', field: 'fyStock', kind: 'count' },
+      { label: 'FY connections', field: 'fyConnections', kind: 'count' },
+      { label: 'FY amount', field: 'fyAmountRands', kind: 'money' }
+    ],
+    sample: [
+      ['T042', '2026-08', 'MTN', '1000', '400', '5600.00'],
+      ['T042', '2026-08', 'TELKOM', '600', '210', '2940.00']
+    ]
   }
 };
 
@@ -3165,9 +3234,11 @@ const networkKey = (s) => {
 };
 
 /** "MTN, Vodacom, Cell C or Telkom" — for the message on a rejected line. */
-const networkList = () => {
-  const names = NETWORKS.map(n => NETWORK_LABELS[n]);
-  return names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1];
+const networkList = (list = NETWORKS) => {
+  const names = list.map(n => NETWORK_LABELS[n]);
+  return names.length === 1
+    ? names[0]
+    : names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1];
 };
 
 /** What the first column of an upload is called, and therefore what it is matched on. */
@@ -3175,21 +3246,38 @@ const perfKeyLabel = (kind) =>
   PERF_UPLOADS[kind].keyedOn === 'team' ? 'Team name' : 'Employee number';
 
 /**
+ * The figures one upload carries, always as a list.
+ *
+ * Every upload but FY has exactly one, and those describe it as label/field/kind on the
+ * spec itself. Normalising to a list here means the templates, the parser, the writer and
+ * the reader all walk the same thing, so a file with three figures needs no special case
+ * in any of them.
+ */
+const perfFigures = (kind) => {
+  const spec = PERF_UPLOADS[kind];
+  return spec.figures ?? [{ label: spec.label, field: spec.field, kind: spec.kind }];
+};
+
+/**
  * Whether this upload carries a network column.
  *
- * The team figures do; commission does not. Derived from what the figure IS rather than
- * listed separately, so the templates, the parser and the reader cannot disagree about
- * which files have four columns.
+ * Stated on the spec rather than inferred from what it is keyed on. It used to be
+ * "team figures have one, employee figures do not", which was true until FY arrived —
+ * paid to a person AND split by network.
  */
-const perfHasNetwork = (kind) => PERF_UPLOADS[kind].keyedOn === 'team';
+const perfHasNetwork = (kind) =>
+  PERF_UPLOADS[kind].network ?? (PERF_UPLOADS[kind].keyedOn === 'team');
 
-/** The columns one upload has, and therefore where its figure sits. */
-const perfColumns = (kind) => {
-  const spec = PERF_UPLOADS[kind];
-  return perfHasNetwork(kind)
-    ? [perfKeyLabel(kind), 'Month', 'Network', spec.label]
-    : [perfKeyLabel(kind), 'Month', spec.label];
-};
+/** Which networks this upload accepts. FY runs on two of the four. */
+const perfNetworks = (kind) => PERF_UPLOADS[kind].networks ?? NETWORKS;
+
+/** The columns one upload has, and therefore where each figure sits. */
+const perfColumns = (kind) => [
+  perfKeyLabel(kind),
+  'Month',
+  ...(perfHasNetwork(kind) ? ['Network'] : []),
+  ...perfFigures(kind).map(f => f.label)
+];
 
 /** The template for one upload, header first — what the Download template button gives. */
 const perfTemplateRows = (kind) => [perfColumns(kind), ...PERF_UPLOADS[kind].sample];
@@ -3276,17 +3364,34 @@ function parsePerformanceLines(text, kind) {
       return errors.push({ line, why: onTeam ? 'no team name' : 'no employee number' });
     }
 
+    const figures = perfFigures(kind);
+    const hasNetwork = perfHasNetwork(kind);
     const width = perfColumns(kind).length;
+    // Where the figures start: after the key, the month, and the network if there is one.
+    const firstFigure = hasNetwork ? 3 : 2;
 
     // An extra column means the row is not the shape this file is supposed to be, and
     // the commonest cause is a comma decimal splitting the figure in two. That used to
     // read the whole rands and drop the cents in silence — R12 500,50 recorded as
     // R12 500 with nothing to say so, which is worse than refusing the line.
     if (parts.length > width) {
+      /*
+       * A comma decimal and a genuine extra column both make a row too wide, and they
+       * need different messages. "12500,50" splits into "12500" and "50": the money cell
+       * carries no decimal point of its own and the cell after it is one or two digits.
+       * Anything else is just an extra column, and calling it a comma decimal sends an
+       * admin looking for a decimal point that was never there.
+       */
+      const money = figures.find(f => f.kind === 'money');
+      const at = money ? firstFigure + figures.indexOf(money) : -1;
+      const looksSplit = at >= 0
+        && parts.length === width + 1
+        && !String(parts[at] ?? '').includes('.')
+        && /^\d{1,2}$/.test(String(parts[at + 1] ?? ''));
       return errors.push({
         line,
-        why: spec.kind === 'money'
-          ? spec.label + ' looks split across two columns — a comma decimal in a comma-separated file'
+        why: looksSplit
+          ? money.label + ' looks split across two columns — a comma decimal in a comma-separated file'
           : 'more columns than this file should have'
       });
     }
@@ -3308,13 +3413,17 @@ function parsePerformanceLines(text, kind) {
      * Told apart by whether what IS there looks like a network.
      */
     if (parts.length < width) {
-      const figureIsBlank = parts.length === width - 1
-        && (!onTeam || networkKey(parts[2]));
+      // Which figure is actually missing, named rather than counted. A row short by one
+      // is usually the LAST figure left blank; on a file with three, saying "FY amount
+      // is blank" beats saying a column is missing on a file whose columns are correct.
+      const missingFrom = parts.length - firstFigure;
+      const named = missingFrom >= 0 && missingFrom < figures.length
+        && (!hasNetwork || networkKey(parts[2]));
       return errors.push({
         line,
-        why: figureIsBlank
-          ? spec.label + ' is blank'
-          : onTeam && parts.length === width - 1
+        why: named
+          ? figures[missingFrom].label + ' is blank'
+          : hasNetwork && parts.length === firstFigure - 1 + figures.length
             ? 'this file needs a Network column now — download the template again'
             : 'fewer columns than this file should have'
       });
@@ -3322,21 +3431,43 @@ function parsePerformanceLines(text, kind) {
 
     if (!isMonth(period)) return errors.push({ line, why: 'month must be yyyy-mm' });
 
-    const network = onTeam ? networkKey(parts[2]) : '';
-    if (onTeam && !network) {
-      return errors.push({ line, why: 'network must be ' + networkList() });
+    const allowed = perfNetworks(kind);
+    // A network outside THIS file's list is refused even when it is a real network
+    // elsewhere: FY runs on two of the four, and an FY row for Vodacom would be stored
+    // where nothing will ever show it.
+    const network = hasNetwork ? networkKey(parts[2]) : '';
+    if (hasNetwork && !allowed.includes(network)) {
+      return errors.push({ line, why: 'network must be ' + networkList(allowed) });
     }
 
-    const figureCell = parts[width - 1];
-    const value = spec.kind === 'money' ? perfMoney(figureCell) : perfCount(figureCell);
-    if (value === null) {
-      return errors.push({
-        line,
-        why: spec.kind === 'money'
-          ? spec.label + ' must be an amount'
-          : spec.label + ' must be a whole number'
-      });
-    }
+    // Every figure on the row, each read by its own kind. One bad figure refuses the
+    // whole line: half a row of an incentive is not something to store.
+    const values = {};
+    let bad = null;
+    figures.forEach((f, i) => {
+      if (bad) return;
+      const cell = parts[firstFigure + i];
+      // Said as blank rather than as unreadable. Only trailing empties are stripped, so
+      // a cell left empty in the middle of a row arrives here as "" — and "must be a
+      // whole number" about an empty cell reads as though something were wrong with
+      // what was typed, when nothing was.
+      if (String(cell ?? '').trim() === '') {
+        bad = f.label + ' is blank';
+        return;
+      }
+      const parsed = f.kind === 'money' ? perfMoney(cell) : perfCount(cell);
+      if (parsed === null) {
+        bad = f.label + (f.kind === 'money' ? ' must be an amount' : ' must be a whole number');
+        return;
+      }
+      values[f.field] = parsed;
+    });
+    if (bad) return errors.push({ line, why: bad });
+
+    // The single-figure shape is kept alongside, so everything reading field/value goes
+    // on working; the writer uses values, which is the same thing for one figure.
+    const leading = figures[0];
+    const value = values[leading.field];
 
     rows.push({
       // Kept as typed for display, and normalised for matching — the same split the
@@ -3346,8 +3477,9 @@ function parsePerformanceLines(text, kind) {
       keyedOn: spec.keyedOn,
       month: period,
       network,
-      field: spec.field,
-      value
+      field: leading.field,
+      value,
+      values
     });
   });
 
@@ -3832,6 +3964,151 @@ function visiblePerformanceRows() {
 }
 
 /**
+ * One row per person per network of FY, for the chosen month.
+ *
+ * Built from the FY documents rather than from the employee list, because FY is an
+ * OCCASIONAL incentive: listing everybody would draw a table of dashes for the people
+ * who were not on it, which reads as though the upload had failed.
+ *
+ * The person's name comes from the staff list where the number matches, and stays as the
+ * bare number where it does not — that row is still real money and must be visible.
+ */
+function fyRows(month, network) {
+  const wanted = networkKey(network);
+  const byNumber = {};
+  data.employees.forEach(e => {
+    const key = numberKey(e.employeeNumber);
+    if (key) byNumber[key] = e;
+  });
+
+  return data.perfFy
+    .filter(r => r.month === month)
+    // A network chosen on the tab narrows FY too, but only to one FY runs on: picking
+    // Vodacom leaves the FY table empty rather than showing MTN's figures under it.
+    .filter(r => !wanted || networkKey(r.network) === wanted)
+    .map(r => {
+      const person = byNumber[r.numberKey];
+      const value = (v) => v === null || v === undefined ? null : Number(v);
+      return {
+        numberKey: r.numberKey,
+        employeeNumber: r.employeeNumber || r.numberKey,
+        name: person ? fullName(person) : '',
+        province: person ? (person.province || '') : '',
+        team: person ? (person.teamName || '') : '',
+        network: networkKey(r.network),
+        stock: value(r.fyStock),
+        connections: value(r.fyConnections),
+        amount: value(r.fyAmountRands)
+      };
+    })
+    .sort((a, b) =>
+      String(a.name || a.employeeNumber).localeCompare(String(b.name || b.employeeNumber))
+      || String(a.network).localeCompare(String(b.network)));
+}
+
+/**
+ * FY on screen, after the same province, team and search filters as the table above.
+ *
+ * The month is a PARAMETER defaulting to the picker, not read from the picker outright.
+ * The export calls this with the month it was given, and a function that quietly went
+ * and looked the month up again could export a different month from the one it names in
+ * the filename.
+ */
+function visibleFyRows(month = $('perfMonth').value || todayString().slice(0, 7)) {
+  const q = perfFilters.query.trim().toLowerCase();
+  return fyRows(month, perfFilters.network).filter(r => {
+    if (perfFilters.province && r.province !== perfFilters.province) return false;
+    if (perfFilters.team && r.team !== perfFilters.team) return false;
+    if (!q) return true;
+    return [r.name, r.province, r.team, NETWORK_LABELS[r.network]]
+      .some(v => String(v ?? '').toLowerCase().includes(q))
+      || numberKey(r.employeeNumber).includes(numberKey(q));
+  });
+}
+
+/**
+ * FY totals. Summed over every row, with no de-duplication: FY belongs to a person, and
+ * one person on two networks earned both amounts.
+ *
+ * Null where nothing was uploaded, so the tiles show a dash — the same rule the figures
+ * above follow, and for the same reason.
+ */
+function fyTotals(rows) {
+  const sumOf = (pick) => {
+    const present = rows.map(pick).filter(v => v !== null && v !== undefined);
+    return present.length === 0 ? null : present.reduce((a, b) => a + Number(b), 0);
+  };
+  return {
+    stock: sumOf(r => r.stock),
+    connections: sumOf(r => r.connections),
+    amount: sumOf(r => r.amount)
+  };
+}
+
+function renderFy() {
+  const rows = visibleFyRows();
+  const totals = fyTotals(rows);
+  const count = (v) => v === null ? '—' : num(v);
+  const money = (v) => v === null ? '—' : rand(v);
+
+  $('fyTiles').innerHTML = [
+    ['FY stock', count(totals.stock)],
+    ['FY connections', count(totals.connections)],
+    ['Stock → conn', percentLabel(ratioPercent(totals.connections, totals.stock))],
+    ['FY payable', money(totals.amount)]
+  ].map(([cap, big]) =>
+    `<div class="tile"><div class="big${tileFigureClass(big)}">${esc(big)}</div><div class="cap">${
+      esc(cap)}</div></div>`).join('');
+
+  const people = new Set(rows.map(r => r.numberKey)).size;
+  $('fyShowing').textContent = rows.length === 0 ? '' :
+    `${rows.length} row(s) · ${people} ${people === 1 ? 'person' : 'people'}`;
+
+  const figure = (v, format) => v === null ? '<span class="meta">—</span>' : format(v);
+
+  $('fyRows').innerHTML = rows.length === 0
+    ? `<tr><td colspan="7" class="empty">No FY uploaded for this month${
+        perfFilters.network ? ' on ' + esc(NETWORK_LABELS[networkKey(perfFilters.network)]) : ''
+      }.</td></tr>`
+    : rows.map(r => `<tr>
+        <td><div class="nm">${esc(r.name || '—')}</div>${
+          [r.province, r.team].filter(Boolean).length
+            ? `<div class="meta">${esc([r.province, r.team].filter(Boolean).join(' · '))}</div>`
+            : '<div class="meta">not on the staff list</div>'}</td>
+        <td>${esc(r.employeeNumber || '—')}</td>
+        <td><span class="chip">${esc(NETWORK_LABELS[r.network] || r.network)}</span></td>
+        <td>${figure(r.stock, num)}</td>
+        <td>${figure(r.connections, num)}</td>
+        <td>${percentLabel(ratioPercent(r.connections, r.stock))}</td>
+        <td>${figure(r.amount, rand)}</td>
+      </tr>`).join('');
+}
+
+/**
+ * FY as CSV rows, header first.
+ *
+ * Extracted rather than built inside the click handler, for the same reason the
+ * performance export was: a header and a row that disagree by one shifts every figure
+ * after it, and a spreadsheet of shifted amounts looks perfectly reasonable.
+ *
+ * The conversion is written out as well as the two figures behind it, so a payroll sheet
+ * carries the working rather than a number nobody can check.
+ */
+function fyExportRows(month) {
+  const asPercent = (v) => v === null ? '' : v.toFixed(1);
+  const header = ['Employee', 'Employee number', 'Province', 'Team', 'Month', 'Network',
+    'FY stock', 'FY connections', 'Stock to connection %', 'FY payable R'];
+  return [header, ...visibleFyRows(month).map(r => [
+    r.name, r.employeeNumber, r.province, r.team, month,
+    NETWORK_LABELS[r.network] || r.network,
+    r.stock === null ? '' : r.stock,
+    r.connections === null ? '' : r.connections,
+    asPercent(ratioPercent(r.connections, r.stock)),
+    r.amount === null ? '' : r.amount.toFixed(2)
+  ])];
+}
+
+/**
  * Commission uploaded against an employee number that matches nobody on the staff list,
  * FOR ONE MONTH.
  *
@@ -4054,6 +4331,7 @@ function renderPerformance() {
       </div></div>`).join('')}`;
   $('perfUnmatchedCard').classList.toggle('hidden', unmatched.length === 0);
 
+  renderFy();
   renderPerformanceUploads();
 }
 
@@ -4063,7 +4341,8 @@ function renderPerformanceUploads() {
   $('perfUploads').innerHTML = Object.entries(PERF_UPLOADS).map(([kind, spec]) => `
     <div class="field" style="border-top:1px solid var(--surface-variant);padding-top:var(--s3)">
       <label>${esc(spec.label)} — one row per ${
-        perfHasNetwork(kind) ? 'team per month per network' : 'person per month'}</label>
+        perfKeyLabel(kind) === 'Team name' ? 'team' : 'person'} per month${
+        perfHasNetwork(kind) ? ' per network' : ''}</label>
       <div class="meta" style="margin-bottom:var(--s2)">Columns: ${
         esc(perfColumns(kind).join(', '))}</div>
       <input id="perfFile-${kind}" type="file" accept=".csv,text/csv,text/plain">
@@ -4145,22 +4424,29 @@ async function savePerformance(kind) {
             teamKey: r.key,
             month: r.month,
             network: r.network,
-            [r.field]: r.value,
+            ...r.values,
             uploadedAtMillis: Date.now()
           }, { merge: true });
         } else {
-          const id = `${r.key}_${r.month}`;
           const person = byNumber[r.key];
           if (person) matched++;
-          batch.set(doc(db, 'perfMonthly', id), {
+          // FY carries a network and lives in its own collection; pay does not and
+          // shares one document per person per month. Both are merged, so loading one
+          // figure never wipes another.
+          const onFy = kind === 'fy';
+          const id = onFy
+            ? `${r.key}_${r.month}_${r.network}`
+            : `${r.key}_${r.month}`;
+          batch.set(doc(db, onFy ? 'perfFy' : 'perfMonthly', id), {
             employeeNumber: r.keyAsTyped,
             numberKey: r.key,
-            // The uid is what lets that person read their own commission: a security
-            // rule cannot normalise an employee number to compare it.
+            // The uid is what lets that person read their own pay: a security rule
+            // cannot normalise an employee number to compare it.
             uid: person ? person.id : '',
             employeeName: person ? fullName(person) : '',
             month: r.month,
-            [r.field]: r.value,
+            ...(onFy ? { network: r.network } : {}),
+            ...r.values,
             uploadedAtMillis: Date.now()
           }, { merge: true });
         }
@@ -4245,6 +4531,11 @@ function performanceExportRows(month) {
     r.commissionRands === null ? '' : r.commissionRands.toFixed(2)
   ])];
 }
+
+$('exportFy').addEventListener('click', () => {
+  const month = $('perfMonth').value || todayString().slice(0, 7);
+  downloadCsv(`fy-${month}.csv`, fyExportRows(month));
+});
 
 $('exportPerformance').addEventListener('click', () => {
   const month = $('perfMonth').value || todayString().slice(0, 7);

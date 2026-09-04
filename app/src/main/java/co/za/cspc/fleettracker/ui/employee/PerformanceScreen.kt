@@ -162,6 +162,16 @@ fun PerformanceScreen(
             PercentRow("Stock to activations",
                 Performance.ratioPercent(f?.activations, f?.stock))
 
+            // FY sits between the team's figures and the person's pay, because that is
+            // what it is: an incentive on their own stock, not the team's work. Its
+            // connections are deliberately nowhere near the percentages above.
+            if (state.fy.isNotEmpty()) {
+                HorizontalDivider()
+                Text("FY incentive", style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold)
+                state.fy.forEach { row -> FyCard(row) }
+            }
+
             HorizontalDivider()
 
             // Basic and commission are this person's own pay, not the team's, and carry
@@ -170,11 +180,15 @@ fun PerformanceScreen(
                 fontWeight = FontWeight.SemiBold)
             MoneyRow("Basic salary", state.basicSalaryRands)
             MoneyRow("Commission", state.commissionRands)
-            // Only added up when BOTH are in. Adding a known figure to an absent one
-            // would show a total that is really just half the story.
-            if (state.basicSalaryRands != null && state.commissionRands != null) {
-                MoneyRow("Total", state.basicSalaryRands + state.commissionRands, strong = true)
-            }
+            // FY as ONE line here, every network added together — the figures per
+            // network are in the section above. This is the amount, not the working.
+            MoneyRow("FY", state.fyTotalRands)
+            // Null unless basic and commission are both in: adding a known figure to an
+            // absent one would show a total that is really half the story. FY is added
+            // when present and does not blank the total when it is not, because an
+            // incentive nobody earned this month is a real absence rather than a
+            // missing file.
+            state.totalPayRands?.let { MoneyRow("Total", it, strong = true) }
             // Stated where the amounts are, not in a footnote at the bottom of the
             // screen: somebody reading their own commission stops at the number.
             Text(
@@ -273,6 +287,41 @@ private fun FigureRow(label: String, value: Long?) {
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
+    }
+}
+
+/**
+ * One network's FY: the stock allocated, the connections off it, the conversion, and the
+ * amount payable.
+ *
+ * The two figures are shown next to the amount on purpose. An incentive figure nobody can
+ * check is an argument waiting to happen, and the conversion is the thing a rep actually
+ * wants to know.
+ */
+@Composable
+private fun FyCard(row: Performance.Fy) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(Performance.networkLabel(row.network), fontWeight = FontWeight.Bold)
+                Text(
+                    row.amountRands?.rand() ?: "—",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                "Stock " + (row.stock?.grouped() ?: "—")
+                    + "   ·   Connections " + (row.connections?.grouped() ?: "—")
+                    + "   ·   " + Performance.percentLabel(row.conversion),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

@@ -32,7 +32,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort',
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
-  'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS'
+  'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
+  'perfFigures', 'perfNetworks', 'FY_NETWORKS'
 ]);
 
 let failures = 0;
@@ -433,8 +434,91 @@ check('and dropping the network from the id would collide', withoutNetwork.size,
 const source = readFileSync(process.argv[2] ?? 'web/index.html', 'utf8');
 check('the upload writes a team document per team, month AND network',
   source.includes('doc(db, \'perfTeams\', `${r.key}_${r.month}_${r.network}`)'), true);
-check('and commission per person and month, which has no network',
-  source.includes('const id = `${r.key}_${r.month}`;'), true);
+/* Three shapes of id, and each one has to be what it is.
+   A team's is team + month + network. FY is person + month + network, because the same
+   person is paid on two networks. Basic and commission are person + month only, and
+   share one document so loading one never wipes the other. */
+check('FY is written per person, month AND network',
+  source.includes('? `${r.key}_${r.month}_${r.network}`'), true);
+check('and pay per person and month, which has no network',
+  source.includes(': `${r.key}_${r.month}`;'), true);
+check('FY goes to its own collection, apart from pay',
+  source.includes("doc(db, onFy ? 'perfFy' : 'perfMonthly', id)"), true);
+// The whole values object is written, which is what lets one file carry three figures
+// without the writer knowing anything about FY in particular.
+check('and every figure on the row is written, not just the first',
+  (source.match(/\.\.\.r\.values,/g) || []).length, 2);
+
+/* ---------------- FY: one upload, three figures ---------------- */
+check('FY has six columns, in this order',
+  portal.perfColumns('fy'),
+  ['Employee number', 'Month', 'Network', 'FY stock', 'FY connections', 'FY amount']);
+check('and it is the only upload carrying more than one figure',
+  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfFigures(k).length > 1), ['fy']);
+check('the other five carry exactly one each',
+  Object.keys(portal.PERF_UPLOADS).map(k => portal.perfFigures(k).length),
+  [1, 1, 1, 1, 1, 3]);
+
+/* FY is keyed on a PERSON and yet split by network — the combination that broke the old
+   rule of "team figures have a network, employee figures do not". */
+check('FY is keyed on an employee but still has a network',
+  [portal.perfKeyLabel('fy'), portal.perfHasNetwork('fy')], ['Employee number', true]);
+check('while basic and commission have none',
+  [portal.perfHasNetwork('basic'), portal.perfHasNetwork('commission')], [false, false]);
+
+// FY runs on two of the four networks, and the narrower list is enforced.
+check('FY accepts only MTN and Telkom', portal.perfNetworks('fy'), ['MTN', 'TELKOM']);
+check('while the team figures accept all four', portal.perfNetworks('stock'), portal.NETWORKS);
+
+const fy = portal.parsePerformanceLines(
+  'Employee number,Month,Network,FY stock,FY connections,FY amount\n'
+  + 'T042,2026-08,MTN,1000,400,5600.00\n'
+  + 'T042,2026-08,Telkom,600,210,2940.00\n', 'fy');
+check('a clean FY file loads both rows', fy.rows.length, 2);
+check('with no errors', fy.errors.length, 0);
+check('all three figures come through on one row',
+  fy.rows[0].values, { fyStock: 1000, fyConnections: 400, fyAmountRands: 5600 });
+check('and the network is normalised', fy.rows.map(r => r.network), ['MTN', 'TELKOM']);
+// One person, one month, two networks: two records, not one overwritten twice.
+check('the same person on two networks is two records',
+  new Set(fy.rows.map(r => `${r.key}_${r.month}_${r.network}`)).size, 2);
+
+// A network FY does not run on is refused even though it is a real network elsewhere.
+const fyVodacom = portal.parsePerformanceLines('T042,2026-08,VODACOM,600,210,2940.00', 'fy');
+check('an FY row for Vodacom is refused', fyVodacom.rows.length, 0);
+check('and the message names only the networks FY runs on',
+  fyVodacom.errors[0].why, 'network must be MTN or Telkom');
+// But the same network is perfectly fine on a team file.
+check('while Vodacom is fine for stock',
+  portal.parsePerformanceLines('SOWETO,2026-08,VODACOM,600', 'stock').rows.length, 1);
+
+/* Each figure is checked by its own kind, and a blank one is named. Half a row of an
+   incentive is not something to store, so one bad figure refuses the line. */
+check('a blank amount says which figure is blank',
+  portal.parsePerformanceLines('T042,2026-08,MTN,1000,400', 'fy').errors[0].why,
+  'FY amount is blank');
+check('and so does a blank in the middle of the row',
+  portal.parsePerformanceLines('T042,2026-08,MTN,1000,,5600.00', 'fy').errors[0].why,
+  'FY connections is blank');
+check('a stock that is not a number refuses the whole row',
+  portal.parsePerformanceLines('T042,2026-08,MTN,abc,400,5600.00', 'fy').rows.length, 0);
+check('naming the figure at fault',
+  portal.parsePerformanceLines('T042,2026-08,MTN,abc,400,5600.00', 'fy').errors[0].why,
+  'FY stock must be a whole number');
+// A real zero is a real result: stock allocated and nothing connected.
+check('but a real zero loads',
+  portal.parsePerformanceLines('T042,2026-08,MTN,1000,0,0.00', 'fy').rows[0].values,
+  { fyStock: 1000, fyConnections: 0, fyAmountRands: 0 });
+
+/* A comma decimal and a genuine extra column both make the row too wide, and they used
+   to give the same message — sending an admin to hunt for a decimal point that was
+   never there. */
+check('a comma decimal in a comma file is called what it is',
+  portal.parsePerformanceLines('T042,2026-08,MTN,1000,400,5600,50', 'fy').errors[0].why
+    .includes('split across two columns'), true);
+check('while a real extra column is not',
+  portal.parsePerformanceLines('T042,2026-08,MTN,1000,400,5600.00,9', 'fy').errors[0].why,
+  'more columns than this file should have');
 
 /* Reads, which networks made four times as expensive.
    Eighty-eight team names on four networks is around 350 documents a month. Reading two

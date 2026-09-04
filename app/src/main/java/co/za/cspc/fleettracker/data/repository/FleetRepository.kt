@@ -747,6 +747,33 @@ class FleetRepository(
         return MyPay(total("basicSalaryRands"), total("commissionRands"))
     }
 
+    /**
+     * This person's FY for a month, one row per network.
+     *
+     * Queried on the UID like their pay is, and for the same reason: the rules permit a
+     * query provably restricted to the caller's own uid and refuse one asking for
+     * everybody's. A row whose employee number matched nobody has an empty uid and so
+     * belongs to no one yet, which is right — the admin fixes the number first.
+     *
+     * Read field by field rather than through a data class: a figure never uploaded is
+     * ABSENT, and a Long default would read that as 0.
+     */
+    suspend fun myFy(uid: String, month: String): List<Performance.Fy> {
+        if (uid.isEmpty() || month.isEmpty()) return emptyList()
+        val snap = db.collection("perfFy")
+            .whereEqualTo("uid", uid)
+            .whereEqualTo("month", month)
+            .get().await()
+        return snap.documents.map {
+            Performance.Fy(
+                network = it.getString("network") ?: "",
+                stock = it.getLong("fyStock"),
+                connections = it.getLong("fyConnections"),
+                amountRands = it.getDouble("fyAmountRands")
+            )
+        }
+    }
+
     suspend fun saveSettings(settings: AppSettings) {
         // merge() matters: the attendance Cloud Function stores lastAttendanceAlertDate
         // in this same document. A plain set() would wipe it, and the "already alerted

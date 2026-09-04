@@ -33,6 +33,8 @@ data class PerformanceUiState(
     val figures: Performance.Figures? = null,
     val basicSalaryRands: Double? = null,
     val commissionRands: Double? = null,
+    /** One row per network FY was paid on, in a fixed order. Empty when none was. */
+    val fy: List<Performance.Fy> = emptyList(),
     val connectionsStanding: Standing? = null,
     val activationsStanding: Standing? = null,
     val message: String? = null
@@ -41,9 +43,23 @@ data class PerformanceUiState(
      * Nothing has been uploaded for this month at all. Said in a sentence rather than
      * drawn as a row of dashes, which reads like a fault in the app.
      */
+    /** Every network's FY added up, or null when none arrived. */
+    val fyTotalRands: Double? get() = Performance.fyTotal(fy)
+
+    /**
+     * What this person is owed for the month.
+     *
+     * Basic and commission are paid every month, so their absence means the file has not
+     * arrived and the total cannot be stated — it stays a dash. FY is an OCCASIONAL
+     * incentive, so its absence is the normal case and must not blank the total; it is
+     * added when it is there.
+     */
+    val totalPayRands: Double?
+        get() = Performance.totalPay(basicSalaryRands, commissionRands, fyTotalRands)
+
     val nothingYet: Boolean
         get() = figures?.hasAnything != true
-            && commissionRands == null && basicSalaryRands == null
+            && commissionRands == null && basicSalaryRands == null && fy.isEmpty()
 }
 
 /**
@@ -68,6 +84,7 @@ class PerformanceViewModel(
     /** Months already fetched, keyed by month, so paging back and forth reads once. */
     private val monthCache = mutableMapOf<String, List<Performance.TeamRow>>()
     private val payCache = mutableMapOf<String, FleetRepository.MyPay>()
+    private val fyCache = mutableMapOf<String, List<Performance.Fy>>()
 
     fun load(profile: UserProfile, month: String = FleetRepository.thisMonthString()) {
         this.profile = profile
@@ -89,10 +106,18 @@ class PerformanceViewModel(
                     runCatching { repo.myPay(profile.uid, month) }
                         .getOrDefault(FleetRepository.MyPay(null, null))
                 }
+                // FY is a nice-to-have beside the team's figures, like their pay: if
+                // this one query fails the rest of the screen should still draw.
+                val fy = fyCache.getOrPut(month) {
+                    Performance.fyInOrder(
+                        runCatching { repo.myFy(profile.uid, month) }.getOrDefault(emptyList())
+                    )
+                }
                 uiState = uiState.copy(
                     loading = false,
                     basicSalaryRands = pay.basicSalaryRands,
-                    commissionRands = pay.commissionRands
+                    commissionRands = pay.commissionRands,
+                    fy = fy
                 )
                 recompute(rows)
             } catch (e: Exception) {
