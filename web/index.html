@@ -210,10 +210,13 @@
   }
 
   .tiles {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
     gap: var(--s3); margin-bottom: var(--s4);
   }
   .tile {
+    /* Without this a grid item refuses to shrink below its content, which is how a
+       long figure came to sit on top of the tile beside it. */
+    min-width: 0;
     background: var(--primary-container);
     color: var(--on-primary-container);
     border-radius: var(--radius);
@@ -235,7 +238,15 @@
   .tile .big {
     font-size: 1.75rem; font-weight: 700; line-height: 1.15;
     letter-spacing: -.02em;
+    /* Money must not break across lines: "R264" above "689,00" is not a number anybody
+       reads. So it stays on one line and the size comes down instead. */
+    white-space: nowrap;
   }
+  /* Set from the rendered string's length — see tileFigureClass(). CSS cannot measure
+     text, and rand() joins its thousands with a NON-BREAKING space, so a long amount
+     could neither wrap nor shrink and simply overflowed the tile. */
+  .tile .big.long { font-size: 1.2rem; }
+  .tile .big.longer { font-size: .95rem; }
   .tile .cap {
     font-size: .7rem; opacity: .8; text-transform: uppercase;
     letter-spacing: .07em; font-weight: 600; margin-top: 2px;
@@ -3364,6 +3375,20 @@ const ratioPercent = (numerator, denominator) => {
   return Number(numerator) / Number(denominator) * 100;
 };
 
+/**
+ * How big a tile's figure can be drawn at, from how long it is.
+ *
+ * Thresholds rather than measurement, because CSS cannot measure text and the figure is
+ * already a string by the time it is placed. "R264 689,00" is eleven characters and does
+ * not fit a tile at the full size; "R3 686 330,50" is thirteen and needs smaller still.
+ */
+function tileFigureClass(text) {
+  const n = String(text ?? '').length;
+  if (n >= 12) return ' longer';
+  if (n >= 9) return ' long';
+  return '';
+}
+
 /** "63,3%", or a dash when there is nothing to divide. */
 const percentLabel = (value) => value === null
   ? '—'
@@ -3629,7 +3654,8 @@ function renderReport() {
     // flatters whoever drove least.
     ['Cost per km', costPerKmLabel(totals.fuel, totals.km), '']
   ].map(([cap, big, tone]) =>
-    `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+    `<div class="tile ${tone}"><div class="big${tileFigureClass(big)}">${
+      esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
 
   $('repRows').innerHTML = rows.length === 0
@@ -3861,6 +3887,26 @@ const TEAM_LEVEL_FIELDS = ['stock', 'connections', 'activations'];
  *
  * A person with no team carries no team figures, so contributes nothing to those three.
  */
+/**
+ * Basic and commission added, and ONLY when both are there.
+ *
+ * Treating a missing basic as zero made the combined tile equal the commission tile
+ * exactly. Two tiles side by side showing the same amount is what a broken sum looks
+ * like, so it read as a fault in the arithmetic rather than as a month with no basic
+ * uploaded — which is what Aadil reported.
+ *
+ * The phone already refused to add a known figure to an absent one. Extracted from the
+ * render function so a test can reach it: the rule was being re-implemented inside the
+ * test instead, which proved only that the test agreed with itself.
+ *
+ * Two real noughts still add to a real nought. Being paid nothing is not the same as
+ * nothing having been uploaded.
+ */
+function combinedPay(totals) {
+  if (totals.basic === null || totals.commission === null) return null;
+  return totals.basic + totals.commission;
+}
+
 function performanceTotals(rows) {
   /*
    * NULL where nothing was uploaded, and that is the whole point of this shape.
@@ -3942,11 +3988,7 @@ function renderPerformance() {
   // A dash, never a nought — the same rule the table under these tiles follows.
   const count = (v) => v === null ? '—' : num(v);
   const money = (v) => v === null ? '—' : rand(v);
-  // Added only over what is actually there: basic alone is basic, and neither uploaded
-  // is a dash rather than R0,00.
-  const pay = totals.basic === null && totals.commission === null
-    ? null
-    : (totals.basic ?? 0) + (totals.commission ?? 0);
+  const pay = combinedPay(totals);
 
   $('perfTiles').innerHTML = [
     ['Stock', count(totals.stock), ''],
@@ -3959,7 +4001,8 @@ function renderPerformance() {
     ['Commission', money(totals.commission), ''],
     ['Basic + comm', money(pay), '']
   ].map(([cap, big, tone]) =>
-    `<div class="tile ${tone}"><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
+    `<div class="tile ${tone}"><div class="big${tileFigureClass(big)}">${
+      esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
 
   $('perfShowing').textContent = rows.length === all.length

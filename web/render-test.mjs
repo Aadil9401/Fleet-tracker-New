@@ -22,7 +22,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
   'visiblePerformanceRows', 'perfFilters', 'performanceTotals', 'TEAM_LEVEL_FIELDS',
   'leaderboardRows', 'teamKey', 'performanceExportRows', 'monthsBack', 'PERF_HISTORY_MONTHS',
-  'teamFiguresFor', 'networkKey', 'NETWORKS', 'NETWORK_LABELS', 'lbFilters'
+  'teamFiguresFor', 'networkKey', 'NETWORKS', 'NETWORK_LABELS', 'lbFilters',
+  'tileFigureClass', 'rand', 'num', 'combinedPay'
 ]);
 
 let failures = 0;
@@ -659,6 +660,58 @@ const zeroPaid = [member('A', 'Gauteng', 'Soweto', { basicSalaryRands: 0, commis
 check('and a real nought paid is still nought',
   [portal.performanceTotals(zeroPaid).basic, portal.performanceTotals(zeroPaid).commission],
   [0, 0]);
+
+/* Basic and commission added, and only when BOTH are there.
+
+   Adding a known figure to an absent one made the combined tile equal the commission
+   tile exactly, which is what a broken sum looks like — two tiles side by side showing
+   the same amount. The rule is the same one the phone already applied, so this is the
+   pair of assertions that stops the two disagreeing again. */
+// The PORTAL's rule, not a copy of it — see combinedPay(). Re-implementing it here
+// proved only that the test agreed with itself, and a mutation that broke the real
+// rule passed.
+const bothPay = portal.combinedPay;
+
+check('the two add up when both are uploaded',
+  bothPay(portal.performanceTotals(
+    [member('A', 'Gauteng', 'Soweto', { basicSalaryRands: 6200, commissionRands: 5690 })])),
+  11890);
+check('but commission alone does not become a combined total',
+  bothPay(portal.performanceTotals(
+    [member('A', 'Gauteng', 'Soweto', { commissionRands: 5690 })])),
+  null);
+check('nor does basic alone',
+  bothPay(portal.performanceTotals(
+    [member('A', 'Gauteng', 'Soweto', { basicSalaryRands: 6200 })])),
+  null);
+// Two real noughts still add to a real nought, which is not the same as nothing.
+check('and two real noughts add to nought', bothPay(portal.performanceTotals(zeroPaid)), 0);
+
+/* A tile's figure is drawn smaller when it is long.
+
+   rand() joins its thousands with a NON-BREAKING space, so a long amount can neither
+   wrap nor shrink on its own: "R264 689,00" at the full size was wider than the tile and
+   sat on top of the one beside it, with its last digit hidden. CSS cannot measure text,
+   so the size comes off the string's length. */
+check('a short figure is drawn at full size',
+  ['761 350', '20,0%', '—', 'R0,00'].map(portal.tileFigureClass), ['', '', '', '']);
+check('an amount that would overflow is drawn smaller',
+  portal.tileFigureClass(portal.rand(264689)), ' long');
+check('and a very long one smaller still',
+  portal.tileFigureClass(portal.rand(3686330.5)), ' longer');
+// The thing that caused it, stated so nobody "tidies" the separator away and wonders
+// why the tiles break: this space cannot be broken across lines.
+check('money really does carry a non-breaking space',
+  portal.rand(264689).includes(String.fromCharCode(160)), true);
+// And so does a count: en-ZA groups with a non-breaking space of its own, so num()'s
+// replace of commas never fires. Neither kind of figure can wrap, which is why the
+// sizing has to cover both rather than money alone.
+check('and so does a count, for the same reason',
+  portal.num(761350).includes(String.fromCharCode(160)), true);
+check('so neither kind can wrap, and both are sized by length',
+  [portal.tileFigureClass(portal.num(12345678)),
+   portal.tileFigureClass(portal.rand(264689))],
+  [' long', ' long']);
 
 /* A ratio over a figure that was never uploaded is unknown, not 0% — which follows for
    free once the total is null, and is the reason it has to be null rather than 0. */
