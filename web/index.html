@@ -3591,7 +3591,53 @@ const perfMoney = (cell) => {
   return /^\d+(\.\d+)?$/.test(cleaned) ? Number(cleaned) : null;
 };
 
-const isMonth = (value) => /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+/**
+ * A month cell as yyyy-MM, however it was written — or '' if it is not a month.
+ *
+ * Excel formats a date cell as "Jan-26", and that is what comes out of a spreadsheet
+ * somebody actually keeps. Refusing it and asking for 2026-01 puts the work of being a
+ * computer onto the person with the data, on every row.
+ *
+ * Two-digit years are read as this century, which is the only sane reading for a sales
+ * figure: "26" is 2026, not 1926.
+ */
+const MONTH_NAMES = {
+  JAN: '01', JANUARY: '01', FEB: '02', FEBRUARY: '02', MAR: '03', MARCH: '03',
+  APR: '04', APRIL: '04', MAY: '05', JUN: '06', JUNE: '06',
+  JUL: '07', JULY: '07', AUG: '08', AUGUST: '08',
+  // "Sept" as well as "Sep", because that is what people write.
+  SEP: '09', SEPT: '09', SEPTEMBER: '09',
+  OCT: '10', OCTOBER: '10', NOV: '11', NOVEMBER: '11', DEC: '12', DECEMBER: '12'
+};
+
+function normaliseMonth(value) {
+  const text = String(value ?? '').trim();
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(text)) return text;
+
+  // yyyy/MM and yyyy-M, which a few exports write.
+  const numeric = text.match(/^(\d{4})[-\/](\d{1,2})$/);
+  if (numeric) {
+    const month = Number(numeric[2]);
+    return month >= 1 && month <= 12 ? `${numeric[1]}-${String(month).padStart(2, '0')}` : '';
+  }
+
+  // Jan-26, Jan 2026, January-26 — and the same the other way round.
+  const named = text.toUpperCase().match(/^([A-Z]+)[-\/ ]+(\d{2,4})$/)
+    || text.toUpperCase().match(/^(\d{2,4})[-\/ ]+([A-Z]+)$/);
+  if (named) {
+    const name = /^[A-Z]+$/.test(named[1]) ? named[1] : named[2];
+    const yearText = /^[A-Z]+$/.test(named[1]) ? named[2] : named[1];
+    const month = MONTH_NAMES[name];
+    if (!month) return '';
+    // Two digits mean this century: a sales figure for "26" is 2026, not 1926.
+    const year = yearText.length <= 2 ? `20${yearText.padStart(2, '0')}` : yearText;
+    return /^\d{4}$/.test(year) ? `${year}-${month}` : '';
+  }
+
+  return '';
+}
+
+const isMonth = (value) => normaliseMonth(value) !== '';
 
 /**
  * One performance file, against one of the three specs above.
@@ -3610,10 +3656,16 @@ function parsePerformanceLines(text, kind) {
 
   lines.forEach(line => {
     const parts = line.split(delimiter).map(x => x.trim());
+    // A row with nothing in it at all is skipped in silence rather than reported. Excel
+    // writes a tail of them after the last real row, and a file ending in eighteen
+    // "no employee number" errors reads as eighteen problems when there are none.
+    if (parts.every(c => c === '')) return;
     // Trailing empties are how a spreadsheet writes a row, and mean nothing.
     while (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
     const key = parts[0] || '';
-    const period = parts[1] || '';
+    // Normalised here, once, so everything downstream stores and compares yyyy-MM
+    // whatever the spreadsheet wrote.
+    const period = normaliseMonth(parts[1]);
 
     // The header, however they capitalised it.
     const first = key.toLowerCase();
@@ -3657,11 +3709,25 @@ function parsePerformanceLines(text, kind) {
         const cells = figures.map((_, i) => String(parts[at + i] ?? '').trim());
         if (cells.every(c => c === '')) return;
 
+        /*
+         * A blank COUNT is nought; a blank AMOUNT is not.
+         *
+         * These read differently because they mean differently. A count is a count of
+         * things that happened, and nothing recorded is none — a spreadsheet leaves the
+         * cell empty rather than typing a zero. Money is worked out, and a blank one has
+         * not been: reading it as R0 would tell somebody they earned nothing when in
+         * truth nobody has calculated it yet, which is the difference between a bad
+         * month and an unfinished sheet.
+         */
         const values = {};
         figures.forEach((f, i) => {
           if (bad) return;
           const label = `${NETWORK_LABELS[network]} ${f.label}`;
-          if (cells[i] === '') { bad = label + ' is blank'; return; }
+          if (cells[i] === '') {
+            if (f.kind === 'money') { bad = label + ' is blank'; return; }
+            values[f.field] = 0;
+            return;
+          }
           const parsed = f.kind === 'money' ? perfMoney(cells[i]) : perfCount(cells[i]);
           if (parsed === null) {
             bad = label + (f.kind === 'money' ? ' must be an amount' : ' must be a whole number');
@@ -3670,6 +3736,21 @@ function parsePerformanceLines(text, kind) {
           values[f.field] = parsed;
         });
         if (bad) return;
+
+        /*
+         * Nothing taken and nothing sold is not a network they were on.
+         *
+         * A spreadsheet leaves a stray 0 in the payable column of a network somebody was
+         * never given stock for — "1500,,0" is real, but ",,0" is a formula filling a
+         * cell nobody meant to fill. Storing it would put a row of noughts on the tab
+         * and on their phone for an incentive they were not part of.
+         *
+         * A network deliberately entered as 0, 0, 0 is kept: that is somebody who WAS
+         * given nothing and sold nothing, which is a fact about the month.
+         */
+        const everyFigureNought = figures.every(f => !values[f.field]);
+        const somethingWasBlank = cells.some(c => c === '');
+        if (everyFigureNought && somethingWasBlank) return;
 
         made.push({
           keyAsTyped: key,

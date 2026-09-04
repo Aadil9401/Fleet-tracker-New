@@ -33,7 +33,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
-  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide'
+  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'normaliseMonth'
 ]);
 
 let failures = 0;
@@ -406,6 +406,76 @@ Object.keys(portal.PERF_UPLOADS).forEach(kind => {
     : portal.PERF_UPLOADS[kind].sample.length;
   check(`and yields its sample rows`, back.rows.length, expected);
 });
+
+/* ---------------- what a real spreadsheet actually writes ---------------- */
+/* Every case below came out of the FY file Aadil tried to upload. All of it was refused,
+   and none of it was his fault: a spreadsheet writes months, blanks and trailing rows
+   its own way, and a parser that insists otherwise puts the work of being a computer
+   onto the person with the data. */
+
+/* MONTHS. Excel formats a date cell as "Jan-26", which is what comes out of a sheet
+   somebody actually keeps. Two digits mean this century — a sales figure for "26" is
+   2026, not 1926. */
+check('a month written the way Excel writes it is a month',
+  ['Jan-26', 'Sept-26', 'Aug-26', 'jan-26', 'September-26', 'Jan 2026', '26-Jan']
+    .map(portal.normaliseMonth),
+  ['2026-01', '2026-09', '2026-08', '2026-01', '2026-09', '2026-01', '2026-01']);
+check('and so is the form the templates ask for',
+  portal.normaliseMonth('2026-01'), '2026-01');
+check('a slash or a single digit is read too',
+  [portal.normaliseMonth('2026/1'), portal.normaliseMonth('2026-1')], ['2026-01', '2026-01']);
+check('but something that is not a month is still not one',
+  ['Rain-26', '13-26', '', 'Smarch-26', '2026-13'].map(portal.normaliseMonth),
+  ['', '', '', '', '']);
+// Stored normalised, so a file of "Jan-26" is not filed under a month nothing looks for.
+check('a named month is STORED as yyyy-mm',
+  portal.parsePerformanceLines('T042,Sept-26,1000,400,5600.00,,,', 'fy').rows[0].month,
+  '2026-09');
+check('and the same for a team file',
+  portal.parsePerformanceLines('SOWETO,Jan-26,MTN,600', 'stock').rows[0].month, '2026-01');
+
+/* BLANK CELLS. A count and an amount read differently because they mean differently: a
+   count of nothing recorded is none, while money nobody has worked out yet is not R0. */
+const blankCount = portal.parsePerformanceLines('T042,Aug-26,1500,,0,,,', 'fy');
+check('a blank count reads as nought', blankCount.rows.length, 1);
+check('with the stock kept and the connections nought',
+  [blankCount.rows[0].values.fyStock, blankCount.rows[0].values.fyConnections,
+   blankCount.rows[0].values.fyAmountRands],
+  [1500, 0, 0]);
+// A blank AMOUNT is refused. Reading it as R0 would tell somebody they earned nothing
+// when nobody has calculated it — the difference between a bad month and an unfinished
+// sheet, on a screen belonging to the person who did the selling.
+check('a blank amount is still refused',
+  portal.parsePerformanceLines('T042,Aug-26,2400,2378,,,,', 'fy').errors[0].why,
+  'MTN payable is blank');
+
+/* A stray nought in the payable column of a network somebody was never on. ",,0" is a
+   formula filling a cell nobody meant to fill, and storing it would put a row of noughts
+   on the tab and on their phone for an incentive they were not part of. */
+const strayNought = portal.parsePerformanceLines('T042,Aug-26,4000,2103,3155,,,0', 'fy');
+check('a network of blanks and a stray nought is not a network', strayNought.rows.length, 1);
+check('leaving only the one they were actually on',
+  strayNought.rows[0].network, 'MTN');
+// But 0, 0, 0 typed deliberately IS a fact about the month: given nothing, sold nothing.
+const realNoughts = portal.parsePerformanceLines('T042,Aug-26,4000,2103,3155,0,0,0', 'fy');
+check('while noughts typed on purpose are kept', realNoughts.rows.length, 2);
+check('as a real nought rather than an absence',
+  realNoughts.rows[1].values, { fyStock: 0, fyConnections: 0, fyAmountRands: 0 });
+
+/* TRAILING BLANK ROWS. Excel writes a tail of them after the last real row. A file
+   ending in eighteen "no employee number" errors reads as eighteen problems when there
+   are none. */
+const withTail = portal.parsePerformanceLines(
+  'T042,Aug-26,1000,400,5600.00,,,\n,,,,,,,\n,,,,,,,\n,,,,,,,\n', 'fy');
+check('a wholly blank row is skipped in silence',
+  [withTail.rows.length, withTail.errors.length], [1, 0]);
+// Every upload benefits, not just FY.
+check('and on the other files too',
+  portal.parsePerformanceLines('T042,2026-09,6200.00\n,,\n,,\n', 'basic').errors.length, 0);
+// A row with SOME of its cells filled is still a row, and still reported if it is wrong.
+check('but a row with something in it is still judged',
+  portal.parsePerformanceLines(',Aug-26,1000,400,5600.00,,,', 'fy').errors[0].why,
+  'no employee number');
 
 /* ---------------- several months in one file ---------------- */
 // Eight months of history is one file with a Month column that changes per row, not
