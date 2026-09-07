@@ -4739,6 +4739,7 @@ function renderFy() {
     fyFilters.person);
 
   renderPerformanceUploads('fyUploads');
+  refreshClearButtons('fyUploads');
 
   const rows = visibleFyRows();
   const totals = fyTotals(rows);
@@ -5031,6 +5032,7 @@ function renderPerformance() {
   $('perfUnmatchedCard').classList.toggle('hidden', unmatched.length === 0);
 
   renderPerformanceUploads();
+  refreshClearButtons();
 }
 
 /**
@@ -5066,6 +5068,8 @@ function renderPerformanceUploads(container = 'perfUploads') {
   }).join('');
   $(container).dataset.built = 'yes';
 
+  refreshClearButtons(container);
+
   perfUploadKinds(container).forEach(kind => {
     $('perfTemplate-' + kind).addEventListener('click', () => {
       downloadCsv(`performance-${kind}-template.csv`, perfTemplateRows(kind));
@@ -5076,6 +5080,47 @@ function renderPerformanceUploads(container = 'perfUploads') {
     });
     $('perfSave-' + kind).addEventListener('click', () => savePerformance(kind));
     $('perfClear-' + kind).addEventListener('click', () => clearPerformanceMonth(kind));
+  });
+}
+
+/**
+ * What one "Remove a month" button should say.
+ *
+ * Split out from the DOM so it can be tested: the buttons are built with ids that are
+ * not in the static markup, so the render itself cannot be driven under test, and the
+ * thing worth guarding is that the button NAMES THE MONTH it will act on.
+ */
+function clearButtonLabel(kind) {
+  const { month, rows } = monthFigureCount(kind);
+  const figure = PERF_UPLOADS[kind].label.toLowerCase();
+  return rows === 0
+    ? { text: `Remove ${month} — none stored`,
+        title: `No ${figure} is stored for ${month}.` }
+    : { text: `Remove ${month} (${rows})`,
+        title: `Clears ${rows} ${figure} figure(s) for ${month}. Other months, and `
+          + 'other figures in this month, are left alone.' };
+}
+
+/**
+ * Names the month, and the count, on each "Remove a month" button.
+ *
+ * The button used to read "Remove a month" and take the month from the picker at the top
+ * of the tab — two things far apart on a long page, so which month was about to go was
+ * something you had to work out rather than read. Aadil asked twice for September
+ * commission to be taken out, having been given the clicks the first time, which is
+ * usually a sign the control is not where somebody looks for it.
+ *
+ * Called on every render, so it follows the picker.
+ */
+function refreshClearButtons(container = 'perfUploads') {
+  perfUploadKinds(container).forEach(kind => {
+    const button = $('perfClear-' + kind);
+    if (!button) return;
+    const { text, title } = clearButtonLabel(kind);
+    button.textContent = text;
+    // Nothing to remove is not an error, so the button stays pressable and says so
+    // rather than going grey with no explanation.
+    button.title = title;
   });
 }
 

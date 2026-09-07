@@ -28,7 +28,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'debtInvoices', 'debtByEmployee', 'debtExportRows', 'debtFilters',
   'parseDebtLines', 'DEBT_COLUMNS', 'DEBT_SAMPLE', 'daysSince', 'productKey',
   'normaliseDate', 'renderDebt', 'renderFy', 'fyFilters', 'monthFigureCount',
-  'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey'
+  'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
+  'clearButtonLabel'
 ]);
 
 let failures = 0;
@@ -1580,6 +1581,52 @@ debtFor('T042', 'owing');
 check('the tiles still answer for everybody',
   (writes()['debtTiles'] || '').includes(portal.rand(17500)), true);
 Object.assign(portal.debtFilters, { show: 'owing', person: '', query: '' });
+
+/* ---------------- the button says which month it will remove ---------------- */
+/* It read "Remove a month" and took the month from a picker at the top of a long tab,
+   so which month was about to go was something you worked out rather than read. On a
+   button that clears somebody's pay, that is the wrong way round. */
+portal.data.employees = [];
+portal.data.perfMonthly = [
+  { id: 'm1', month: '2026-08', numberKey: 'T042', commissionRands: 1200 },
+  { id: 'm2', month: '2026-08', numberKey: 'T099', commissionRands: 800 },
+  { id: 'm3', month: '2026-08', numberKey: 'T100', basicSalaryRands: 9000 }
+];
+portal.data.perfTeams = [];
+portal.data.perfFy = [];
+
+setValue('perfMonth', '2026-08');
+check('the button names the month and how much is in it',
+  portal.clearButtonLabel('commission').text, 'Remove 2026-08 (2)');
+// Only THIS figure is counted. A month with basic in it but no commission has no
+// commission to remove, whatever else is stored against the same person.
+check('and counts only its own figure',
+  portal.clearButtonLabel('basic').text, 'Remove 2026-08 (1)');
+check('a month with none of it says so rather than offering a count',
+  portal.clearButtonLabel('stock').text, 'Remove 2026-08 — none stored');
+// The month follows the picker, which is the whole point.
+setValue('perfMonth', '2026-09');
+check('and it follows the month picker',
+  portal.clearButtonLabel('commission').text, 'Remove 2026-09 — none stored');
+check('with a note saying what is not there',
+  portal.clearButtonLabel('commission').title,
+  'No commission is stored for 2026-09.');
+setValue('perfMonth', '2026-08');
+check('while the note on a month that has some says what will go',
+  portal.clearButtonLabel('commission').title,
+  'Clears 2 commission figure(s) for 2026-08. Other months, and other figures in this '
+  + 'month, are left alone.');
+
+/* FY READS ITS OWN PICKER. Removing a month of FY once took the month from the
+   Performance tab and named it correctly in the confirmation, so the wrong answer looked
+   like the right one — that is why these two are separate. */
+portal.data.perfFy = [
+  { id: 'f9', month: '2026-07', numberKey: 'T042', network: 'MTN', fyStock: 100 }
+];
+setValue('fyMonth', '2026-07');
+check('FY counts against its own month, not the performance tab\'s',
+  [portal.clearButtonLabel('fy').text, portal.clearButtonLabel('commission').text],
+  ['Remove 2026-07 (1)', 'Remove 2026-08 (2)']);
 
 /* ---------------- one case, everywhere ---------------- */
 /* A name that reads "Soweto" in a dropdown and "SOWETO" in the table below it makes
