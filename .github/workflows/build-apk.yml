@@ -65,6 +65,55 @@ jobs:
       - name: App unit tests, and the shared specs it answers to
         run: gradle testDebugUnitTest --no-daemon
 
+      # WHY A FAILING TEST NAMES ITSELF HERE.
+      #
+      # Gradle prints the failure into the log, and the log needs a GitHub login to read.
+      # There is no JDK on the machine this app is written on, so this job is the only
+      # thing that ever compiles or tests the Kotlin — and when it went red, all that
+      # could be seen from outside was "Process completed with exit code 1". Ten commits
+      # were pushed on top of a red build before anybody noticed the APK had stopped
+      # being published.
+      #
+      # ::error:: turns each failure into a GitHub ANNOTATION, and annotations are on the
+      # public API without a login. So the next red build says which test failed and why,
+      # from anywhere.
+      #
+      # always() so it runs even though the step above has already failed the job.
+      - name: Say which test failed
+        if: always()
+        run: |
+          set +e
+          shopt -s nullglob globstar
+          reports=(app/build/test-results/**/*.xml)
+          if [ ${#reports[@]} -eq 0 ]; then
+            echo "::warning::No test report was written — the tests did not get as far as running."
+            exit 0
+          fi
+
+          # One line per failed case, out of the JUnit XML: class, test name, and the
+          # first line of the message, which is the assertion or the exception.
+          python3 - "${reports[@]}" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+
+          failed = 0
+          for path in sys.argv[1:]:
+              try:
+                  root = ET.parse(path).getroot()
+              except ET.ParseError:
+                  continue
+              for case in root.iter('testcase'):
+                  for bad in list(case.findall('failure')) + list(case.findall('error')):
+                      failed += 1
+                      where = f"{case.get('classname')}.{case.get('name')}"
+                      message = (bad.get('message') or bad.get('type') or '').strip()
+                      # Annotations are one line, so the first line of the message and
+                      # nothing else — that is the assertion, before the stack trace.
+                      first = message.splitlines()[0] if message else '(no message)'
+                      print(f"::error title={where}::{first[:400]}")
+
+          print(f"{failed} test case(s) failed" if failed else "every test case passed")
+          PY
+
       # The artifact above is the wrong shape for the one thing the APK is for, which is
       # getting onto a phone: it needs a GitHub login, it expires after 90 days, it
       # arrives as a zip, and it is found by scrolling to the bottom of a run page. This
