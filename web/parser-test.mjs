@@ -623,6 +623,99 @@ check('a month already in hand is not read twice',
 check('and an upload invalidates what was cached',
   source.includes('perfMonthsLoaded.clear();'), true);
 
+/* ---------------- the file says where its columns are ---------------- */
+/* THE WORST FAULT OF THE DAY, AND IT WAS SILENT.
+
+   Aadil uploaded the EMPLOYEE EXPORT into the staff list. Its columns are in a different
+   order — cell number sixth, date of birth seventh, vehicle registration eleventh — and
+   the parser counted columns instead of reading the heading. So his cell numbers were
+   stored as vehicle registrations, his dates of birth as cell numbers, and his real
+   registrations were never read at all. Every check passed. Nothing looked wrong until he
+   opened the list and found his fleet replaced by phone numbers.
+
+   Reading the heading fixes the class, not the instance: any file that names its columns
+   is now read by name, whatever order they are in and however many extra ones it carries.
+*/
+const HIS_EXPORT = [
+  'Employee number,First name,Surname,Province,Team,Cell number,Date of birth,Age,'
+    + 'Contact email,Login username,Vehicle registration,Assigned vehicle,Status,Role,'
+    + 'Last active,Signed up',
+  'T030,ALLEN,CHIVERO,Gauteng,SPRINGS,635454030,1992/01/08,,a@b.com,a@b.com,'
+    + 'HH 43 YS GP,NISSAN NP200,Active,employee,,2026/09/07'
+].join('\n');
+
+const fromExport = portal.parseRosterLines(HIS_EXPORT)[0];
+check('the employee export is read by its headings, not by counting',
+  [fromExport.employeeNumber, fromExport.name, fromExport.surname,
+   fromExport.vehicleRegistration, fromExport.cellNumber, fromExport.dateOfBirth],
+  ['T030', 'ALLEN', 'CHIVERO', 'HH 43 YS GP', '0635454030', '1992-01-08']);
+// The exact three confusions that did the damage, stated as their own cases.
+check('a cell number is not stored as a registration',
+  fromExport.vehicleRegistration.includes('635454030'), false);
+check('a date of birth is not stored as a cell number',
+  fromExport.cellNumber, '0635454030');
+check('and the registration eleven columns in is actually read',
+  fromExport.vehicleRegistration, 'HH 43 YS GP');
+/* EXCEL EATS THE LEADING ZERO of a cell number, writing 0635454030 as 635454030, which
+   is not a number anybody can ring. Nine digits starting 6, 7 or 8 is unambiguously a
+   South African cell with its zero stripped. */
+check('a stripped leading zero is put back',
+  ['635454030', '842598749', '712278545'].map(c =>
+    portal.parseRosterLines('number,cell\nT1,' + c)[0].cellNumber),
+  ['0635454030', '0842598749', '0712278545']);
+check('and anything that is not one is left exactly as typed',
+  ['0635454030', '00', '0', '27821234567', '123'].map(c =>
+    portal.parseRosterLines('number,cell\nT1,' + c)[0].cellNumber),
+  ['0635454030', '00', '0', '27821234567', '123']);
+
+/* NAMES ARE MATCHED EXACTLY, never by substring. "Contact email" must not be taken for a
+   cell number and "Assigned vehicle" must not be taken for a registration — that kind of
+   near-miss is how a file gets read confidently and wrongly. */
+const decoys = portal.parseRosterLines(
+  'Employee number,Contact email,Assigned vehicle,Login username\n'
+  + 'T042,a@b.com,NISSAN NP200,a@b.com');
+check('a decoy heading matches nothing',
+  [decoys[0].cellNumber, decoys[0].vehicleRegistration], ['', '']);
+check('and the row is still read for what it does name', decoys[0].employeeNumber, 'T042');
+
+/* Our own template still reads exactly as it did. */
+const ourTemplate = portal.parseRosterLines(
+  portal.ROSTER_COLUMNS.join(',') + '\nT042,Ayanda,Ncube,Gauteng,Soweto,ND123456,0821234567,1986-09-07');
+check('the portal own template is unaffected',
+  portal.rosterRowToStore(ourTemplate[0]),
+  { key: 'T042', employeeNumber: 'T042', name: 'Ayanda', surname: 'Ncube',
+    province: 'Gauteng', teamName: 'Soweto', vehicleRegistration: 'ND123456',
+    cellNumber: '0821234567', dateOfBirth: '1986-09-07' });
+
+/* NO HEADING ROW, which is what pasting a few rows out of Excel gives: the documented
+   order still applies, and a stray heading line is still skipped. */
+const pasted = portal.parseRosterLines(
+  'T042,Ayanda,Ncube,Gauteng,Soweto,ND123456,0821234567,1986-09-07');
+check('a headless file keeps the documented order',
+  [pasted[0].vehicleRegistration, pasted[0].cellNumber, pasted[0].dateOfBirth],
+  ['ND123456', '0821234567', '1986-09-07']);
+check('and a heading pasted in with the rows is still skipped',
+  portal.parseRosterLines('employee number\nT042,Ayanda').length, 1);
+
+/* A ROW OF DATA IS NOT A HEADING. The test is that it names the employee number and at
+   least two other fields — a real row names nothing, so it can never be eaten. */
+check('a first row of real data is kept, not read as headings',
+  portal.parseRosterLines('T042,Ayanda,Ncube,Gauteng,Soweto,ND123456,0821234567,1986-09-07')
+    .length, 1);
+// The number ALONE is not enough — 'Nonsense' names nothing — so the file falls back to
+// positions and the heading row is dropped by the old first-cell test. One recognised
+// column beside the number IS enough, which is what makes a bare
+// 'employee number, date of birth' file work.
+check('a heading that names only the employee number is not trusted',
+  portal.parseRosterLines('Employee number,Nonsense\nT042,Ayanda').length, 1);
+
+// Headings however they were capitalised or punctuated: "D.O.B" is the spelling in his
+// own workbook.
+check('a heading is matched however it was written',
+  ['EMPLOYEE NUMBER,D.O.B', 'employee no,dob', 'Employee  Number , Date Of Birth']
+    .map(h => portal.parseRosterLines(h + '\nT042,1986-09-07')[0].dateOfBirth),
+  ['1986-09-07', '1986-09-07', '1986-09-07']);
+
 /* ---------------- every template the portal hands out, uploaded back into it ---------------- */
 /* THIS IS THE TEST THAT SHOULD ALWAYS HAVE BEEN HERE.
 

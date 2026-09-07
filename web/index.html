@@ -3034,35 +3034,121 @@ function staffTemplateRows() {
       r.vehicleRegistration, r.cellNumber, r.dateOfBirth])];
 }
 
+/**
+ * What each of the staff list's fields may be CALLED in a heading row.
+ *
+ * Matched exactly, on a name reduced to letters and digits — never by substring. That
+ * matters here: "Contact email" must not match "cell", and "Assigned vehicle" must not
+ * match "vehicle registration". Fuzzy matching on a column heading is how a file gets
+ * read confidently and wrongly, which is the whole fault this exists to fix.
+ */
+const ROSTER_FIELD_NAMES = {
+  employeeNumber: ['employeenumber', 'employeeno', 'empno', 'employeesagecode',
+    'number', 'no', 'staffnumber', 'code'],
+  name: ['name', 'firstname', 'firstnames', 'forename'],
+  surname: ['surname', 'lastname', 'familyname'],
+  province: ['province'],
+  teamName: ['team', 'teamname'],
+  vehicleRegistration: ['vehicleregistration', 'registration', 'registrationnumber',
+    'vehiclereg', 'reg', 'plate'],
+  cellNumber: ['cellnumber', 'cell', 'cellphone', 'cellno', 'mobile', 'mobilenumber',
+    'phone', 'phonenumber', 'contactno', 'contactnumber'],
+  dateOfBirth: ['dateofbirth', 'dob', 'birthday', 'birthdate', 'dateofbirthdob']
+};
+
+/** A heading reduced to something comparable: "D.O.B" and "dob" are one name. */
+const headingKey = (cell) => String(cell ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Which column holds which field, read from a heading row — or null if this is not one.
+ *
+ * THE FILE SAYS WHERE ITS COLUMNS ARE. Counting them instead is what let Aadil upload the
+ * employee EXPORT into the staff list and have it accepted: that file has the columns in a
+ * different order, so his cell numbers were stored as vehicle registrations, his dates of
+ * birth as cell numbers, and his real registrations — sitting in column eleven — were
+ * never read at all. Every check passed. Nothing looked wrong until he opened the list.
+ *
+ * A row is a heading if it names the EMPLOYEE NUMBER and at least one other field. A row
+ * of real data cannot pass that: its first cell is an employee number like "T042", which
+ * is not the name of anything, so the map comes back without an employeeNumber and the
+ * documented column order is used instead.
+ *
+ * One other field is deliberately enough. "employee number, date of birth" is the most
+ * useful file anybody will ever upload here — the minimum needed to give a few hundred
+ * people a birthday — and demanding a third column would refuse it.
+ *
+ * Columns that are not one of ours — Age, Contact email, Status, Signed up — are simply
+ * not in the map, and are ignored.
+ */
+function rosterHeaderMap(cells) {
+  const map = {};
+  cells.forEach((cell, index) => {
+    const key = headingKey(cell);
+    if (!key) return;
+    for (const [field, names] of Object.entries(ROSTER_FIELD_NAMES)) {
+      if (map[field] === undefined && names.includes(key)) { map[field] = index; break; }
+    }
+  });
+  return map.employeeNumber !== undefined && Object.keys(map).length >= 2 ? map : null;
+}
+
+/** Where the columns are when there is no heading row: the documented order. */
+const ROSTER_POSITIONS = {
+  employeeNumber: 0, name: 1, surname: 2, province: 3, teamName: 4,
+  vehicleRegistration: 5, cellNumber: 6, dateOfBirth: 7
+};
+
+/**
+ * A cell number with the leading zero Excel ate put back.
+ *
+ * A spreadsheet reads 0842598749 as a number and writes it back as 842598749, which is
+ * not a phone number anybody can ring. Nine digits starting 6, 7 or 8 is unambiguously a
+ * South African cell with its zero stripped; anything else is left exactly as typed.
+ */
+const restoreCellZero = (value) => {
+  const text = String(value ?? '').trim();
+  return /^[678]\d{8}$/.test(text) ? '0' + text : text;
+};
+
 /** employee number, name, surname, province, team, vehicle registration, cell, d.o.b */
 function parseRosterLines(text) {
-  return text.split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(Boolean)
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return [];
+
+  // The heading row, if there is one, decides where everything lives.
+  const columns = rosterHeaderMap(splitCells(lines[0])) ?? ROSTER_POSITIONS;
+  const headed = rosterHeaderMap(splitCells(lines[0])) !== null;
+
+  return lines
+    .slice(headed ? 1 : 0)
     .filter(line => {
+      // Without a heading row the old test still earns its place: somebody pasting rows
+      // out of Excel often brings the headings with them.
+      if (headed) return true;
       const first = splitCells(line)[0].toLowerCase();
       return !(first.startsWith('employee') || first === 'no' || first === 'number');
     })
     .map(line => {
       const p = splitCells(line);
-      const key = numberKey(p[0]);
+      const at = (field) => columns[field] === undefined ? '' : (p[columns[field]] ?? '');
+      const key = numberKey(at('employeeNumber'));
       if (!key) return null;
       return {
         key,
-        employeeNumber: p[0],
-        name: p[1] || '',
-        surname: p[2] || '',
-        province: canonicalProvince(p[3]),
-        teamName: p[4] || '',
-        vehicleRegistration: (p[5] || '').toUpperCase(),
-        cellNumber: p[6] || '',
+        employeeNumber: at('employeeNumber'),
+        name: at('name'),
+        surname: at('surname'),
+        province: canonicalProvince(at('province')),
+        teamName: at('teamName'),
+        vehicleRegistration: at('vehicleRegistration').toUpperCase(),
+        cellNumber: restoreCellZero(at('cellNumber')),
         // Normalised, because a spreadsheet writes a date however it likes and the phone
         // reads only yyyy-MM-dd. Unreadable becomes blank, which means no greeting —
         // better than a greeting on the wrong day.
-        dateOfBirth: normaliseBirthDate(p[7] || ''),
+        dateOfBirth: normaliseBirthDate(at('dateOfBirth')),
         // What was in that column, kept only so the report can count the ones that would
         // not read. Stripped before the row is written.
-        dobCell: (p[7] || '').trim()
+        dobCell: at('dateOfBirth').trim()
       };
     })
     .filter(Boolean);
