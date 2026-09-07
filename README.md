@@ -98,7 +98,9 @@ are due with the name of whoever is driving them.
 - **Employees** — add staff (the app generates a username and password and emails
   it to them), edit details, see who was last active to spot dormant and
   duplicate accounts, upload an authoritative staff list and fill details from it
-  by employee number, and record a date of birth for the birthday greeting
+  by employee number, download the current list to fill a column in and send back,
+  and record a date of birth — which shows their age on their record and greets them on
+  their birthday
 - **Vehicles** — add individually or in bulk, set service intervals per vehicle or
   by name match across the fleet, mark a vehicle serviced and record the
   dealership

@@ -756,8 +756,9 @@
           <label for="eDob">Date of birth</label>
           <input id="eDob" type="date">
           <p class="sub" style="font-size:.78rem;margin:4px 0 0">
-            Only used to greet them on their birthday on their own phone. Leave it blank
-            and nothing is shown.
+            <span id="eAge"></span>
+            Used to greet them on their birthday on their own phone, and to work out their
+            age. Leave it blank and neither is shown.
           </p>
         </div>
         <p class="sub" style="font-size:.82rem">
@@ -2506,7 +2507,7 @@ function filteredEmployees() {
 function employeeExportRows() {
   const header = [
     'Employee number', 'First name', 'Surname', 'Province', 'Team',
-    'Cell number', 'Date of birth', 'Contact email', 'Login username',
+    'Cell number', 'Date of birth', 'Age', 'Contact email', 'Login username',
     'Vehicle registration', 'Assigned vehicle', 'Status', 'Role',
     'Last active', 'Signed up'
   ];
@@ -2527,6 +2528,9 @@ function employeeExportRows() {
       e.teamName || '',
       e.cellNumber || '',
       e.dateOfBirth || '',
+      // The age AS AT THE DAY OF THE EXPORT. A spreadsheet outlives the day it was made,
+      // so the date of birth beside it is what stays true.
+      ageOn(e.dateOfBirth) ?? '',
       e.contactEmail || '',
       e.email || '',
       e.vehicleRegistration ? plate(e.vehicleRegistration) : '',
@@ -2585,7 +2589,10 @@ function renderEmployees() {
             <div class="avatar ${active ? '' : 'dim'}">${esc(initials(e.name, e.surname))}</div>
             <div>
               <div class="nm">${esc(fullName(e))}</div>
-              <div class="meta">${esc([e.employeeNumber && 'No. ' + e.employeeNumber, e.teamName]
+              <div class="meta">${esc([e.employeeNumber && 'No. ' + e.employeeNumber, e.teamName,
+                // Only where there is one. A dash here would put a column of them down
+                // the list for a field most records have never had filled in.
+                ageOn(e.dateOfBirth) === null ? '' : ageLabel(e.dateOfBirth)]
                 .filter(Boolean).join(' • '))}</div>
               ${e.cellNumber
                 ? `<div class="meta email"><a href="tel:${esc(String(e.cellNumber).replace(/[^\d+]/g, ''))}"
@@ -2734,6 +2741,7 @@ function openEditModal(uid) {
   // A date input only accepts yyyy-MM-dd, so anything else stored is shown as empty
   // rather than left in the box and written back in a shape the phone cannot read.
   $('eDob').value = /^\d{4}-\d{2}-\d{2}$/.test(e.dateOfBirth || '') ? e.dateOfBirth : '';
+  showAge();
   $('eProvince').innerHTML = [
     '<option value="">— none —</option>',
     ...SA_PROVINCES.map(p =>
@@ -2741,6 +2749,21 @@ function openEditModal(uid) {
   ].join('');
   $('editOverlay').classList.remove('hidden');
 }
+
+/**
+ * The age beside the date-of-birth box, following what is in it.
+ *
+ * Live rather than on save, so a mistyped year is obvious while it is being typed: 1926
+ * reads as "100 years" straight away, where the date alone reads as plausible.
+ */
+function showAge() {
+  const age = ageOn($('eDob').value);
+  $('eAge').innerHTML = age === null ? ''
+    : `<b style="color:var(--primary)">${esc(ageLabel($('eDob').value))} old.</b> `;
+}
+
+$('eDob').addEventListener('input', showAge);
+$('eDob').addEventListener('change', showAge);
 
 $('editCancel').addEventListener('click', () => {
   $('editOverlay').classList.add('hidden');
@@ -6079,6 +6102,55 @@ function normaliseDate(value) {
 
   return '';
 }
+
+/**
+ * How old somebody is today, or null where there is no date of birth to work from.
+ *
+ * Derived, never stored. An age in the database is wrong for up to a year and nobody
+ * notices which part of the year it is wrong in; the date of birth is the fact, and this
+ * is a view of it.
+ *
+ * SOMEBODY BORN ON 29 FEBRUARY turns a year older on the 28th in the three years out of
+ * four that have no 29th — the same day they get their greeting. The two must agree: a
+ * card saying "happy birthday" beside an age that has not moved reads as a bug.
+ *
+ * A date in the future gives null rather than a negative age. That is a typo, not a
+ * person, and "-59 years" on a staff record is worse than a blank.
+ */
+function ageOn(dateOfBirth, today = todayString()) {
+  const born = String(dateOfBirth ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const now = String(today ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!born || !now) return null;
+
+  const [, by, bm, bd] = born.map(Number);
+  const [, ny, nm, nd] = now.map(Number);
+  const leap = (y) => y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+
+  /*
+   * The shape is not enough: "1986-13-01" matches the pattern and is not a day. Left
+   * unchecked it gave an age, because a month of 13 is simply never reached and the
+   * birthday reads as still to come — a wrong answer that looks like a right one. The
+   * same validation the phone's birthday rule does, so the two agree on what a date is.
+   */
+  const monthLength = [31, leap(by) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (bm < 1 || bm > 12 || bd < 1 || bd > monthLength[bm - 1]) return null;
+  if (nm < 1 || nm > 12 || nd < 1 || nd > 31) return null;
+
+  // Their birthday AS IT FALLS THIS YEAR, which for a 29 February birth in a common
+  // year is the 28th.
+  const month = bm;
+  const day = bm === 2 && bd === 29 && !leap(ny) ? 28 : bd;
+
+  const hadItThisYear = nm > month || (nm === month && nd >= day);
+  const age = ny - by - (hadItThisYear ? 0 : 1);
+  return age < 0 || age > 120 ? null : age;
+}
+
+/** "33 years", or a dash where there is no date of birth. */
+const ageLabel = (dateOfBirth) => {
+  const age = ageOn(dateOfBirth);
+  return age === null ? '—' : `${age} year${age === 1 ? '' : 's'}`;
+};
 
 /**
  * A DATE OF BIRTH as yyyy-MM-dd — normaliseDate(), with one extra rule for the century.

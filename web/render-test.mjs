@@ -351,6 +351,16 @@ check('the date of birth is exported',
   zanele[exportHeader.indexOf('Date of birth')], '1986-09-07');
 check('and is blank rather than missing for somebody who has none',
   exported[1][exportHeader.indexOf('Date of birth')], '');
+// The age travels with the date of birth, computed as at the day of the export — a
+// spreadsheet outlives the day it was made, so the date beside it is what stays true.
+check('the age is exported alongside the date of birth',
+  Number(zanele[exportHeader.indexOf('Age')]) > 0, true);
+check('and is blank, not zero, for somebody with no date of birth',
+  exported[1][exportHeader.indexOf('Age')], '');
+// Next to the date, so a column of ages can be read against the dates behind them.
+check('the two columns sit together',
+  exportHeader.indexOf('Age') - exportHeader.indexOf('Date of birth'), 1);
+
 check('an inactive account says so', exported[1][exportHeader.indexOf('Status')], 'Inactive');
 // createdAt of 0 means it was never recorded, which is not the same as 1970.
 check('a missing sign-up date is left blank, not dated 1970',

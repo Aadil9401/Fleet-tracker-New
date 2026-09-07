@@ -36,7 +36,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'normaliseMonth',
   'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore',
   'staffTemplateRows', 'ROSTER_COLUMNS', 'splitCells', 'parseDebtLines',
-  'DEBT_COLUMNS', 'DEBT_SAMPLE'
+  'DEBT_COLUMNS', 'DEBT_SAMPLE', 'ageOn', 'ageLabel'
 ]);
 
 let failures = 0;
@@ -786,6 +786,51 @@ portal.data.roster = [];
 portal.data.employees = [];
 check('nothing to download is a header and nothing else',
   portal.staffTemplateRows().length, 1);
+
+/* ---------------- how old they are ---------------- */
+/* Derived, never stored. An age in the database is wrong for up to a year and nobody
+   notices which part of the year it is wrong in; the date of birth is the fact. Today is
+   passed in, so this is not a test that changes its answer overnight. */
+check('an age is the years since, on the day',
+  portal.ageOn('1986-09-07', '2026-09-07'), 40);
+// The day before and the day after, which is where an off-by-one lives.
+check('the day before their birthday they are still a year younger',
+  portal.ageOn('1986-09-07', '2026-09-06'), 39);
+check('and the day after they are not a year older again',
+  portal.ageOn('1986-09-07', '2026-09-08'), 40);
+// Month boundaries either way round, the case a naive month compare gets wrong.
+check('a birthday later in the year has not happened yet',
+  portal.ageOn('1986-12-31', '2026-09-07'), 39);
+check('and one earlier in the year has',
+  portal.ageOn('1986-01-01', '2026-09-07'), 40);
+
+/* 29 FEBRUARY TURNS A YEAR OLDER ON THE 28th in a common year — the same day they get
+   their greeting. The two have to agree: a card saying "happy birthday" beside an age
+   that has not moved reads as a bug. */
+check('somebody born on 29 February ages on the 28th in a common year',
+  [portal.ageOn('1988-02-29', '2026-02-27'), portal.ageOn('1988-02-29', '2026-02-28')],
+  [37, 38]);
+check('and on the 29th in a leap year',
+  [portal.ageOn('1988-02-29', '2028-02-28'), portal.ageOn('1988-02-29', '2028-02-29')],
+  [39, 40]);
+
+/* NOTHING RATHER THAN A GUESS, everywhere the date is not a date. Most records have no
+   date of birth at all, and a 0 or a blank age on those would be read as fact. */
+check('no date of birth is no age',
+  ['', '   ', '07/09/1986', 'not a date', '1986-13-01'].map(d => portal.ageOn(d, '2026-09-07')),
+  [null, null, null, null, null]);
+/* A DATE IN THE FUTURE IS A TYPO, NOT A PERSON. "-59 years" on a staff record is worse
+   than a blank — and this is the exact mistake the two-digit-year rule exists to catch,
+   so the two guard the same ground from different sides. */
+check('a date in the future gives nothing, not a negative age',
+  [portal.ageOn('2086-09-07', '2026-09-07'), portal.ageOn('2026-09-08', '2026-09-07')],
+  [null, null]);
+check('and neither does an implausibly old one',
+  portal.ageOn('1850-09-07', '2026-09-07'), null);
+
+// The label, since it is what actually reaches the screen.
+check('the label reads as years', portal.ageLabel('1986-09-07').endsWith('years'), true);
+check('and a dash where there is nothing to show', portal.ageLabel(''), '—');
 
 /* ---------------- a date of birth on the staff list ---------------- */
 /* Aadil asked for a birthday message on every employee's main screen. The date has to
