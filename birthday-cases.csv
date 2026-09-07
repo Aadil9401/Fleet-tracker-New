@@ -68,12 +68,16 @@ dob,today,is_birthday,age
 0000-00-00,2026-09-07,no,none
 not a date,2026-09-07,no,none
 
-# A date in the FUTURE is a typo, not a person: no age, and "-59 years" never reaches a
-# screen. The greeting still lands on the day, since it ignores the year.
-2086-09-07,2026-09-07,no,none
+# A date in the FUTURE is a typo, not a person, so it gets NO AGE — "-59 years" must
+# never reach a screen.
+#
+# It is still their birthday, because only the year is wrong: 2086-09-07 says the seventh
+# of September as plainly as 1986-09-07 does, and the greeting has never looked at the
+# year. So: greeted, and no age. The same for an implausibly old year.
+2086-09-07,2026-09-07,yes,none
+1850-09-07,2026-09-07,yes,none
+# A different DAY is a different day, whatever the year says.
 2026-09-08,2026-09-07,no,none
-# And an implausibly old one is refused too.
-1850-09-07,2026-09-07,no,none
 
 # A today that cannot be read greets nobody and ages nobody, rather than everybody.
 1986-09-07,tomorrow,no,none

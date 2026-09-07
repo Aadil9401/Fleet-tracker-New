@@ -242,7 +242,9 @@ class DayBreakdownTest {
             "service", listOf(driver), emptyList(), emptyList(), listOf(theirCar), NOW
         )!!
 
-        assertEquals(listOf("Sipho Ndlovu"), service.rows.map { it.cells.last() })
+        // Capitals, like every name in these cells — see the note in the service test
+        // above on why the name is capitalised here rather than at the render.
+        assertEquals(listOf("SIPHO NDLOVU"), service.rows.map { it.cells.last() })
         assertEquals("BC 45 DF GP", service.rows.single().meta)
     }
 
