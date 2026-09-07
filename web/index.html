@@ -2955,6 +2955,24 @@ function parseRosterLines(text) {
     .filter(Boolean);
 }
 
+/**
+ * One parsed staff-list row, as it should be STORED.
+ *
+ * Blank columns are dropped rather than written. The format note has always promised
+ * "leave any other column blank and that field is left alone", and that was only true
+ * of FILLING, not of storing: a partial list — a column of dates of birth against
+ * employee numbers, say — wrote '' over the team and registration already held here, so
+ * a later fill had nothing left to correct anybody with. The damage was invisible until
+ * somebody pressed Fill and nothing happened.
+ *
+ * dobCell goes too; it existed only to be counted.
+ */
+function rosterRowToStore(parsed) {
+  const { dobCell, ...row } = parsed;
+  Object.keys(row).forEach(field => { if (row[field] === '') delete row[field]; });
+  return row;
+}
+
 $('rosterUpload').addEventListener('click', async () => {
   const parsed = parseRosterLines($('rosterText').value);
   if (parsed.length === 0) {
@@ -2980,11 +2998,8 @@ $('rosterUpload').addEventListener('click', async () => {
   try {
     for (let i = 0; i < parsed.length; i += 400) {
       const batch = writeBatch(db);
-      parsed.slice(i, i + 400).forEach(r => {
-        // dobCell was only there to be counted; the normalised date is what gets stored.
-        const { dobCell, ...row } = r;
-        batch.set(doc(db, 'roster', r.key), row, { merge: true });
-      });
+      parsed.slice(i, i + 400).forEach(r =>
+        batch.set(doc(db, 'roster', r.key), rosterRowToStore(r), { merge: true }));
       await batch.commit();
     }
     let note = `Staff list saved — ${parsed.length} person(s).`;

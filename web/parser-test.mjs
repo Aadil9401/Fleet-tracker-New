@@ -34,7 +34,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
   'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'normaliseMonth',
-  'parseRosterLines', 'normaliseDate', 'normaliseBirthDate'
+  'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore'
 ]);
 
 let failures = 0;
@@ -674,9 +674,26 @@ check('a blank column is not counted as a failure',
 check('the upload reports both counts',
   source.includes('have a date of birth')
   && source.includes('could not be read and were left blank'), true);
-// dobCell was only there to be counted, so it is stripped before the row is written.
-check('the counting field is not written to the document',
-  source.includes('const { dobCell, ...row } = r;'), true);
+
+/* A PARTIAL LIST MUST NOT WIPE WHAT THE FULL ONE PUT THERE.
+   Uploading a column of dates of birth against employee numbers used to write '' over
+   the team and registration the authoritative list had already supplied. Nothing looked
+   wrong — the damage only showed up later, when Fill from staff list had nothing left to
+   correct anybody with. Blank columns are now dropped rather than stored. */
+check('a blank column is not stored at all',
+  Object.keys(portal.rosterRowToStore(
+    portal.parseRosterLines('T042,,,,,,,1986-09-07')[0])).sort(),
+  ['dateOfBirth', 'employeeNumber', 'key']);
+check('and what the row does carry is all there',
+  portal.rosterRowToStore(portal.parseRosterLines(
+    'T042, Ayanda, Ncube, Gauteng, Soweto, ND123456, 0821234567, 1986-09-07')[0]),
+  { key: 'T042', employeeNumber: 'T042', name: 'Ayanda', surname: 'Ncube',
+    province: 'Gauteng', teamName: 'Soweto', vehicleRegistration: 'ND123456',
+    cellNumber: '0821234567', dateOfBirth: '1986-09-07' });
+// The counting field never reaches the document.
+check('and the counting field is dropped with them',
+  'dobCell' in portal.rosterRowToStore(
+    portal.parseRosterLines('T042,A,N,,,,,sometime')[0]), false);
 
 // Filling from the staff list carries it across, and only when the list has one — a
 // blank column must never wipe a date already captured by hand.
