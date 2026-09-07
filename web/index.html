@@ -953,6 +953,10 @@
             <label for="fyNetwork">Network</label>
             <select id="fyNetwork"></select>
           </div>
+          <div>
+            <label for="fyPerson">Employee</label>
+            <select id="fyPerson"></select>
+          </div>
           <div class="grow">
             <label for="fySearch">Search</label>
             <input id="fySearch" type="search" placeholder="Name, employee number, province or team">
@@ -1009,6 +1013,10 @@
               <option value="all">Everything, paid included</option>
               <option value="settled">Settled only</option>
             </select>
+          </div>
+          <div>
+            <label for="debtPerson">Employee</label>
+            <select id="debtPerson"></select>
           </div>
           <div class="grow">
             <label for="debtSearch">Search</label>
@@ -4531,13 +4539,61 @@ function fyRows(month, network) {
 }
 
 /**
+ * The options for an EMPLOYEE picker, built from the rows actually on the tab.
+ *
+ * Keyed on the employee NUMBER, never on the name. Two people can share a name — this
+ * staff list has a THABO MORRIS and a MORRIS MMADI, which already cost a payment going
+ * to the wrong person once — and a name spelled one way in an upload and another on the
+ * staff list would split one person into two entries. The number is what the figures
+ * were uploaded against, so it is what the filter matches on.
+ *
+ * Built from the rows in front of the admin rather than from the whole staff list, so
+ * the list cannot offer somebody with nothing to show. Somebody whose figures match
+ * nobody on the staff list is still listed, under their bare number: that row is real
+ * money and hiding it would be the worse mistake.
+ */
+function personOptions(rows) {
+  const byKey = {};
+  rows.forEach(r => {
+    const key = r.numberKey || numberKey(r.employeeNumber);
+    if (!key || byKey[key]) return;
+    const number = r.employeeNumber || key;
+    byKey[key] = {
+      key,
+      // The number is on every label, not only the nameless ones: it is how an admin
+      // tells two people with one name apart, and it is what the upload was keyed on.
+      label: r.name ? `${r.name} · ${number}` : `${number} · not on the staff list`
+    };
+  });
+  return Object.values(byKey).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/**
+ * A person picker's markup, and the selection that survives it.
+ *
+ * A person who no longer appears — the month changed, or a filter above narrowed past
+ * them — is DROPPED rather than left selected and silently showing nothing, the same
+ * rule the province picker follows. Returns the surviving selection so the caller can
+ * put it back on its filters.
+ */
+function renderPersonPicker(id, rows, selected) {
+  const options = personOptions(rows);
+  const kept = options.some(o => o.key === selected) ? selected : '';
+  $(id).innerHTML = [`<option value="">All employees</option>`,
+    ...options.map(o =>
+      `<option value="${esc(o.key)}" ${o.key === kept ? 'selected' : ''}>${
+        esc(o.label)}</option>`)].join('');
+  return kept;
+}
+
+/**
  * FY's own filters.
  *
  * It borrowed the Performance tab's while it lived on that tab, which meant a province
  * chosen for the team figures silently narrowed the incentive too. On its own tab it
  * needs its own, or the two would go on interfering with each other invisibly.
  */
-const fyFilters = { province: '', network: '', query: '' };
+const fyFilters = { province: '', network: '', person: '', query: '' };
 
 /**
  * FY on screen, after its own network and search filters.
@@ -4551,6 +4607,7 @@ function visibleFyRows(month = $('fyMonth').value || todayString().slice(0, 7)) 
   const q = fyFilters.query.trim().toLowerCase();
   return fyRows(month, fyFilters.network).filter(r => {
     if (fyFilters.province && r.province !== fyFilters.province) return false;
+    if (fyFilters.person && r.numberKey !== fyFilters.person) return false;
     if (!q) return true;
     return [r.name, r.province, r.team, NETWORK_LABELS[r.network]]
       .some(v => String(v ?? '').toLowerCase().includes(q))
@@ -4615,6 +4672,17 @@ function renderFy() {
     ...FY_NETWORKS.map(n =>
       `<option value="${n}" ${n === fyFilters.network ? 'selected' : ''}>${
         esc(NETWORK_LABELS[n])}</option>`)].join('');
+
+  /*
+   * The people with FY this month, narrowed by the two pickers to the left of it.
+   *
+   * Built BEFORE the person filter is applied — like the provinces above — or choosing
+   * somebody would leave them as the only name in the list and there would be no way
+   * back to the rest without reaching for the month.
+   */
+  fyFilters.person = renderPersonPicker('fyPerson',
+    fyFilters.province ? monthRows.filter(r => r.province === fyFilters.province) : monthRows,
+    fyFilters.person);
 
   renderPerformanceUploads('fyUploads');
 
@@ -5244,6 +5312,10 @@ $('fyProvince').addEventListener('change', (e) => {
   fyFilters.province = e.target.value;
   renderFy();
 });
+$('fyPerson').addEventListener('change', (e) => {
+  fyFilters.person = e.target.value;
+  renderFy();
+});
 $('fyNetwork').addEventListener('change', (e) => {
   fyFilters.network = e.target.value;
   renderFy();
@@ -5421,7 +5493,7 @@ function debtByEmployee(invoices = debtInvoices()) {
 }
 
 /* ---------------- the debt tab ---------------- */
-const debtFilters = { show: 'owing', query: '' };
+const debtFilters = { show: 'owing', person: '', query: '' };
 
 /** Every product name already used, for the picker — so a re-typed name lands on the
  *  same product rather than creating a near-duplicate nobody can total. */
@@ -5441,12 +5513,23 @@ const matchesDebt = (row) => {
     || numberKey(row.employeeNumber || '').includes(numberKey(q));
 };
 
-const shownInvoices = () => debtInvoices()
+/** The invoices the Show picker leaves, before anybody is picked out of them. */
+const listedInvoices = () => debtInvoices()
   .filter(inv => debtFilters.show === 'all' ? true
-    : debtFilters.show === 'settled' ? inv.settled : !inv.settled)
+    : debtFilters.show === 'settled' ? inv.settled : !inv.settled);
+
+const shownInvoices = () => listedInvoices()
+  .filter(inv => !debtFilters.person || inv.numberKey === debtFilters.person)
   .filter(matchesDebt);
 
 function renderDebt() {
+  /*
+   * Everybody the Show picker leaves, so the list is of people there is something to
+   * see for. Built before the person filter, for the same reason FY's is.
+   */
+  debtFilters.person =
+    renderPersonPicker('debtPerson', debtByEmployee(listedInvoices()), debtFilters.person);
+
   const invoices = shownInvoices();
   // A summary of the invoices below, not a separately filtered list.
   const people = debtByEmployee(invoices);
@@ -5553,6 +5636,10 @@ $('debtShow').addEventListener('change', (e) => {
 });
 $('debtSearch').addEventListener('input', (e) => {
   debtFilters.query = e.target.value;
+  renderDebt();
+});
+$('debtPerson').addEventListener('change', (e) => {
+  debtFilters.person = e.target.value;
   renderDebt();
 });
 $('payInvoice').addEventListener('change', showPayOutstanding);

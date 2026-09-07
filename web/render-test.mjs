@@ -14,7 +14,7 @@
  * data and counts the cells.
  */
 import { readFileSync } from 'fs';
-import { loadPortal, writes } from './portal-harness.mjs';
+import { loadPortal, writes, setValue, dataset } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
@@ -27,7 +27,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRows', 'fyTotals', 'fyExportRows', 'renderLogs', 'FY_NETWORKS',
   'debtInvoices', 'debtByEmployee', 'debtExportRows', 'debtFilters',
   'parseDebtLines', 'DEBT_COLUMNS', 'DEBT_SAMPLE', 'daysSince', 'productKey',
-  'normaliseDate', 'renderDebt', 'renderFy', 'fyFilters', 'monthFigureCount'
+  'normaliseDate', 'renderDebt', 'renderFy', 'fyFilters', 'monthFigureCount',
+  'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey'
 ]);
 
 let failures = 0;
@@ -1425,6 +1426,153 @@ check('the normalised date is what gets stored',
 check('and a bad one names the shapes that work',
   portal.parseDebtLines('T042,INV-1,tomorrow,Airtime,50,12500.00').errors[0].why
     .includes('01/09/2026'), true);
+
+/* ---------------- finding one person ---------------- */
+/* Aadil asked to pick an employee by name from a dropdown on FY and on Debt, because
+   scrolling a few hundred rows to find the right person is the slow part of paying
+   somebody. Both tabs already matched a name typed into their search box; a picker is
+   the difference between knowing the name and remembering how it was spelled. */
+
+// Keyed on the employee NUMBER, never the name. This staff list really does have a
+// THABO MORRIS and a MORRIS MMADI, and matching on name once nearly paid the wrong one.
+check('two people with one name stay two people',
+  portal.personOptions([
+    { numberKey: 'T160', employeeNumber: 'T160', name: 'THABO MORRIS' },
+    { numberKey: 'T106', employeeNumber: 'T106', name: 'THABO MORRIS' }
+  ]).map(o => o.key), ['T106', 'T160']);
+// The number is on every label, which is what tells those two apart on screen.
+check('and the number is on the label so they can be told apart',
+  portal.personOptions([
+    { numberKey: 'T160', employeeNumber: 'T160', name: 'THABO MORRIS' }
+  ])[0].label, 'THABO MORRIS · T160');
+// One person's several rows — two networks of FY, or four invoices — are one option.
+check('somebody with several rows is listed once',
+  portal.personOptions([
+    { numberKey: 'T042', employeeNumber: 'T042', name: 'Ayanda Ncube' },
+    { numberKey: 'T042', employeeNumber: 'T042', name: 'Ayanda Ncube' }
+  ]).length, 1);
+/* Somebody whose figures match nobody on the staff list is STILL LISTED, under their
+   bare number. There are nine such FY rows waiting on an employee number right now,
+   about R12 000 of payable — leaving them out of the picker would hide real money. */
+check('a row matching nobody is listed under its number',
+  portal.personOptions([{ numberKey: 'T999', employeeNumber: 'T999', name: '' }])[0],
+  { key: 'T999', label: 'T999 · not on the staff list' });
+check('and a row with no number at all is not an option',
+  portal.personOptions([{ numberKey: '', employeeNumber: '', name: 'Nobody' }]), []);
+
+/* ---------------- the picker on FY ---------------- */
+// The upload boxes on this tab build buttons with ids the static markup has not got,
+// so  gives null for them and renderPerformanceUploads() cannot run here. Its own
+// guard says it is already built; these tests are about the toolbar above it.
+dataset('fyUploads').built = 'yes';
+portal.data.employees = [
+  { id: 'p1', name: 'Ayanda', surname: 'Ncube', employeeNumber: 'T042',
+    province: 'Gauteng', teamName: 'Soweto' },
+  { id: 'p2', name: 'Bongi', surname: 'Ndlovu', employeeNumber: 'T099',
+    province: 'Limpopo', teamName: 'Tzaneen' }
+];
+portal.data.perfFy = [
+  { id: 'f1', month: '2026-08', numberKey: 'T042', employeeNumber: 'T042',
+    network: 'MTN', fyStock: 1000, fyConnections: 400, fyAmountRands: 600 },
+  { id: 'f2', month: '2026-08', numberKey: 'T042', employeeNumber: 'T042',
+    network: 'TELKOM', fyStock: 600, fyConnections: 210, fyAmountRands: 210 },
+  { id: 'f3', month: '2026-08', numberKey: 'T099', employeeNumber: 'T099',
+    network: 'MTN', fyStock: 500, fyConnections: 125, fyAmountRands: 187.5 }
+];
+portal.data.perfMonthly = [];
+portal.data.perfTeams = [];
+portal.data.debtLines = [];
+portal.data.debtPayments = [];
+
+const fyFor = (person, province = '') => {
+  Object.assign(portal.fyFilters, { province, person, network: '', query: '' });
+  setValue('fyMonth', '2026-08');
+  portal.renderFy();
+  return portal.visibleFyRows().map(r => `${r.employeeNumber}/${r.network}`);
+};
+
+check('with nobody picked, everybody with FY is there',
+  fyFor(''), ['T042/MTN', 'T042/TELKOM', 'T099/MTN']);
+// BOTH networks of the person picked: FY belongs to a person, and one person on two
+// networks earned both amounts. Picking a name must not also pick a network.
+check('picking a person leaves both of their networks',
+  fyFor('T042'), ['T042/MTN', 'T042/TELKOM']);
+check('and leaves nobody else', fyFor('T099'), ['T099/MTN']);
+
+// The dropdown lists only the people with FY this month, so it cannot offer a name
+// with nothing behind it.
+check('the picker offers the month\'s people and an "all"',
+  [...(writes()['fyPerson'] || '').matchAll(/>([^<]+)</g)].map(m => m[1]),
+  ['All employees', 'Ayanda Ncube · T042', 'Bongi Ndlovu · T099']);
+
+/* A PERSON WHO IS NO LONGER THERE IS DROPPED, not left selected and quietly showing
+   nothing. Narrowing to Limpopo with Ayanda picked would otherwise show an empty table
+   under two filters that each look reasonable on their own. */
+check('narrowing the province past the person picked releases them',
+  fyFor('T042', 'Limpopo'), ['T099/MTN']);
+check('and the filter really was cleared rather than just ignored',
+  portal.fyFilters.person, '');
+// The export follows the picker, so a sheet sent to payroll is the rows on screen.
+check('the export is the person picked, not the whole month',
+  (() => {
+    fyFor('T042');
+    return portal.fyExportRows('2026-08').slice(1).map(r => r[1]);
+  })(), ['T042', 'T042']);
+Object.assign(portal.fyFilters, { province: '', network: '', person: '', query: '' });
+
+/* ---------------- the picker on Debt ---------------- */
+portal.data.perfFy = [];
+portal.data.debtLines = [
+  { id: 'd1', numberKey: 'T042', employeeNumber: 'T042', invoiceNumber: 'INV-1',
+    invoiceDate: '2026-03-14', product: 'Airtime', quantity: 50, amountRands: 12500 },
+  { id: 'd2', numberKey: 'T099', employeeNumber: 'T099', invoiceNumber: 'INV-2',
+    invoiceDate: '2026-08-01', product: 'SIM packs', quantity: 10, amountRands: 3000 },
+  { id: 'd3', numberKey: 'T099', employeeNumber: 'T099', invoiceNumber: 'INV-3',
+    invoiceDate: '2026-08-02', product: 'Devices', quantity: 1, amountRands: 5000 }
+];
+portal.data.debtPayments = [
+  { id: 'dp', numberKey: 'T099', invoiceNumber: 'INV-2', amountRands: 3000 }
+];
+
+const debtFor = (person, show = 'owing') => {
+  Object.assign(portal.debtFilters, { show, person, query: '' });
+  portal.renderDebt();
+  return {
+    people: ['Ayanda', 'Bongi'].filter(n => (writes()['debtPeopleRows'] || '').includes(n)),
+    invoices: [...new Set([...(writes()['debtInvoiceRows'] || '')
+      .matchAll(/INV-\d+/g)].map(m => m[0]))]
+  };
+};
+
+check('with nobody picked, everyone still owing is there',
+  debtFor(''), { people: ['Ayanda', 'Bongi'], invoices: ['INV-1', 'INV-3'] });
+// The people table is a rollup of the invoices shown, so it follows the picker too —
+// the fault the review pass found on the search box, and it must not come back here.
+check('picking a person narrows both tables together',
+  debtFor('T042'), { people: ['Ayanda'], invoices: ['INV-1'] });
+check('and the other person leaves only their own',
+  debtFor('T099'), { people: ['Bongi'], invoices: ['INV-3'] });
+
+/* The picker lists whoever the SHOW filter leaves, so on "still owing" it is a list of
+   people to phone. Bongi's settled INV-2 is why "settled only" lists just them. */
+const debtPickerNames = () =>
+  [...(writes()['debtPerson'] || '').matchAll(/>([^<]+)</g)].map(m => m[1]);
+check('the picker lists the people the Show filter leaves',
+  (() => { debtFor('', 'owing'); return debtPickerNames(); })(),
+  ['All employees', 'Ayanda Ncube · T042', 'Bongi Ndlovu · T099']);
+check('and on settled only, only the person who has settled something',
+  (() => { debtFor('', 'settled'); return debtPickerNames(); })(),
+  ['All employees', 'Bongi Ndlovu · T099']);
+check('so switching Show past the person picked releases them',
+  debtFor('T042', 'settled'), { people: ['Bongi'], invoices: ['INV-2'] });
+check('and that filter was cleared too', portal.debtFilters.person, '');
+
+/* The tiles are the WHOLE book, not the filtered view. "What am I owed" must not become
+   a question about who happens to be picked in a dropdown. */
+debtFor('T042', 'owing');
+check('the tiles still answer for everybody',
+  (writes()['debtTiles'] || '').includes(portal.rand(17500)), true);
+Object.assign(portal.debtFilters, { show: 'owing', person: '', query: '' });
 
 /* ---------------- one case, everywhere ---------------- */
 /* A name that reads "Soweto" in a dropdown and "SOWETO" in the table below it makes

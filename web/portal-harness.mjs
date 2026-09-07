@@ -26,14 +26,22 @@ function browserStubs(html) {
   return `
 const __ids = ${JSON.stringify(ids)};
 globalThis.__writes = {};
+globalThis.__values = {};
+globalThis.__datasets = {};
 const __stubEl = (id) => ({
   addEventListener() {}, querySelectorAll: () => [], classList: { toggle() {}, add() {}, remove() {} },
   set innerHTML(v) { if (id) globalThis.__writes[id] = v; },
   get innerHTML() { return (id && globalThis.__writes[id]) || ''; },
   set textContent(v) { if (id) globalThis.__writes[id] = v; },
   get textContent() { return (id && globalThis.__writes[id]) || ''; },
-  set value(v) {}, get value() { return ''; },
+  // Held per id, so a test can put a month in the picker and then call the render
+  // function that reads it. Defaults to '', which is what an empty box gives.
+  set value(v) { if (id) globalThis.__values[id] = v; },
+  get value() { return (id && globalThis.__values[id]) || ''; },
   set disabled(v) {}, get disabled() { return false; },
+  // Kept per id, so the "already built" guard on the upload boxes behaves the way it
+  // does on the real page rather than rebuilding on every render.
+  dataset: id ? (globalThis.__datasets[id] = globalThis.__datasets[id] || {}) : {},
   style: {}, files: [], focus() {}, click() {}, appendChild() {}, removeChild() {}
 });
 globalThis.document = {
@@ -76,6 +84,31 @@ const orderBy = () => ({}), limit = () => ({});
  * calling a function before its declaration initialises kills the module silently and
  * leaves the real page inert, and `node --check` cannot see it.
  */
+/**
+ * Puts a value in an input, the way an admin typing in one would.
+ *
+ * A render function that reads a picker cannot be driven without this: the month, the
+ * province and the search box are all read off the element rather than passed in.
+ */
+export function setValue(id, value) {
+  globalThis.__values = globalThis.__values ?? {};
+  globalThis.__values[id] = value;
+}
+
+/**
+ * One stub element's data-* attributes, for the guards the page keeps there.
+ *
+ * renderPerformanceUploads() builds its buttons with ids that are not in the static
+ * markup, so $() returns null for them and it cannot run under these stubs at all.
+ * Setting its "already built" flag is how a test that is about something else on the
+ * same tab gets past it.
+ */
+export function dataset(id) {
+  globalThis.__datasets = globalThis.__datasets ?? {};
+  globalThis.__datasets[id] = globalThis.__datasets[id] || {};
+  return globalThis.__datasets[id];
+}
+
 /** What the page last rendered into each element, by id. See browserStubs(). */
 export function writes() {
   return globalThis.__writes ?? {};
