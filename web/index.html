@@ -614,7 +614,7 @@
         <div class="field">
           <label for="rosterText">…or paste your list (one person per line)</label>
           <textarea id="rosterText" rows="5"
-            placeholder="1234, Christian, Dube, Eastern Cape, Mthatha, ND987654"></textarea>
+            placeholder="1234, Christian, Dube, Eastern Cape, Mthatha, ND987654, 082 123 4567, 1986-09-07"></textarea>
         </div>
         <div class="toolbar">
           <button id="rosterUpload">Save staff list</button>
@@ -625,7 +625,7 @@
         <div class="count" id="rosterStatus"></div>
         <details class="help">
           <summary>Format</summary>
-          <pre>employee number, name, surname, province, team, vehicle registration, cell number</pre>
+          <pre>employee number, name, surname, province, team, vehicle registration, cell number, date of birth</pre>
           Only the employee number is required — leave any other column blank and that
           field is left alone when filling. A heading row is ignored, and you can paste
           cells straight from Excel.
@@ -745,6 +745,14 @@
         <div class="field"><label for="eReg">Vehicle registration</label><input id="eReg"></div>
         <div class="field"><label for="eEmail">Email address</label><input id="eEmail" type="email"></div>
         <div class="field"><label for="eCell">Cell number</label><input id="eCell" type="tel" placeholder="082 123 4567"></div>
+        <div class="field">
+          <label for="eDob">Date of birth</label>
+          <input id="eDob" type="date">
+          <p class="sub" style="font-size:.78rem;margin:4px 0 0">
+            Only used to greet them on their birthday on their own phone. Leave it blank
+            and nothing is shown.
+          </p>
+        </div>
         <p class="sub" style="font-size:.82rem">
           Their sign-in email and password can't be changed here — they can reset the
           password themselves from the app's login screen.
@@ -2485,7 +2493,7 @@ function filteredEmployees() {
 function employeeExportRows() {
   const header = [
     'Employee number', 'First name', 'Surname', 'Province', 'Team',
-    'Cell number', 'Contact email', 'Login username',
+    'Cell number', 'Date of birth', 'Contact email', 'Login username',
     'Vehicle registration', 'Assigned vehicle', 'Status', 'Role',
     'Last active', 'Signed up'
   ];
@@ -2505,6 +2513,7 @@ function employeeExportRows() {
       e.province || '',
       e.teamName || '',
       e.cellNumber || '',
+      e.dateOfBirth || '',
       e.contactEmail || '',
       e.email || '',
       e.vehicleRegistration ? plate(e.vehicleRegistration) : '',
@@ -2709,6 +2718,9 @@ function openEditModal(uid) {
   $('eReg').value = e.vehicleRegistration || '';
   $('eEmail').value = e.contactEmail || '';
   $('eCell').value = e.cellNumber || '';
+  // A date input only accepts yyyy-MM-dd, so anything else stored is shown as empty
+  // rather than left in the box and written back in a shape the phone cannot read.
+  $('eDob').value = /^\d{4}-\d{2}-\d{2}$/.test(e.dateOfBirth || '') ? e.dateOfBirth : '';
   $('eProvince').innerHTML = [
     '<option value="">— none —</option>',
     ...SA_PROVINCES.map(p =>
@@ -2753,7 +2765,8 @@ $('editSave').addEventListener('click', async () => {
       teamName: $('eTeam').value.trim(),
       vehicleRegistration: $('eReg').value.trim().toUpperCase(),
       contactEmail: $('eEmail').value.trim(),
-      cellNumber: $('eCell').value.trim()
+      cellNumber: $('eCell').value.trim(),
+      dateOfBirth: $('eDob').value
     });
 
     // Release the old number now the profile has moved off it.
@@ -2908,7 +2921,7 @@ function canonicalProvince(value) {
   return match || raw;
 }
 
-/** employee number, name, surname, province, team, vehicle registration */
+/** employee number, name, surname, province, team, vehicle registration, cell, d.o.b */
 function parseRosterLines(text) {
   return text.split(/\r?\n/)
     .map(l => l.trim())
@@ -2929,7 +2942,14 @@ function parseRosterLines(text) {
         province: canonicalProvince(p[3]),
         teamName: p[4] || '',
         vehicleRegistration: (p[5] || '').toUpperCase(),
-        cellNumber: p[6] || ''
+        cellNumber: p[6] || '',
+        // Normalised, because a spreadsheet writes a date however it likes and the phone
+        // reads only yyyy-MM-dd. Unreadable becomes blank, which means no greeting —
+        // better than a greeting on the wrong day.
+        dateOfBirth: normaliseBirthDate(p[7] || ''),
+        // What was in that column, kept only so the report can count the ones that would
+        // not read. Stripped before the row is written.
+        dobCell: (p[7] || '').trim()
       };
     })
     .filter(Boolean);
@@ -2947,16 +2967,32 @@ $('rosterUpload').addEventListener('click', async () => {
     .map(r => r.province)
     .filter(p => p && !SA_PROVINCES.includes(p)))];
   const noName = parsed.filter(r => !r.name).length;
+  /*
+   * Counted so the report can say so.
+   *
+   * A date of birth is the one column here whose absence is INVISIBLE — no screen looks
+   * wrong, the person simply never gets greeted, and nobody finds out for a year. So a
+   * column that failed to read is said out loud at upload time.
+   */
+  const withDob = parsed.filter(r => r.dateOfBirth).length;
+  const badDob = parsed.filter(r => !r.dateOfBirth && r.dobCell).length;
 
   try {
     for (let i = 0; i < parsed.length; i += 400) {
       const batch = writeBatch(db);
-      parsed.slice(i, i + 400).forEach(r =>
-        batch.set(doc(db, 'roster', r.key), r, { merge: true }));
+      parsed.slice(i, i + 400).forEach(r => {
+        // dobCell was only there to be counted; the normalised date is what gets stored.
+        const { dobCell, ...row } = r;
+        batch.set(doc(db, 'roster', r.key), row, { merge: true });
+      });
       await batch.commit();
     }
     let note = `Staff list saved — ${parsed.length} person(s).`;
     if (noName > 0) note += ` ${noName} have no first name.`;
+    if (withDob > 0) note += ` ${withDob} have a date of birth.`;
+    if (badDob > 0) {
+      note += ` ${badDob} date(s) of birth could not be read and were left blank.`;
+    }
     if (oddProvinces.length) note += ` Unrecognised province(s): ${oddProvinces.join(', ')}.`;
     showMsg(note, (oddProvinces.length || noName) ? 'err' : 'ok');
     $('rosterText').value = '';
@@ -2996,6 +3032,9 @@ $('rosterFill').addEventListener('click', async () => {
     }
     if (entry.cellNumber && entry.cellNumber !== e.cellNumber) {
       patch.cellNumber = entry.cellNumber;
+    }
+    if (entry.dateOfBirth && entry.dateOfBirth !== e.dateOfBirth) {
+      patch.dateOfBirth = entry.dateOfBirth;
     }
 
     if (Object.keys(patch).length === 0) { alreadyCorrect++; return; }
@@ -5831,6 +5870,28 @@ function normaliseDate(value) {
   }
 
   return '';
+}
+
+/**
+ * A DATE OF BIRTH as yyyy-MM-dd — normaliseDate(), with one extra rule for the century.
+ *
+ * A two-digit year is read as this century everywhere else, which is right for an
+ * invoice and wrong for a birthday: "7-Sep-86" is 1986, and nobody on the staff list was
+ * born in 2086. So a two-digit year that would put the date in the FUTURE is read as the
+ * previous century instead.
+ *
+ * Only when the year was actually written with two digits. Shifting a year somebody
+ * typed out in full would be a silent hundred-year error on the one part of the date
+ * they were explicit about — so a four-digit year is taken exactly as given, even an
+ * implausible one.
+ */
+function normaliseBirthDate(value) {
+  const date = normaliseDate(value);
+  if (!date) return '';
+  // A four-digit run anywhere in the cell means the year was spelled out.
+  if (/\d{4}/.test(String(value ?? ''))) return date;
+  if (date <= todayString()) return date;
+  return `${Number(date.slice(0, 4)) - 100}${date.slice(4)}`;
 }
 
 /** The columns a debt upload has — the same six the form asks for. */

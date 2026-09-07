@@ -66,6 +66,16 @@ data class UserProfile(
     /** The employee's real email address; where their login details were sent. */
     val contactEmail: String = "",
     val cellNumber: String = "",
+    /**
+     * yyyy-MM-dd, or blank where it was never captured. Set by an admin on the portal,
+     * individually or from the staff list, and used only for the birthday greeting on
+     * their home screen — see [Birthday].
+     *
+     * Blank is the normal state for most of the staff list, and everything that reads
+     * this has to be quiet about it: a greeting nobody gets is a missing detail, and a
+     * greeting on the wrong day is a mistake.
+     */
+    val dateOfBirth: String = "",
     val employeeNumber: String = "",
     val province: String = "",
     val teamName: String = "",

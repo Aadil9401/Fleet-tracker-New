@@ -46,6 +46,9 @@ whatever is on `main` — worth checking first if the portal seems to be missing
 - **Service reminders** — how far the assigned vehicle is from its next service,
   and a dealership search once it passes 95% of the window
 - **My recent days** — their own history, so they can check what was recorded
+- **Happy birthday** — a greeting on their home screen on the day, once an admin has
+  put a date of birth on their record. Nothing on any other day, and nothing for
+  somebody whose date of birth was never captured
 
 ### Admins, on the phone
 
@@ -95,7 +98,7 @@ are due with the name of whoever is driving them.
 - **Employees** — add staff (the app generates a username and password and emails
   it to them), edit details, see who was last active to spot dormant and
   duplicate accounts, upload an authoritative staff list and fill details from it
-  by employee number
+  by employee number, and record a date of birth for the birthday greeting
 - **Vehicles** — add individually or in bulk, set service intervals per vehicle or
   by name match across the fleet, mark a vehicle serviced and record the
   dealership

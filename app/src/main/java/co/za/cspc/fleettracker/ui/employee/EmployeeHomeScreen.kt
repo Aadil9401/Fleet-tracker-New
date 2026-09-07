@@ -12,12 +12,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -25,8 +27,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.ABSENCE_REASONS
+import co.za.cspc.fleettracker.data.model.Birthday
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.VEHICLE_IN_SERVICE
+import co.za.cspc.fleettracker.data.repository.FleetRepository
 import co.za.cspc.fleettracker.ui.CAPITALS_WHILE_TYPING
 import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.km
@@ -79,7 +83,7 @@ fun EmployeeHomeScreen(
         }
     ) { padding ->
         if (state.loading) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
             return@Scaffold
@@ -89,6 +93,19 @@ fun EmployeeHomeScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            /*
+             * The birthday greeting, and only on the day itself.
+             *
+             * First on the screen because it is the one thing here that is not about
+             * work — put below the status card it would read as another notice about
+             * hours. Nothing at all on any other day, and nothing for somebody whose
+             * date of birth was never captured, which is most of the staff list: an
+             * empty card asking to be filled in is not a greeting.
+             */
+            if (Birthday.isToday(profile.dateOfBirth, FleetRepository.todayString())) {
+                item { BirthdayCard(profile.name) }
+            }
+
             item { StatusCard(state) }
 
             item {
@@ -418,6 +435,42 @@ fun EmployeeHomeScreen(
             },
             onDismiss = { showFuelDialog = false }
         )
+    }
+}
+
+/**
+ * "Happy birthday AADIL, have a blessed day".
+ *
+ * Deliberately the loudest thing on the screen — tertiaryContainer rather than the
+ * primary the work cards use, so it does not read as one of them.
+ */
+@Composable
+private fun BirthdayCard(name: String) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                Icons.Filled.Cake,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+            Text(
+                // The name in capitals like every other captured detail; the sentence
+                // around it left as written, because that rule is for data.
+                Birthday.greeting(name.asCaptured()),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+        }
     }
 }
 

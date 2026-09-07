@@ -33,7 +33,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
-  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'normaliseMonth'
+  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'normaliseMonth',
+  'parseRosterLines', 'normaliseDate', 'normaliseBirthDate'
 ]);
 
 let failures = 0;
@@ -619,6 +620,68 @@ check('a month already in hand is not read twice',
   source.includes('if (!month || perfMonthsLoaded.has(month)) return;'), true);
 check('and an upload invalidates what was cached',
   source.includes('perfMonthsLoaded.clear();'), true);
+
+/* ---------------- a date of birth on the staff list ---------------- */
+/* Aadil asked for a birthday message on every employee's main screen. The date has to
+   get onto the record first, and the staff list is how a few hundred people get loaded
+   at once — his own workbook has a D.O.B column. */
+const roster = (line) => portal.parseRosterLines(line)[0];
+
+check('the staff list carries a date of birth',
+  roster('T042, Ayanda, Ncube, Gauteng, Soweto, ND123456, 0821234567, 1986-09-07')
+    .dateOfBirth, '1986-09-07');
+// However a spreadsheet wrote it, the same way the debt dates are read — day first for
+// the slashed form, because that is what South Africa writes.
+check('however the spreadsheet wrote it',
+  ['1986-09-07', '07/09/1986', '7-Sep-86', '7 September 1986']
+    .map(d => roster(`T042,A,N,Gauteng,Soweto,,,${d}`).dateOfBirth),
+  ['1986-09-07', '1986-09-07', '1986-09-07', '1986-09-07']);
+
+/* A TWO-DIGIT YEAR IS THE PREVIOUS CENTURY when this one would put it in the future.
+   "7-Sep-86" is 1986 — nobody on the staff list was born in 2086 — while the same two
+   digits on an invoice mean 2026 and must go on meaning that. */
+check('a two-digit birth year that would be in the future goes back a century',
+  ['7-Sep-86', '07/09/86', '31/12/26'].map(portal.normaliseBirthDate),
+  ['1986-09-07', '1986-09-07', '1926-12-31']);
+// Still in the past this century, so it is left where it is: a sixteen-year-old is
+// likelier on a staff list than a hundred-and-sixteen-year-old.
+check('and one that is already in the past is left alone',
+  portal.normaliseBirthDate('1/9/10'), '2010-09-01');
+/* A YEAR SPELLED OUT IN FULL IS TAKEN AS GIVEN, however implausible. Shifting it would
+   be a silent hundred-year error on the one part of the date somebody was explicit
+   about, and there is no way to tell from the result that it happened. */
+check('a four-digit year is never moved',
+  ['2086-09-07', '1986-09-07', '7-Sep-2086'].map(portal.normaliseBirthDate),
+  ['2086-09-07', '1986-09-07', '2086-09-07']);
+// The invoice dates it is built on are untouched by any of this.
+check('an invoice date still reads a two-digit year as this century',
+  portal.normaliseDate('7-Sep-26'), '2026-09-07');
+check('and nothing readable is still nothing', portal.normaliseBirthDate('someday'), '');
+
+/* SOMETHING UNREADABLE BECOMES BLANK, not a guess. A greeting on the wrong day is worse
+   than no greeting, and the phone reads only yyyy-MM-dd — so anything that would not
+   normalise must not be stored at all. It is counted instead, and named in the report. */
+check('and something unreadable is left blank rather than guessed at',
+  roster('T042,A,N,Gauteng,Soweto,,,sometime in 1986').dateOfBirth, '');
+check('but what was in that column is kept so it can be counted',
+  roster('T042,A,N,Gauteng,Soweto,,,sometime in 1986').dobCell, 'sometime in 1986');
+check('a blank column is not counted as a failure',
+  [roster('T042,A,N,Gauteng,Soweto,,,').dobCell,
+   roster('T042,A,N,Gauteng,Soweto').dobCell], ['', '']);
+// The report says how many read and how many did not, because this is the one column
+// whose absence is invisible: no screen looks wrong, the person simply never gets
+// greeted, and nobody finds out for a year.
+check('the upload reports both counts',
+  source.includes('have a date of birth')
+  && source.includes('could not be read and were left blank'), true);
+// dobCell was only there to be counted, so it is stripped before the row is written.
+check('the counting field is not written to the document',
+  source.includes('const { dobCell, ...row } = r;'), true);
+
+// Filling from the staff list carries it across, and only when the list has one — a
+// blank column must never wipe a date already captured by hand.
+check('filling from the staff list carries the date across',
+  source.includes('if (entry.dateOfBirth && entry.dateOfBirth !== e.dateOfBirth)'), true);
 
 /* ---------------- re-linking what belongs to somebody ---------------- */
 /* The portal matches a figure to a person by EMPLOYEE NUMBER, so it attaches the moment

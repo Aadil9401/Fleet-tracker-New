@@ -315,6 +315,7 @@ check('nor any distance', footCells[4], '—');
 portal.data.employees = [
   { id: 'e2', name: 'Zanele', surname: 'Buthelezi', province: 'Gauteng', teamName: 'Midrand',
     employeeNumber: '1002', cellNumber: '0821234567', contactEmail: 'z@example.com',
+    dateOfBirth: '1986-09-07',
     email: 'zanele.buthelezi@cspc.local', vehicleRegistration: 'bc45dfgp',
     assignedVehicleId: 'v9', active: true, createdAt: 1756000000000 },
   { id: 'e1', name: 'Andile', surname: 'Adams', province: 'Western Cape', teamName: 'Cape Town',
@@ -343,6 +344,12 @@ check('the assigned vehicle is named, not given as an id',
 check('the registration is spaced as it is shown everywhere else',
   zanele[exportHeader.indexOf('Vehicle registration')], 'BC 45 DF GP');
 check('last active comes through', zanele[exportHeader.indexOf('Last active')], '2026-08-30');
+// The date of birth is in here so a column of them can be checked against the workbook
+// it came from — it is the one detail whose absence shows up nowhere on screen.
+check('the date of birth is exported',
+  zanele[exportHeader.indexOf('Date of birth')], '1986-09-07');
+check('and is blank rather than missing for somebody who has none',
+  exported[1][exportHeader.indexOf('Date of birth')], '');
 check('an inactive account says so', exported[1][exportHeader.indexOf('Status')], 'Inactive');
 // createdAt of 0 means it was never recorded, which is not the same as 1970.
 check('a missing sign-up date is left blank, not dated 1970',
