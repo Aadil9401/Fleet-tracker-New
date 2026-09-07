@@ -185,6 +185,39 @@ Cases are written as offsets from the curfew rather than as clock times, so **mo
 curfew needs no change to the table** — only the two one-line constants. It has moved
 once already, from 18:00 to 18:30.
 
+## Birthdays and ages
+
+A date of birth is captured once, by an admin, and read two ways: the employee is
+greeted on the day, and their **age** shows on their record. The phone shows the age and
+**never the date of birth** — that is what was asked for, and it is the useful reading
+anyway, since the age is what anybody would work out from the date every time they looked.
+
+Derived, never stored. An age written into the database is wrong for up to a year and
+nobody can tell which part of the year it is wrong in. So there is nothing to maintain
+and nothing scheduled — which also means nothing to break, and nothing that needs a Cloud
+Function on the free plan.
+
+Everything fails quiet. A date that cannot be read means no greeting and no age, never a
+guess: most records have no date of birth at all, and a 0 on those would be read as fact.
+A date in the **future** gives no age rather than a negative one. The one deliberate
+exception is a date of **today**, which gives 0 — typing this year by mistake is the
+likeliest slip when a few hundred dates are entered by hand, and "0 years" beside a name
+is obvious nonsense that gets noticed, where refusing it would look exactly like a date
+nobody has filled in yet.
+
+Somebody born on **29 February** is greeted, and ages, on the 28th in the three years out
+of four that have no 29th. Those two are the same rule on purpose: a card saying "happy
+birthday" beside an age that has not moved reads as a bug.
+
+| | |
+|---|---|
+| **The specification** | `birthday-cases.csv` — a table of cases, at the repo root |
+| Phone app | `Birthday.kt`, checked by `BirthdaySpecTest` (`gradle testDebugUnitTest`) |
+| Admin portal | inline in `index.html`, checked by `web/birthday-spec-test.mjs` |
+
+The portal greets nobody, so it answers only the age column. Both facts share one file
+because of the 29 February rule above.
+
 ## Registration plates
 
 Registrations are typed by hand in three places — the vehicle upload, the admin's

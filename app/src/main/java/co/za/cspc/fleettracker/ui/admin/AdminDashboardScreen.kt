@@ -36,9 +36,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.AppSettings
 import co.za.cspc.fleettracker.data.model.PlateFormat
+import co.za.cspc.fleettracker.data.model.Birthday
 import co.za.cspc.fleettracker.data.model.SA_PROVINCES
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
+import co.za.cspc.fleettracker.data.repository.FleetRepository
 import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
 import co.za.cspc.fleettracker.ui.CAPITALS_WHILE_TYPING
 import co.za.cspc.fleettracker.ui.asCaptured
@@ -1191,7 +1193,18 @@ private fun EmployeeCard(
                     )
                     val subtitle = listOfNotNull(
                         employee.employeeNumber.takeIf { it.isNotBlank() }?.let { "No. $it" },
-                        employee.teamName.takeIf { it.isNotBlank() }
+                        employee.teamName.takeIf { it.isNotBlank() },
+                        /*
+                         * THEIR AGE, NEVER THEIR DATE OF BIRTH. Aadil asked for it that
+                         * way, and the age is the useful reading anyway — it is what you
+                         * would work out from the date every time you looked at it.
+                         *
+                         * Only where there is one. Most records have no date of birth,
+                         * and a dash here would put a column of them down a list of
+                         * eighty people for a field that has never been filled in.
+                         */
+                        Birthday.age(employee.dateOfBirth, FleetRepository.todayString())
+                            ?.let { "$it years" }
                     ).joinToString(" • ")
                     if (subtitle.isNotBlank()) {
                         Text(

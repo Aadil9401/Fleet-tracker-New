@@ -68,6 +68,41 @@ object Birthday {
     }
 
     /**
+     * How old somebody is on [today], or null where there is no date of birth to work
+     * from.
+     *
+     * Aadil asked for this on the phone and asked NOT to see the date of birth there:
+     * "i do not want to see that date of birth, i want to see their actual age as of
+     * everyday". So the age is the only thing on this screen anybody can check, which is
+     * why it answers to birthday-cases.csv alongside the portal's ageOn() rather than
+     * being written twice and hoped over.
+     *
+     * Derived, never stored. An age in the database is wrong for up to a year and nobody
+     * notices which part of the year it is wrong in.
+     *
+     * SOMEBODY BORN ON 29 FEBRUARY ages on the 28th in a common year — the same day
+     * [isToday] greets them. The two are deliberately the same rule: a card saying
+     * "happy birthday" beside an age that has not moved reads as a bug.
+     *
+     * A date in the FUTURE gives null rather than a negative age. That is a typo, not a
+     * person, and "-59 years" on a staff record is worse than a blank.
+     */
+    fun age(dateOfBirth: String, today: String): Int? {
+        val born = parse(dateOfBirth) ?: return null
+        val now = parse(today) ?: return null
+
+        // Their birthday AS IT FALLS in the current year, which for a 29 February birth
+        // in a common year is the 28th.
+        val day = if (born.second == 2 && born.third == 29 && !isLeapYear(now.first)) 28
+        else born.third
+        val hadItThisYear = now.second > born.second ||
+            (now.second == born.second && now.third >= day)
+
+        val years = now.first - born.first - (if (hadItThisYear) 0 else 1)
+        return if (years < 0 || years > 120) null else years
+    }
+
+    /**
      * Aadil's wording, with their first name in it.
      *
      * Takes the name already in whatever case it should be shown in — the capitals rule

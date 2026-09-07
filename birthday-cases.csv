@@ -1,0 +1,80 @@
+# Birthdays and ages. THIS FILE IS THE SPECIFICATION.
+#
+# Implemented twice: the admin portal (web/index.html, ageOn and the greeting it drives)
+# and the phone app (Birthday.kt, isToday and age). The phone shows a person's AGE and
+# never their date of birth, on Aadil's instruction — so the age is the only thing anybody
+# can check, and a drift between the two implementations shows up as one screen saying a
+# person is 39 while the other says 40.
+#
+# The dangerous case is 29 February. Somebody born on it must age on the 28th in a common
+# year, the SAME day they get their greeting: a card saying "happy birthday" beside an age
+# that has not moved reads as a bug, and getting the two rules from different places is how
+# that happens.
+#
+# Both sides also answer "nothing rather than a guess". Most records have no date of birth
+# at all, and a 0 or a negative age would be read as fact.
+#
+# is_birthday: yes/no. age: a number, or "none" where there is nothing to work out.
+#
+# The heading below is a REAL ROW, and both tests assert on it — a column renamed on one
+# side and not the other would otherwise read the file happily and wrongly.
+dob,today,is_birthday,age
+
+# --- the ordinary case ---
+1986-09-07,2026-09-07,yes,40
+1986-09-07,2026-09-06,no,39
+1986-09-07,2026-09-08,no,40
+
+# The year of birth is IGNORED for the greeting: it is the part that gets typed wrong,
+# and a nonsense year still deserves the right day.
+#
+# The age of somebody born TODAY is 0, and that is deliberately shown rather than hidden.
+# Typing this year by mistake is the likeliest slip when a few hundred dates are entered
+# by hand, and "0 years" beside a name is obvious nonsense that gets noticed and fixed —
+# where refusing it would look exactly like a date nobody has filled in yet.
+2026-09-07,2026-09-07,yes,0
+1970-01-01,2026-01-01,yes,56
+
+# --- month boundaries, where a naive compare fails ---
+1986-12-31,2026-09-07,no,39
+1986-01-01,2026-09-07,no,40
+1986-09-07,2026-07-09,no,39
+1986-10-07,2026-09-07,no,39
+
+# --- 29 February: greeted and aged on the 28th in a common year ---
+1988-02-29,2028-02-29,yes,40
+1988-02-29,2028-02-28,no,39
+1988-02-29,2026-02-28,yes,38
+1988-02-29,2026-02-27,no,37
+1988-02-29,2026-03-01,no,38
+# The century rule: 1900 was not a leap year, 2000 was.
+1988-02-29,2100-02-28,yes,112
+1988-02-29,2000-02-29,yes,12
+1988-02-29,2000-02-28,no,11
+
+# Somebody born on the 28th is greeted on the 28th in both kinds of year, rather than
+# being caught up in the rule above.
+1990-02-28,2026-02-28,yes,36
+1990-02-28,2028-02-28,yes,38
+1990-02-28,2028-02-29,no,38
+
+# --- nothing rather than a guess ---
+,2026-09-07,no,none
+07/09/1986,2026-09-07,no,none
+1986-9-7,2026-09-07,no,none
+1986-13-01,2026-09-07,no,none
+1986-02-30,2026-09-07,no,none
+1986-04-31,2026-09-07,no,none
+0000-00-00,2026-09-07,no,none
+not a date,2026-09-07,no,none
+
+# A date in the FUTURE is a typo, not a person: no age, and "-59 years" never reaches a
+# screen. The greeting still lands on the day, since it ignores the year.
+2086-09-07,2026-09-07,no,none
+2026-09-08,2026-09-07,no,none
+# And an implausibly old one is refused too.
+1850-09-07,2026-09-07,no,none
+
+# A today that cannot be read greets nobody and ages nobody, rather than everybody.
+1986-09-07,tomorrow,no,none
+1986-09-07,,no,none
