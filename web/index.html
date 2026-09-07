@@ -3017,11 +3017,11 @@ function parseRosterLines(text) {
     .map(l => l.trim())
     .filter(Boolean)
     .filter(line => {
-      const first = line.split(/[,\t]/)[0].trim().toLowerCase();
+      const first = splitCells(line)[0].toLowerCase();
       return !(first.startsWith('employee') || first === 'no' || first === 'number');
     })
     .map(line => {
-      const p = line.split(/[,\t]/).map(x => x.trim());
+      const p = splitCells(line);
       const key = numberKey(p[0]);
       if (!key) return null;
       return {
@@ -3851,6 +3851,50 @@ const teamKey = (s) => String(s ?? '')
  * file as semicolon-separated makes its commas safely decimal; in a comma-separated
  * file a decimal comma is a real mistake and is reported as one rather than guessed at.
  */
+/**
+ * One line of a delimited file, as cells, with QUOTES HONOURED.
+ *
+ * Not a nicety. downloadCsv() wraps every cell it writes in quotes, and none of the
+ * parsers took them off — so no template the portal offers could be uploaded back into
+ * the portal. The heading row came through as a person whose employee number was
+ * literally "employee number", and every value kept its quote marks: a name stored as
+ * `"Ayanda"`, a date of birth as `"1986-09-07"`, which no date reader accepts.
+ *
+ * It had never bitten because the templates people actually uploaded were written
+ * elsewhere. That is not a reason to leave it: a file the portal hands out has to be a
+ * file the portal reads.
+ *
+ * A quoted cell can also contain the delimiter — a team written "Soweto, Vodacom" — and
+ * a naive split turns one team into two, silently, with the figures landing on neither.
+ * Doubled quotes inside a quoted cell are one quote, as CSV has it.
+ *
+ * TABS COUNT AS A DELIMITER TOO, whatever [delimiter] is, because pasting cells straight
+ * out of Excel is the documented way to use these boxes.
+ */
+function splitCells(line, delimiter = ',') {
+  const cells = [];
+  let cell = '';
+  let quoted = false;
+  let seenAny = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch !== '"') { cell += ch; continue; }
+      if (line[i + 1] === '"') { cell += '"'; i += 1; continue; }
+      quoted = false;
+      continue;
+    }
+    // A quote only OPENS a cell, so an inch mark in the middle of one is left alone.
+    if (ch === '"' && !seenAny) { quoted = true; seenAny = true; continue; }
+    if (ch === delimiter || ch === '\t') { cells.push(cell); cell = ''; seenAny = false; continue; }
+    if (ch !== ' ' || cell !== '') seenAny = true;
+    cell += ch;
+  }
+  cells.push(cell);
+  return cells.map(c => c.trim());
+}
+
 const perfDelimiter = (text) => {
   const firstLine = text.split(/\r?\n/).find(l => l.trim()) || '';
   if (firstLine.includes('\t')) return '\t';
@@ -3941,7 +3985,7 @@ function parsePerformanceLines(text, kind) {
   const rows = [], errors = [];
 
   lines.forEach(line => {
-    const parts = line.split(delimiter).map(x => x.trim());
+    const parts = splitCells(line, delimiter);
     // A row with nothing in it at all is skipped in silence rather than reported. Excel
     // writes a tail of them after the last real row, and a file ending in eighteen
     // "no employee number" errors reads as eighteen problems when there are none.
@@ -4222,11 +4266,11 @@ function parseVehicleLines(text) {
     .map(l => l.trim())
     .filter(Boolean)
     .filter(line => {
-      const first = line.split(/[,\t]/)[0].trim().toLowerCase();
+      const first = splitCells(line)[0].toLowerCase();
       return !(first.startsWith('registration') || first === 'reg');
     })
     .map(line => {
-      const p = line.split(/[,\t]/).map(x => x.trim());
+      const p = splitCells(line);
       const reg = (p[0] || '').toUpperCase();
       if (!reg) return null;
       const odo = digits(p[2]) ?? 0;
@@ -6084,7 +6128,7 @@ function parseDebtLines(text) {
   const rows = [], errors = [];
 
   text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach(line => {
-    const parts = line.split(delimiter).map(x => x.trim());
+    const parts = splitCells(line, delimiter);
     while (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
 
     // The header, however it was capitalised.

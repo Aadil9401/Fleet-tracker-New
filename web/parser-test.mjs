@@ -35,7 +35,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
   'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'normaliseMonth',
   'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore',
-  'staffTemplateRows', 'ROSTER_COLUMNS'
+  'staffTemplateRows', 'ROSTER_COLUMNS', 'splitCells', 'parseDebtLines',
+  'DEBT_COLUMNS', 'DEBT_SAMPLE'
 ]);
 
 let failures = 0;
@@ -621,6 +622,90 @@ check('a month already in hand is not read twice',
   source.includes('if (!month || perfMonthsLoaded.has(month)) return;'), true);
 check('and an upload invalidates what was cached',
   source.includes('perfMonthsLoaded.clear();'), true);
+
+/* ---------------- every template the portal hands out, uploaded back into it ---------------- */
+/* THIS IS THE TEST THAT SHOULD ALWAYS HAVE BEEN HERE.
+
+   downloadCsv() wraps every cell it writes in quotes, and none of the parsers took them
+   off — so no template the portal offered could be uploaded back into the portal. The
+   heading row arrived as a person whose employee number was literally "employee number",
+   and every value kept its quote marks: a name stored as "Ayanda", a date of birth as
+   "1986-09-07", which no date reader accepts.
+
+   It had never bitten because the files actually uploaded were written elsewhere. It
+   turned up the first time a template was produced by the portal's own code and read
+   straight back.
+
+   csvAsWritten() below is downloadCsv()'s encoding, exactly. Testing against anything
+   easier to write is what let this through: the earlier round-trip test joined the cells
+   with a bare comma, which is not the file the button produces. */
+const csvAsWritten = (rows) => rows
+  .map(r => r.map(cell => '"' + String(cell ?? '').replace(/"/g, '""') + '"').join(','))
+  .join('\r\n');
+
+/* The cell splitter, on its own. */
+check('a quoted cell comes out without its quotes',
+  portal.splitCells('"T042","Ayanda","1986-09-07"'), ['T042', 'Ayanda', '1986-09-07']);
+check('an unquoted line is unaffected',
+  portal.splitCells('T042, Ayanda , 1986-09-07'), ['T042', 'Ayanda', '1986-09-07']);
+check('a blank quoted cell is blank', portal.splitCells('"T042","",""'), ['T042', '', '']);
+/* A QUOTED CELL MAY CONTAIN THE DELIMITER. A team written "Soweto, Vodacom" split into
+   two cells before, silently, shifting every column after it — the figures then landed
+   on neither team. */
+check('a comma inside quotes does not split the cell',
+  portal.splitCells('"T042","Soweto, Vodacom","1986-09-07"'),
+  ['T042', 'Soweto, Vodacom', '1986-09-07']);
+// Doubled quotes inside a quoted cell are one quote, as CSV has it.
+check('a doubled quote is one quote',
+  portal.splitCells('"T042","O""Brien"'), ['T042', 'O"Brien']);
+// A quote only opens a cell, so an inch mark in the middle of one is left alone.
+check('a quote in the middle of a cell is left where it is',
+  portal.splitCells('T042,5" spanner'), ['T042', '5" spanner']);
+// Tabs count as a delimiter whatever the delimiter is, because pasting cells straight
+// out of Excel is the documented way to use these boxes.
+check('a pasted row of tabs still splits',
+  portal.splitCells('T042\tAyanda\t1986-09-07'), ['T042', 'Ayanda', '1986-09-07']);
+check('and a semicolon file splits on its own delimiter',
+  portal.splitCells('"T042";"Ayanda"', ';'), ['T042', 'Ayanda']);
+
+/* THE STAFF LIST, as the button writes it. */
+portal.data.employees = [
+  { id: 'r1', name: 'Ayanda', surname: 'Ncube', employeeNumber: 'T042',
+    province: 'Gauteng', teamName: 'Soweto Vodacom', vehicleRegistration: 'ND123456',
+    cellNumber: '0821234567', dateOfBirth: '1986-09-07' }
+];
+portal.data.roster = [];
+const staffCsv = csvAsWritten(portal.staffTemplateRows());
+const staffBack = portal.parseRosterLines(staffCsv);
+// One person, not two: the heading row is recognised through its quotes.
+check('the staff list download parses back to exactly its people', staffBack.length, 1);
+check('and the heading row is not read as a person',
+  staffBack.some(r => /employee/i.test(r.employeeNumber)), false);
+check('with every value free of quote marks',
+  portal.rosterRowToStore(staffBack[0]),
+  { key: 'T042', employeeNumber: 'T042', name: 'Ayanda', surname: 'Ncube',
+    province: 'Gauteng', teamName: 'Soweto Vodacom', vehicleRegistration: 'ND123456',
+    cellNumber: '0821234567', dateOfBirth: '1986-09-07' });
+
+/* EVERY PERFORMANCE TEMPLATE. Driven from PERF_UPLOADS so a seventh upload cannot be
+   added without this covering it. */
+Object.keys(portal.PERF_UPLOADS).forEach(kind => {
+  const rows = portal.perfTemplateRows(kind);
+  const parsed = portal.parsePerformanceLines(csvAsWritten(rows), kind);
+  check('the ' + kind + ' template uploads back with no errors', parsed.errors, []);
+  // A wide file expands one row per network, so the count is not the row count.
+  check('and the ' + kind + ' template is not empty once parsed', parsed.rows.length > 0, true);
+});
+
+/* THE DEBT BULK FILE. */
+const debtCsv = csvAsWritten([portal.DEBT_COLUMNS, ...portal.DEBT_SAMPLE]);
+const debtBack = portal.parseDebtLines(debtCsv);
+check('the debt template uploads back with no errors', debtBack.errors, []);
+check('and its lines survive', debtBack.rows.length, portal.DEBT_SAMPLE.length);
+// The date is the field that quoting broke most quietly: "2026-09-01" with the quote
+// marks on is not a date, so every invoice would have been refused or left unaged.
+check('with the dates read as dates',
+  debtBack.rows.every(r => /^\d{4}-\d{2}-\d{2}$/.test(r.invoiceDate)), true);
 
 /* ---------------- the staff list, downloaded to be filled in and sent back ---------------- */
 /* Aadil asked for a template built from his own database rather than from a spreadsheet.
