@@ -606,6 +606,11 @@
           <b>Fill from staff list</b> and their name, province, team and vehicle are
           corrected to match it — so a mistyped province or team gets fixed centrally
           rather than chased person by person. Matching is on employee number.
+          <br>
+          To add something to everybody at once — dates of birth, say — press
+          <b>Download current list</b>. That gives you everyone the system already knows
+          about, in exactly these columns, so you can fill in one column in Excel and
+          upload the same file back.
         </p>
         <div class="field">
           <label for="rosterFile">Choose a CSV file</label>
@@ -617,6 +622,7 @@
             placeholder="1234, Christian, Dube, Eastern Cape, Mthatha, ND987654, 082 123 4567, 1986-09-07"></textarea>
         </div>
         <div class="toolbar">
+          <button id="rosterDownload" class="outline">Download current list</button>
           <button id="rosterUpload">Save staff list</button>
           <button id="rosterFill" class="outline">Fill from staff list</button>
           <button id="relinkPay" class="outline">Re-link pay and debt</button>
@@ -625,10 +631,11 @@
         <div class="count" id="rosterStatus"></div>
         <details class="help">
           <summary>Format</summary>
-          <pre>employee number, name, surname, province, team, vehicle registration, cell number, date of birth</pre>
-          Only the employee number is required — leave any other column blank and that
-          field is left alone when filling. A heading row is ignored, and you can paste
-          cells straight from Excel.
+          <pre id="rosterFormat"></pre>
+          Only the employee number is required. <b>A blank column is left alone</b> —
+          not stored, and not filled — so a file carrying just numbers and dates of birth
+          changes nothing else. A heading row is ignored, and you can paste cells
+          straight from Excel.
         </details>
       </div>
 
@@ -1185,13 +1192,19 @@
         <div class="count" id="lbShowing"></div>
         <div class="table-wrap"><table>
           <thead><tr>
-            <th>Position</th><th>Team</th><th>Province</th><th>People</th>
+            <th>Position</th><th>Team</th><th>Province</th><th>People</th><th></th>
           </tr></thead>
           <tbody id="lbRows"></tbody>
         </table></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
           Positions only — no figures. Highest is 1. Teams on equal figures share a
           position and the next position skips, so a tie for first is followed by third.
+          <br>
+          A team with <b>nobody on</b> is a name that appears in the figures and on no
+          employee's record — usually a heading read out of a team file's first column.
+          <b>Not a team</b> deletes every figure uploaded under that name, in every
+          month. It only appears where nobody is on the team, so it can never be pressed
+          beside a real one.
           <br>
           By team, because connections and activations arrive as a team's numbers. A team
           whose figure has not been uploaded is listed at the bottom without a position
@@ -2921,6 +2934,83 @@ function canonicalProvince(value) {
   return match || raw;
 }
 
+/**
+ * The staff list's columns, in order.
+ *
+ * ONE list, used by the parser below, by the download, and by the format note on screen.
+ * They were three separate hard-coded strings, which is the arrangement that eventually
+ * ships a template whose columns are not the ones the parser reads — the mistake the
+ * performance uploads already avoid by generating everything from PERF_UPLOADS.
+ */
+const ROSTER_COLUMNS = ['employee number', 'name', 'surname', 'province', 'team',
+  'vehicle registration', 'cell number', 'date of birth'];
+
+/**
+ * The staff list as it stands, in the shape the upload reads.
+ *
+ * Built so a template can be produced from what is ALREADY IN THE SYSTEM rather than
+ * from a spreadsheet somewhere: download it, fill in the column you want, upload it
+ * back. The date of birth column is the reason it exists — most records have none, and
+ * typing a few hundred of them into the employee form one at a time is not a plan.
+ *
+ * Everybody the system knows about, from BOTH sides:
+ *   - the users collection, being the people who have an app account
+ *   - the roster, being the official list, which can name people who have not signed up
+ *
+ * Merged on employee number, and where somebody is in both the USER RECORD WINS. That is
+ * the one an admin has been correcting by hand, and it is what the app actually shows.
+ *
+ * Anybody without an employee number is left out. The upload matches on that number and
+ * refuses a line without one, so including them would produce a file with rows in it
+ * that silently do nothing.
+ */
+function staffTemplateRows() {
+  const people = {};
+
+  data.roster.forEach(r => {
+    const key = r.key || numberKey(r.employeeNumber);
+    if (!key) return;
+    people[key] = {
+      employeeNumber: r.employeeNumber || key,
+      name: r.name || '',
+      surname: r.surname || '',
+      province: r.province || '',
+      teamName: r.teamName || '',
+      vehicleRegistration: r.vehicleRegistration || '',
+      cellNumber: r.cellNumber || '',
+      dateOfBirth: r.dateOfBirth || ''
+    };
+  });
+
+  data.employees.forEach(e => {
+    const key = numberKey(e.employeeNumber);
+    if (!key) return;
+    const onList = people[key] || {};
+    // Field by field rather than wholesale, so a blank on the user record does not
+    // discard something the official list supplied.
+    const take = (mine, theirs) => mine || theirs || '';
+    people[key] = {
+      employeeNumber: e.employeeNumber || onList.employeeNumber || key,
+      name: take(e.name, onList.name),
+      surname: take(e.surname, onList.surname),
+      province: take(e.province, onList.province),
+      teamName: take(e.teamName, onList.teamName),
+      vehicleRegistration: take(e.vehicleRegistration, onList.vehicleRegistration),
+      cellNumber: take(e.cellNumber, onList.cellNumber),
+      dateOfBirth: take(e.dateOfBirth, onList.dateOfBirth)
+    };
+  });
+
+  return [ROSTER_COLUMNS, ...Object.values(people)
+    // By name, so two downloads of the same list are comparable rather than arriving in
+    // whatever order Firestore handed them over.
+    .sort((a, b) => `${a.name} ${a.surname}`.trim()
+      .localeCompare(`${b.name} ${b.surname}`.trim())
+      || a.employeeNumber.localeCompare(b.employeeNumber))
+    .map(r => [r.employeeNumber, r.name, r.surname, r.province, r.teamName,
+      r.vehicleRegistration, r.cellNumber, r.dateOfBirth])];
+}
+
 /** employee number, name, surname, province, team, vehicle registration, cell, d.o.b */
 function parseRosterLines(text) {
   return text.split(/\r?\n/)
@@ -3014,6 +3104,20 @@ $('rosterUpload').addEventListener('click', async () => {
     $('rosterFile').value = '';
     await loadAll();
   } catch (err) { showMsg('Could not save the list: ' + err.message, 'err'); }
+});
+
+$('rosterFormat').textContent = ROSTER_COLUMNS.join(', ');
+
+$('rosterDownload').addEventListener('click', () => {
+  const rows = staffTemplateRows();
+  if (rows.length === 1) {
+    showMsg('Nobody has an employee number yet, so there is nothing to download.', 'err');
+    return;
+  }
+  const withDob = rows.slice(1).filter(r => r[7]).length;
+  downloadCsv(`staff-list-${rows.length - 1}-people-${todayString()}.csv`, rows);
+  showMsg(`Downloaded ${rows.length - 1} people. ${withDob} already have a date of birth`
+    + `; fill in the rest and upload the file back.`);
 });
 
 $('rosterFill').addEventListener('click', async () => {
@@ -6235,13 +6339,15 @@ function leaderboardRows(month, metric, network) {
       previous = t.figure;
     }
     // The figure is dropped here on purpose: nothing downstream can show what the board
-    // is meant to hide, the CSV export included.
-    return { province: t.province, team: t.team, people: t.people, position };
+    // is meant to hide, the CSV export included. The KEY is kept: "Not a team" deletes
+    // by it, and matching on the name as typed would be the fuzzy matching this whole
+    // feature has been careful to avoid.
+    return { key: t.key, province: t.province, team: t.team, people: t.people, position };
   });
 
   return {
     rows: [...ranked, ...missing.map(t =>
-      ({ province: t.province, team: t.team, people: t.people, position: null }))],
+      ({ key: t.key, province: t.province, team: t.team, people: t.people, position: null }))],
     withoutTeam,
     unknownTeams
   };
@@ -6282,7 +6388,7 @@ function renderLeaderboard() {
   ].filter(Boolean).join(' · ');
 
   $('lbRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="4" class="empty">${data.employees.length === 0
+    ? `<tr><td colspan="5" class="empty">${data.employees.length === 0
         ? 'No employees yet.'
         : 'No teams to rank for that month yet.'}</td></tr>`
     : rows.map(r => `<tr>
@@ -6294,7 +6400,74 @@ function renderLeaderboard() {
         <td>${r.people === 0
           ? '<span class="meta">nobody on</span>'
           : num(r.people)}</td>
+        <td>${r.people === 0
+          ? `<button class="outline danger lb-del" data-key="${esc(r.key)}" data-team="${
+              esc(r.team)}">Not a team</button>`
+          : ''}</td>
       </tr>`).join('');
+
+  document.querySelectorAll('button.lb-del').forEach(b =>
+    b.addEventListener('click', () => deleteTeamFigures(b.dataset.key, b.dataset.team)));
+}
+
+/**
+ * Removes every figure uploaded against a "team" that is not one.
+ *
+ * Aadil: "MTN - TM - FY24 IS NOT A TEAM". A team file's first column is read as a team
+ * name, so a section heading sitting in that column becomes a team — and because it is
+ * the presence of a FIGURE that makes a team rankable, it then arrives on the
+ * leaderboard, sometimes at the top of it. There was no way to take one back: Remove a
+ * month clears a whole figure for everybody, which is not what is wanted here.
+ *
+ * OFFERED ONLY WHERE NOBODY IS ON THE TEAM. A real team always has people on it, so the
+ * button cannot appear beside one — and that is also the honest test of the thing being
+ * described: a name on a figure and on nobody's record is either junk or a team nobody
+ * works for.
+ *
+ * Every month at once, because a heading that was in one file is in all of them, and
+ * clearing it a month at a time across eight months is how it ends up half-done.
+ * Confirmed by typing the name, the same protection Remove a month uses: this deletes
+ * documents outright.
+ */
+async function deleteTeamFigures(key, team) {
+  try {
+    const snap = await getDocs(query(collection(db, 'perfTeams'), where('teamKey', '==', key)));
+    if (snap.empty) {
+      showMsg(`Nothing is stored against "${team}".`, 'err');
+      return;
+    }
+
+    // Named in the question. "Delete 24 documents" tells an admin nothing about which
+    // months they are about to lose.
+    const months = [...new Set(snap.docs.map(d => d.data().month).filter(Boolean))].sort();
+    const typed = prompt(
+      `Remove every figure uploaded against "${team}"?\n\n`
+      + `${snap.size} row(s) across ${months.length} month(s): ${months.join(', ')}.\n\n`
+      + 'Nobody on the staff list is on this team, so no employee loses a figure. Stock, '
+      + 'connections and activations uploaded under this name are deleted.\n\n'
+      + `Type the name (${team}) to confirm.`);
+    if (typed === null) return;
+    if (typed.trim().toUpperCase() !== team.trim().toUpperCase()) {
+      showMsg(`That did not match "${team}" — nothing removed.`, 'err');
+      return;
+    }
+
+    const ids = snap.docs.map(d => d.id);
+    for (let start = 0; start < ids.length; start += 400) {
+      const batch = writeBatch(db);
+      ids.slice(start, start + 400).forEach(id => batch.delete(doc(db, 'perfTeams', id)));
+      await batch.commit();
+    }
+
+    // Every month it touched has to be re-read, or the deleted figures stay on screen.
+    months.forEach(m => perfMonthsLoaded.delete(m));
+    showMsg(`Removed "${team}" — ${ids.length} row(s) across ${
+      months.length} month(s). No employee's figures were touched.`);
+    await loadAll();
+    renderLeaderboard();
+  } catch (err) {
+    showMsg('Could not remove: ' + err.message, 'err');
+  }
 }
 
 $('lbMetric').addEventListener('change', (e) => {

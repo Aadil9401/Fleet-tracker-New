@@ -34,7 +34,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
   'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'normaliseMonth',
-  'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore'
+  'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore',
+  'staffTemplateRows', 'ROSTER_COLUMNS'
 ]);
 
 let failures = 0;
@@ -620,6 +621,86 @@ check('a month already in hand is not read twice',
   source.includes('if (!month || perfMonthsLoaded.has(month)) return;'), true);
 check('and an upload invalidates what was cached',
   source.includes('perfMonthsLoaded.clear();'), true);
+
+/* ---------------- the staff list, downloaded to be filled in and sent back ---------------- */
+/* Aadil asked for a template built from his own database rather than from a spreadsheet.
+   The point of it is one column: most records have no date of birth, and typing a few
+   hundred into the employee form one at a time is not a plan. */
+portal.data.employees = [
+  // In both lists. The user record is the one an admin has been correcting by hand.
+  { id: 'u1', name: 'Ayanda', surname: 'Ncube', employeeNumber: 'T042',
+    province: 'Gauteng', teamName: 'Soweto Vodacom', vehicleRegistration: 'ND123456',
+    cellNumber: '0821234567', dateOfBirth: '1986-09-07' },
+  // Signed up, never on the official list.
+  { id: 'u2', name: 'Bongi', surname: 'Ndlovu', employeeNumber: 'T099',
+    province: 'Limpopo', teamName: 'Tzaneen', vehicleRegistration: '',
+    cellNumber: '', dateOfBirth: '' },
+  // No employee number at all.
+  { id: 'u3', name: 'Nobody', surname: 'Here', employeeNumber: '' }
+];
+portal.data.roster = [
+  { key: 'T042', employeeNumber: 'T042', name: 'AYANDA', surname: 'NCUBE',
+    province: 'Gauteng', teamName: 'Soweto', vehicleRegistration: 'ND 123 456',
+    cellNumber: '0111111111', dateOfBirth: '' },
+  // On the official list, has not signed up. Still worth a row: a date of birth put on
+  // it now attaches the moment they do.
+  { key: 'T160', employeeNumber: 'T160', name: 'Thabo', surname: 'Magape',
+    province: 'Gauteng', teamName: 'Krugersdorp', vehicleRegistration: '',
+    cellNumber: '', dateOfBirth: '1979-03-11' }
+];
+
+const template = portal.staffTemplateRows();
+
+// The header IS the parser's column list, not a second copy of it that can drift.
+check('the download is headed with the columns the parser reads',
+  template[0], portal.ROSTER_COLUMNS);
+check('and every row is as wide as the header',
+  template.slice(1).map(r => r.length),
+  template.slice(1).map(() => portal.ROSTER_COLUMNS.length));
+
+// Everybody with a number, from either side, exactly once.
+check('everyone the system knows about, once each',
+  template.slice(1).map(r => r[0]), ['T042', 'T099', 'T160']);
+check('and somebody with no employee number is left out',
+  template.slice(1).some(r => r[1] === 'Nobody'), false);
+
+/* WHERE SOMEBODY IS IN BOTH, THE USER RECORD WINS. It is the one being corrected by
+   hand and the one the app actually shows — "Soweto Vodacom" is the team the performance
+   figures are keyed on, and the roster's older "Soweto" would undo that correction on
+   the next upload. */
+check('the user record wins over the older list',
+  template.slice(1).find(r => r[0] === 'T042'),
+  ['T042', 'Ayanda', 'Ncube', 'Gauteng', 'Soweto Vodacom', 'ND123456',
+   '0821234567', '1986-09-07']);
+// Field by field, though: a blank on the user record does not throw away something the
+// official list supplied. T042's date of birth is on the user record; their cell number
+// is on both and the user's wins; nothing is lost either way.
+check('but a blank on the user record does not discard what the list has',
+  portal.staffTemplateRows().slice(1).find(r => r[0] === 'T042')[6], '0821234567');
+
+/* THE FILE IT PRODUCES MUST BE A FILE IT CAN READ. A template whose own parser refuses
+   it is worse than no template — this is the check that caught the FY one. */
+const asCsv = template.map(r => r.join(',')).join('\r\n');
+const roundTripped = portal.parseRosterLines(asCsv);
+check('the download parses straight back in', roundTripped.length, template.length - 1);
+check('with the same people on it',
+  roundTripped.map(r => r.employeeNumber), ['T042', 'T099', 'T160']);
+check('and the dates of birth survive the trip',
+  roundTripped.map(r => r.dateOfBirth), ['1986-09-07', '', '1979-03-11']);
+// And uploading it back changes nothing for the person whose row was already right.
+check('a row that came out of the system goes back in unchanged',
+  portal.rosterRowToStore(roundTripped.find(r => r.employeeNumber === 'T042')),
+  { key: 'T042', employeeNumber: 'T042', name: 'Ayanda', surname: 'Ncube',
+    province: 'Gauteng', teamName: 'Soweto Vodacom', vehicleRegistration: 'ND123456',
+    cellNumber: '0821234567', dateOfBirth: '1986-09-07' });
+// Sorted by name, so two downloads of the same list can be compared to each other.
+check('rows come out in name order',
+  template.slice(1).map(r => r[1]), ['Ayanda', 'Bongi', 'Thabo']);
+
+portal.data.roster = [];
+portal.data.employees = [];
+check('nothing to download is a header and nothing else',
+  portal.staffTemplateRows().length, 1);
 
 /* ---------------- a date of birth on the staff list ---------------- */
 /* Aadil asked for a birthday message on every employee's main screen. The date has to

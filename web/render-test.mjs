@@ -29,7 +29,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'parseDebtLines', 'DEBT_COLUMNS', 'DEBT_SAMPLE', 'daysSince', 'productKey',
   'normaliseDate', 'renderDebt', 'renderFy', 'fyFilters', 'monthFigureCount',
   'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
-  'clearButtonLabel'
+  'clearButtonLabel', 'renderLeaderboard'
 ]);
 
 let failures = 0;
@@ -1581,6 +1581,69 @@ debtFor('T042', 'owing');
 check('the tiles still answer for everybody',
   (writes()['debtTiles'] || '').includes(portal.rand(17500)), true);
 Object.assign(portal.debtFilters, { show: 'owing', person: '', query: '' });
+
+/* ---------------- a name that is not a team ---------------- */
+/* Aadil: "MTN - TM - FY24 IS NOT A TEAM". A team file's first column is read as a team
+   name, so a section heading sitting in that column becomes a team — and since it is the
+   presence of a FIGURE that makes a team rankable, it lands on the leaderboard, sometimes
+   at the top. There was no way to take one back. */
+portal.data.employees = [
+  { id: 'l1', name: 'Ayanda', surname: 'Ncube', employeeNumber: 'T042',
+    province: 'Gauteng', teamName: 'Soweto Vodacom' }
+];
+portal.data.perfTeams = [
+  { id: 't1', month: '2026-08', network: 'VODACOM', teamKey: 'SOWETO VODACOM',
+    team: 'Soweto Vodacom', stock: 500, connections: 250, activations: 100 },
+  { id: 't2', month: '2026-08', network: 'MTN', teamKey: 'MTNTMFY24',
+    team: 'MTN - TM - FY24', stock: 9000, connections: 8000, activations: 7000 }
+];
+portal.data.perfMonthly = [];
+portal.data.perfFy = [];
+Object.assign(portal.lbFilters, { metric: 'connections', network: '', province: '' });
+setValue('lbMonth', '2026-08');
+portal.renderLeaderboard();
+const boardHtml = writes()['lbRows'] || '';
+
+// It is still RANKED — that part is deliberate and unchanged, because the phone ranks
+// the same way and the two screens must not disagree about who came where.
+check('the junk name is still ranked, as the phone ranks it',
+  boardHtml.includes('MTN - TM - FY24'), true);
+// And it is marked as what it is: a name on a figure and on nobody's record.
+check('and marked as having nobody on it', boardHtml.includes('nobody on'), true);
+
+/* THE BUTTON APPEARS ONLY WHERE NOBODY IS ON THE TEAM. A real team always has people, so
+   it can never be offered beside one — which is also the honest test of the thing: a name
+   on a figure and on no employee's record is either junk or a team nobody works for. */
+const buttons = [...boardHtml.matchAll(/data-team="([^"]*)"/g)].map(m => m[1]);
+check('a delete is offered for the junk name only', buttons, ['MTN - TM - FY24']);
+check('and never beside a team with people on it',
+  buttons.includes('Soweto Vodacom'), false);
+
+/* AND IT CARRIES THE KEY, which is what the delete actually runs on. The row shape drops
+   the figure on purpose but used to drop the key with it, so the button rendered
+   data-key="undefined" and would have deleted nothing while reporting success. Matching
+   on the name as typed instead would be the fuzzy matching this whole feature has been
+   careful to avoid. */
+check('the button carries the team key, not just the name',
+  [...boardHtml.matchAll(/data-key="([^"]*)"/g)].map(m => m[1]), ['MTNTMFY24']);
+check('and the key is on every row, ranked or not',
+  portal.leaderboardRows('2026-08', 'connections').rows.map(r => r.key).sort(),
+  ['MTNTMFY24', 'SOWETO VODACOM']);
+
+// It deletes by teamKey across EVERY month, because a heading that was in one file is in
+// all of them, and clearing it a month at a time is how it ends up half-done.
+check('it removes every month at once',
+  src.includes("where('teamKey', '==', key)"), true);
+// Confirmed by typing the name, the same protection Remove a month uses — this deletes
+// documents outright rather than clearing a field.
+check('and asks for the name to be typed first',
+  src.includes('Type the name (${team}) to confirm.'), true);
+check('naming the months that will go',
+  src.includes('month(s): ${months.join(\x27, \x27)}'), true);
+// The months it touched are dropped from the loaded set, or the deleted figures stay on
+// screen until the tab is changed and back.
+check('and re-reads the months it touched',
+  src.includes('months.forEach(m => perfMonthsLoaded.delete(m));'), true);
 
 /* ---------------- the button says which month it will remove ---------------- */
 /* It read "Remove a month" and took the month from a picker at the top of a long tab,
