@@ -214,7 +214,12 @@ class DayBreakdownTest {
         assertEquals(listOf("Suzuki Magnite", "Bakkie 2"), service.rows.map { it.heading })
         // The registration typed by the employee is free text: "ND 111-111" is the
         // same vehicle as "ND111111". Spacing is not part of what a plate is.
-        assertEquals(listOf("30 000 km", "Sarah Dube"), service.rows.first().cells)
+        // Capitals, like every other name on the screen. The cells are the formatted
+        // column - this is where km() and rand() are applied too - so the name is
+        // capitalised here rather than at the render, which would also shout the
+        // mileage beside it.
+        assertEquals(listOf("30 000 km", "SARAH DUBE"), service.rows.first().cells)
+        // Not a name, so not capitalised: "nobody" is our word, not the data.
         assertEquals(listOf("60 000 km", "nobody"), service.rows.last().cells)
         // Shown through PlateFormat, so a plate reads the same here as in the fleet
         // list, whichever of the three ways it happened to be typed.

@@ -272,7 +272,7 @@ private fun NetworkPicker(selected: String, onChange: (String) -> Unit) {
             FilterChip(
                 selected = Performance.networkKey(selected) == network,
                 onClick = { onChange(network) },
-                label = { Text(Performance.networkLabel(network)) }
+                label = { Text(Performance.networkLabel(network).asCaptured()) }
             )
         }
     }
@@ -316,7 +316,10 @@ private fun FyCard(row: Performance.Fy) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(Performance.networkLabel(row.network), fontWeight = FontWeight.Bold)
+                Text(
+                    Performance.networkLabel(row.network).asCaptured(),
+                    fontWeight = FontWeight.Bold
+                )
                 Text(
                     row.amountRands?.rand() ?: "—",
                     style = MaterialTheme.typography.titleMedium,

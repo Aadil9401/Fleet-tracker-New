@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.Debt
 import co.za.cspc.fleettracker.data.model.UserProfile
+import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.grouped
 import co.za.cspc.fleettracker.ui.rand
 
@@ -149,7 +150,7 @@ private fun InvoiceCard(invoice: Debt.Invoice, today: String) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(invoice.invoiceNumber, fontWeight = FontWeight.Bold)
+                    Text(invoice.invoiceNumber.asCaptured(), fontWeight = FontWeight.Bold)
                     Text(
                         if (invoice.settled) invoice.invoiceDate
                         else "${invoice.invoiceDate} · ${
@@ -171,7 +172,7 @@ private fun InvoiceCard(invoice: Debt.Invoice, today: String) {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        "${line.product} × ${line.quantity.grouped()}",
+                        "${line.product.asCaptured()} × ${line.quantity.grouped()}",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(line.amountRands.rand(), style = MaterialTheme.typography.bodySmall)
@@ -187,7 +188,7 @@ private fun InvoiceCard(invoice: Debt.Invoice, today: String) {
                     ) {
                         Text(
                             "Paid ${payment.paidDate}"
-                                + if (payment.note.isNotBlank()) " · ${payment.note}" else "",
+                                + if (payment.note.isNotBlank()) " · ${payment.note.asCaptured()}" else "",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )

@@ -1426,5 +1426,36 @@ check('and a bad one names the shapes that work',
   portal.parseDebtLines('T042,INV-1,tomorrow,Airtime,50,12500.00').errors[0].why
     .includes('01/09/2026'), true);
 
+/* ---------------- one case, everywhere ---------------- */
+/* A name that reads "Soweto" in a dropdown and "SOWETO" in the table below it makes
+   somebody stop and check whether they are the same place. These rules are display
+   only — the stored value keeps whatever was typed — so they cannot be verified by
+   driving a render, and are checked at source. */
+check('dropdown options are capitalised like the cells they filter',
+  /table td, select option,[^}]*text-transform: uppercase/.test(src), true);
+check('and table headings are capitals too, from their own heading style',
+  /th \{[^}]*text-transform: uppercase/.test(src), true);
+check('and so is anything being typed into a box',
+  /input\[type="text"\][^}]*text-transform: uppercase/.test(src), true);
+
+/* THE EXEMPTION IS BY TYPE, so an email box declared as a plain text input would be
+   uppercased with the rest — an address is hard to read back to somebody that way and
+   looks like a mistake. Passwords are not display text at all. */
+check('while addresses, links and passwords keep their own case',
+  /\.email, a, input\[type="email"\], input\[type="password"\][^}]*text-transform: none/
+    .test(src), true);
+const emailBoxes = [...src.matchAll(/<input[^>]*id="[^"]*[Ee]mail[^"]*"[^>]*>/g)]
+  .map(m => m[0]);
+check('there is more than one email box to check', emailBoxes.length >= 2, true);
+check('and every one of them is typed as an email, so none gets uppercased',
+  emailBoxes.filter(t => !t.includes('type="email"')), []);
+
+// The same omission one level down: tileSub sat without .caps while every one of its
+// siblings had it, so the day view's tile modal named a person in whatever case they
+// were typed in and the three modals beside it did not.
+check('every modal sub-label is capitalised',
+  ['tileSub', 'svcSub', 'fuelEditSub', 'entrySub']
+    .filter(id => !new RegExp(`class="sub caps"[^>]*id="${id}"`).test(src)), []);
+
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

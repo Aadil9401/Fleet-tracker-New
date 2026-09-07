@@ -313,9 +313,28 @@
 
      Add .caps to anything showing a name or other captured detail outside a table —
      without it the same person reads as "Sarah Dube" in one place and "SARAH DUBE"
-     in another, which is what made the day view's summary cards look wrong. */
-  table td, .person .nm, .person .meta, .chip, .caps { text-transform: uppercase; }
-  .email, a { text-transform: none; }
+     in another, which is what made the day view's summary cards look wrong.
+
+     DROPDOWN OPTIONS are in here too. They were left out, so every province, team,
+     network, employee and invoice picker read in a different case from the rows it
+     filtered — somebody scanning a list should not have to notice that "Soweto" in the
+     dropdown and "SOWETO" in the table are the same place. (Table headings are already
+     capitals; that is set on `th` with the rest of its heading style.)
+
+     Prose is deliberately NOT in here: an error message or an explanatory note set in
+     capitals reads as shouting, and these are sentences rather than captured details. */
+  table td, select option,
+  .person .nm, .person .meta, .chip, .caps { text-transform: uppercase; }
+  /* And the boxes things are TYPED into, so a team name looks the same while it is being
+     entered as it will once it is saved. The stored value keeps whatever was typed —
+     this is display only, exactly like the rule above — so nothing about matching or
+     about the data itself changes. */
+  input[type="text"], input[type="search"], input:not([type]), textarea, select
+    { text-transform: uppercase; }
+  /* Addresses, links and passwords keep their own case: an uppercased email is hard to
+     read back to somebody and looks like a mistake, and a password is not display text
+     at all. */
+  .email, a, input[type="email"], input[type="password"] { text-transform: none; }
 
   .nm { font-weight: 600; }
   .meta { font-size: .8rem; color: var(--muted); }
@@ -706,7 +725,7 @@
     <div id="tileOverlay" class="overlay hidden">
       <div class="modal" style="max-width:640px">
         <h2 class="section" id="tileTitle"></h2>
-        <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)" id="tileSub"></p>
+        <p class="sub caps" style="font-size:.82rem;margin:0 0 var(--s3)" id="tileSub"></p>
         <div id="tileBody"></div>
         <div class="row-actions" style="justify-content:flex-end;margin-top:var(--s4)">
           <button id="tileClose" class="outline">Close</button>

@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.SA_PROVINCES
 import co.za.cspc.fleettracker.data.model.UserProfile
+import co.za.cspc.fleettracker.ui.CAPITALS_WHILE_TYPING
+import co.za.cspc.fleettracker.ui.asCaptured
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,6 +59,7 @@ fun SignUpScreen(
                     value = state.name,
                     onValueChange = viewModel::onNameChange,
                     label = { Text("Name") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -64,6 +67,7 @@ fun SignUpScreen(
                     value = state.surname,
                     onValueChange = viewModel::onSurnameChange,
                     label = { Text("Surname") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -102,6 +106,7 @@ fun SignUpScreen(
                     value = state.employeeNumber,
                     onValueChange = viewModel::onEmployeeNumberChange,
                     label = { Text("Employee number") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     supportingText = { Text("Required — each number can only be registered once") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -114,6 +119,7 @@ fun SignUpScreen(
                         onValueChange = { },
                         readOnly = true,
                         label = { Text("Province") },
+                        visualTransformation = CAPITALS_WHILE_TYPING,
                         singleLine = true,
                         trailingIcon = {
                             IconButton(onClick = { provinceMenuOpen = true }) {
@@ -128,7 +134,7 @@ fun SignUpScreen(
                     ) {
                         SA_PROVINCES.forEach { option ->
                             DropdownMenuItem(
-                                text = { Text(option) },
+                                text = { Text(option.asCaptured()) },
                                 onClick = {
                                     viewModel.onProvinceChange(option)
                                     provinceMenuOpen = false
@@ -142,6 +148,7 @@ fun SignUpScreen(
                     value = state.teamName,
                     onValueChange = viewModel::onTeamNameChange,
                     label = { Text("Team name") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -149,6 +156,7 @@ fun SignUpScreen(
                     value = state.vehicleRegistration,
                     onValueChange = viewModel::onVehicleRegistrationChange,
                     label = { Text("Vehicle registration") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     supportingText = { Text("The vehicle you drive, e.g. CA 123-456") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters),

@@ -40,6 +40,7 @@ import co.za.cspc.fleettracker.data.model.SA_PROVINCES
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
 import co.za.cspc.fleettracker.data.repository.NewEmployeeCredentials
+import co.za.cspc.fleettracker.ui.CAPITALS_WHILE_TYPING
 import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.hoursLabel
 import co.za.cspc.fleettracker.ui.km
@@ -504,6 +505,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
             value = query,
             onValueChange = { query = it },
             label = { Text("Search") },
+            visualTransformation = CAPITALS_WHILE_TYPING,
             placeholder = { Text("Name, employee no, team or registration") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             trailingIcon = {
@@ -590,7 +592,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     employeeToDelete?.let { employee ->
         AlertDialog(
             onDismissRequest = { employeeToDelete = null },
-            title = { Text("Remove ${employee.fullName}?") },
+            title = { Text("Remove ${employee.fullName.asCaptured()}?") },
             text = {
                 Text(
                     "Their record is deleted and they can no longer sign in. Any hours " +
@@ -619,7 +621,7 @@ private fun EmployeesTab(state: AdminUiState, viewModel: AdminViewModel) {
     employeeToPromote?.let { employee ->
         AlertDialog(
             onDismissRequest = { employeeToPromote = null },
-            title = { Text("Make ${employee.fullName} an admin?") },
+            title = { Text("Make ${employee.fullName.asCaptured()} an admin?") },
             text = {
                 Text(
                     "They'll get the full admin dashboard — all employees, all logs, " +
@@ -716,7 +718,7 @@ private fun EditEmployeeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit ${employee.fullName}") },
+        title = { Text("Edit ${employee.fullName.asCaptured()}") },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -726,6 +728,7 @@ private fun EditEmployeeDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Name") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -733,6 +736,7 @@ private fun EditEmployeeDialog(
                     value = surname,
                     onValueChange = { surname = it },
                     label = { Text("Surname") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -740,6 +744,7 @@ private fun EditEmployeeDialog(
                     value = employeeNumber,
                     onValueChange = { employeeNumber = it },
                     label = { Text("Employee number") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -750,6 +755,7 @@ private fun EditEmployeeDialog(
                         onValueChange = { },
                         readOnly = true,
                         label = { Text("Province") },
+                        visualTransformation = CAPITALS_WHILE_TYPING,
                         singleLine = true,
                         trailingIcon = {
                             IconButton(onClick = { provinceMenuOpen = true }) {
@@ -764,7 +770,7 @@ private fun EditEmployeeDialog(
                     ) {
                         SA_PROVINCES.forEach { option ->
                             DropdownMenuItem(
-                                text = { Text(option) },
+                                text = { Text(option.asCaptured()) },
                                 onClick = {
                                     province = option
                                     provinceMenuOpen = false
@@ -778,6 +784,7 @@ private fun EditEmployeeDialog(
                     value = teamName,
                     onValueChange = { teamName = it },
                     label = { Text("Team name") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -785,6 +792,7 @@ private fun EditEmployeeDialog(
                     value = registration,
                     onValueChange = { registration = it },
                     label = { Text("Vehicle registration") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -861,6 +869,7 @@ private fun EditVehicleDialog(
                     value = registration,
                     onValueChange = { registration = it },
                     label = { Text("Registration") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -868,6 +877,7 @@ private fun EditVehicleDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Vehicle name") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1059,7 +1069,7 @@ private fun BreakdownDialog(date: String, breakdown: Breakdown, onDismiss: () ->
                 Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
                     breakdown.columns.forEachIndexed { index, column ->
                         Text(
-                            column,
+                            column.asCaptured(),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1132,7 +1142,7 @@ private fun ProvincePicker(
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
-                text = { Text("$ALL_PROVINCES (${employees.size})") },
+                text = { Text("${ALL_PROVINCES.asCaptured()} (${employees.size})") },
                 onClick = {
                     onSelect(ALL_PROVINCES)
                     open = false
@@ -1142,7 +1152,7 @@ private fun ProvincePicker(
             SA_PROVINCES.forEach { province ->
                 val count = counts[province] ?: 0
                 DropdownMenuItem(
-                    text = { Text("$province ($count)") },
+                    text = { Text("${province.asCaptured()} ($count)") },
                     onClick = {
                         onSelect(province)
                         open = false
@@ -1294,7 +1304,7 @@ private fun EmployeeCard(
                         }
                         vehicles.forEach { vehicle ->
                             DropdownMenuItem(
-                                text = { Text(vehicle.name.ifBlank { vehicle.registrationNumber }) },
+                                text = { Text(vehicle.name.ifBlank { vehicle.registrationNumber }.asCaptured()) },
                                 onClick = {
                                     menuOpen = false
                                     onAssignVehicle(vehicle.id)
@@ -1443,18 +1453,21 @@ private fun AddEmployeeDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Name") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true
                 )
                 OutlinedTextField(
                     value = surname,
                     onValueChange = { surname = it },
                     label = { Text("Surname") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true
                 )
                 OutlinedTextField(
                     value = employeeNumber,
                     onValueChange = { employeeNumber = it },
                     label = { Text("Employee number") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true
                 )
 
@@ -1464,6 +1477,7 @@ private fun AddEmployeeDialog(
                         onValueChange = { },
                         readOnly = true,
                         label = { Text("Province") },
+                        visualTransformation = CAPITALS_WHILE_TYPING,
                         singleLine = true,
                         trailingIcon = {
                             IconButton(onClick = { provinceMenuOpen = true }) {
@@ -1477,7 +1491,7 @@ private fun AddEmployeeDialog(
                     ) {
                         SA_PROVINCES.forEach { option ->
                             DropdownMenuItem(
-                                text = { Text(option) },
+                                text = { Text(option.asCaptured()) },
                                 onClick = {
                                     province = option
                                     provinceMenuOpen = false
@@ -1491,6 +1505,7 @@ private fun AddEmployeeDialog(
                     value = teamName,
                     onValueChange = { teamName = it },
                     label = { Text("Team name") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     singleLine = true
                 )
                 OutlinedTextField(
@@ -1577,6 +1592,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                 value = query,
                 onValueChange = { query = it },
                 label = { Text("Search the fleet") },
+                visualTransformation = CAPITALS_WHILE_TYPING,
                 placeholder = { Text("Registration or vehicle name") },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
@@ -1764,7 +1780,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "${v.name.ifBlank { v.registrationNumber }} · services every " +
+                        "${v.name.ifBlank { v.registrationNumber }.asCaptured()} · services every " +
                             v.serviceIntervalKm.km(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1780,6 +1796,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         value = provider,
                         onValueChange = { provider = it },
                         label = { Text("Service centre or dealership") },
+                        visualTransformation = CAPITALS_WHILE_TYPING,
                         supportingText = { Text("e.g. Suzuki Umhlanga") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -1838,7 +1855,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
             title = { Text("Delete this vehicle?") },
             text = {
                 Text(
-                    "${v.name.ifBlank { v.registrationNumber }} (${v.registrationNumber}) " +
+                    "${v.name.ifBlank { v.registrationNumber }.asCaptured()} (${v.registrationNumber.asCaptured()}) " +
                         "will be removed. Fuel and time logs already recorded against it " +
                         "are kept."
                 )
@@ -1984,6 +2001,7 @@ private fun BulkVehicleDialog(
                     value = pasted,
                     onValueChange = { pasted = it },
                     label = { Text("Your list") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     supportingText = { Text("Check this before uploading — you can edit it here") },
                     minLines = 5,
                     maxLines = 10,
@@ -2024,8 +2042,8 @@ private fun AddVehicleDialog(
         title = { Text("Add vehicle") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Vehicle name") }, singleLine = true)
-                OutlinedTextField(value = reg, onValueChange = { reg = it }, label = { Text("Registration number") }, singleLine = true)
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Vehicle name") }, singleLine = true, visualTransformation = CAPITALS_WHILE_TYPING)
+                OutlinedTextField(value = reg, onValueChange = { reg = it }, label = { Text("Registration number") }, singleLine = true, visualTransformation = CAPITALS_WHILE_TYPING)
                 OutlinedTextField(value = odo, onValueChange = { odo = it.filter { c -> c.isDigit() } }, label = { Text("Current odometer (km)") }, singleLine = true)
                 OutlinedTextField(value = intervalKm, onValueChange = { intervalKm = it.filter { c -> c.isDigit() } }, label = { Text("Service every (km)") }, singleLine = true)
                 OutlinedTextField(value = intervalMonths, onValueChange = { intervalMonths = it.filter { c -> c.isDigit() } }, label = { Text("Service every (months)") }, singleLine = true)
@@ -2076,11 +2094,11 @@ private fun LogsTab(state: AdminUiState) {
         items(state.recentTimeLogs, key = { it.id }) { log ->
             Card {
                 Column(Modifier.padding(12.dp)) {
-                    Text(log.employeeName, fontWeight = FontWeight.Bold)
+                    Text(log.employeeName.asCaptured(), fontWeight = FontWeight.Bold)
                     if (log.notWorking) {
                         Text(
                             "${log.date}  •  Not working" +
-                                if (log.notWorkingReason.isNotBlank()) " — ${log.notWorkingReason}" else "",
+                                if (log.notWorkingReason.isNotBlank()) " — ${log.notWorkingReason.asCaptured()}" else "",
                             color = MaterialTheme.colorScheme.secondary
                         )
                         return@Column

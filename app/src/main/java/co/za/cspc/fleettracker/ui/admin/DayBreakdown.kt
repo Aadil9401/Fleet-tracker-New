@@ -6,6 +6,7 @@ import co.za.cspc.fleettracker.data.model.PlateFormat
 import co.za.cspc.fleettracker.data.model.TimeLog
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
+import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.hoursLabel
 import co.za.cspc.fleettracker.ui.km
 import co.za.cspc.fleettracker.ui.rand
@@ -285,7 +286,7 @@ object DayBreakdown {
                                 meta = PlateFormat.display(vehicle.registrationNumber),
                                 cells = listOf(
                                     if (nextAt > 0L) nextAt.km() else "—",
-                                    holder?.fullName ?: "nobody"
+                                    holder?.fullName?.asCaptured() ?: "nobody"
                                 )
                             )
                         }

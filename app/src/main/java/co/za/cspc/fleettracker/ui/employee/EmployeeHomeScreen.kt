@@ -27,6 +27,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.ABSENCE_REASONS
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.VEHICLE_IN_SERVICE
+import co.za.cspc.fleettracker.ui.CAPITALS_WHILE_TYPING
 import co.za.cspc.fleettracker.ui.asCaptured
 import co.za.cspc.fleettracker.ui.km
 import java.text.SimpleDateFormat
@@ -252,7 +253,7 @@ fun EmployeeHomeScreen(
                                 day.notWorking -> Text(
                                     "Not working" +
                                         if (day.notWorkingReason.isNotBlank()) {
-                                            " — ${day.notWorkingReason}"
+                                            " — ${day.notWorkingReason.asCaptured()}"
                                         } else "",
                                     color = MaterialTheme.colorScheme.secondary
                                 )
@@ -337,6 +338,7 @@ fun EmployeeHomeScreen(
                             onValueChange = { },
                             readOnly = true,
                             label = { Text("Reason") },
+                            visualTransformation = CAPITALS_WHILE_TYPING,
                             singleLine = true,
                             trailingIcon = {
                                 IconButton(onClick = { reasonMenuOpen = true }) {
@@ -354,7 +356,7 @@ fun EmployeeHomeScreen(
                         ) {
                             ABSENCE_REASONS.forEach { option ->
                                 DropdownMenuItem(
-                                    text = { Text(option) },
+                                    text = { Text(option.asCaptured()) },
                                     onClick = {
                                         category = option
                                         reasonMenuOpen = false
@@ -378,6 +380,7 @@ fun EmployeeHomeScreen(
                         supportingText = {
                             if (isService) Text("e.g. Suzuki Umhlanga")
                         },
+                        visualTransformation = CAPITALS_WHILE_TYPING,
                         isError = isService && detail.isBlank(),
                         minLines = if (isService) 1 else 2,
                         maxLines = 3,
@@ -513,6 +516,7 @@ private fun OdometerDialog(
                     value = areas,
                     onValueChange = { areas = it },
                     label = { Text("$areasLabel *") },
+                    visualTransformation = CAPITALS_WHILE_TYPING,
                     isError = areasMissing,
                     supportingText = {
                         Text(
