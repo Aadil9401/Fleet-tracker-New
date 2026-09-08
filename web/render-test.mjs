@@ -32,7 +32,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
   'parseServiceDate',
-  'birthdayBoardDoc', 'boardEntriesFor', 'renderBirthdaysToday'
+  'birthdayBoardDoc', 'boardEntriesFor', 'renderBirthdaysToday',
+  'personBits', 'personMeta', 'personCell', 'shiftDate'
 ]);
 
 let failures = 0;
@@ -1541,6 +1542,83 @@ check('a row matching nobody is listed under its number',
   { key: 'T999', label: 'T999 · not on the staff list' });
 check('and a row with no number at all is not an option',
   portal.personOptions([{ numberKey: '', employeeNumber: '', name: 'Nobody' }]), []);
+/* The team and the age ride behind the number, so the option says WHO this is. */
+check('an option carries the team and the age as well as the number',
+  portal.personOptions([{ numberKey: 'T500', employeeNumber: 'T500',
+    name: 'GEORGE DZINGOTIWANDIRA', team: 'MAMELODI', dateOfBirth: '1985-03-14' }])[0]
+    .label.startsWith('GEORGE DZINGOTIWANDIRA · T500 · MAMELODI · '), true);
+check('and a row with no team behind it is just the name and the number',
+  portal.personOptions([{ numberKey: 'T501', employeeNumber: 'T501',
+    name: 'MILTON MUSARURWA' }])[0].label, 'MILTON MUSARURWA · T501');
+
+/* ---------------- who somebody is, on every screen ---------------- */
+/* Aadil: "ON THE WEB PORTAL, ADD EMPLOYEE NAME, SURNAME AND TEAM, EG , GEORGE
+   DZINGOTIWANDIRA, MAMELODI, THIS SHOULD APPLY TO ALL EMPLOYEES" — and then "AND AGE".
+
+   personBits() is the one place that answers it, and every name on every screen goes
+   through it. These tests are on the helper rather than on eight tables, because the
+   fault worth guarding against is one screen quietly not using it. */
+
+check('a person is their province, their team and their age',
+  portal.personBits('GAUTENG', 'MAMELODI', '1985-03-14').slice(0, 2),
+  ['GAUTENG', 'MAMELODI']);
+
+/* THE AGE IS WORKED OUT FROM THE DATE, never read off a field. Asserted against a date
+   built backwards from today, so this stays true tomorrow and every birthday after it —
+   an expected number typed in here would have been wrong within the year. */
+const yearsAgo = (years) => {
+  const t = new Date();
+  // ON 29 FEBRUARY there is no 29th to have been born on in a common year, so the date
+  // built here would not be a date at all and every age below would come out blank —
+  // once every four years, on one day, with nothing else to say what had gone wrong.
+  const d = t.getMonth() === 1 && t.getDate() === 29 ? 28 : t.getDate();
+  return `${t.getFullYear() - years}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+};
+check('and the age is worked out from the date of birth, today',
+  portal.personBits('', 'MAMELODI', yearsAgo(41)), ['MAMELODI', '41 years']);
+check('so somebody whose birthday is tomorrow is still a year younger',
+  portal.personBits('', '', portal.shiftDate(yearsAgo(41), 1)), ['40 years']);
+// One year reads as a year, not "1 years".
+check('one year is singular', portal.personBits('', '', yearsAgo(1)), ['1 year']);
+
+/* BLANKS ARE DROPPED. Two of the sixty-three staff records have no team and thirteen
+   have no date of birth; a dash for each would put two columns of them down every
+   screen and say nothing. */
+check('no team and no date of birth leaves nothing behind the name',
+  portal.personBits('', '', ''), []);
+check('and the line itself disappears rather than showing empty',
+  portal.personMeta('', '', ''), '');
+check('a date that is not a date is not an age',
+  portal.personBits('', 'MAMELODI', '1985-13-40'), ['MAMELODI']);
+// A date of birth in the future is a typo. "-59 years" beside a name is worse than
+// nothing at all.
+check('and a date of birth in the future is left off',
+  portal.personBits('', 'MAMELODI', '2099-01-01'), ['MAMELODI']);
+
+// The markup, once: escaped, in a meta line, with whatever extra class it was given.
+check('the line is a meta line, escaped',
+  portal.personMeta('GAUTENG', 'A & B', ''),
+  '<div class="meta">GAUTENG · A &amp; B</div>');
+check('and takes the caps class where the card wants one',
+  portal.personMeta('', 'MAMELODI', '', 'caps'),
+  '<div class="meta caps">MAMELODI</div>');
+
+/* THE DAY VIEW'S OWN CELL, through the real personCell(): the screen he is on all day.
+   Proves the helper is actually wired in rather than merely correct on its own. */
+portal.data.employees = [
+  { id: 'g1', name: 'GEORGE', surname: 'DZINGOTIWANDIRA', employeeNumber: 'T500',
+    province: 'GAUTENG', teamName: 'MAMELODI', dateOfBirth: yearsAgo(41) }
+];
+check('the day view names them in full, with their team and their age',
+  portal.personCell({ uid: 'g1' }),
+  '<div class="nm">GEORGE DZINGOTIWANDIRA</div>'
+    + '<div class="meta">GAUTENG · MAMELODI · 41 years</div>');
+// Somebody who left: the log still carries the name it was written with, and there is
+// no record behind it to add a team or an age to.
+check('and a log with no record behind it still shows its name',
+  portal.personCell({ uid: 'gone', employeeName: 'FORMER STAFF' }),
+  '<div class="nm">FORMER STAFF</div>');
+
 
 /* ---------------- the picker on FY ---------------- */
 // The upload boxes on this tab build buttons with ids the static markup has not got,
@@ -1583,9 +1661,14 @@ check('and leaves nobody else', fyFor('T099'), ['T099/MTN']);
 
 // The dropdown lists only the people with FY this month, so it cannot offer a name
 // with nothing behind it.
+/* The team is on the option too, because two Thabo Morrises are told apart by their
+   number and their team long before anybody remembers which is which. Neither of these
+   two has a date of birth on file, so neither has an age here — which is the blank
+   being dropped rather than shown. */
 check('the picker offers the month\'s people and an "all"',
   [...(writes()['fyPerson'] || '').matchAll(/>([^<]+)</g)].map(m => m[1]),
-  ['All employees', 'Ayanda Ncube · T042', 'Bongi Ndlovu · T099']);
+  ['All employees', 'Ayanda Ncube · T042 · Soweto',
+    'Bongi Ndlovu · T099 · Tzaneen']);
 
 /* A PERSON WHO IS NO LONGER THERE IS DROPPED, not left selected and quietly showing
    nothing. Narrowing to Limpopo with Ayanda picked would otherwise show an empty table
@@ -1641,10 +1724,11 @@ const debtPickerNames = () =>
   [...(writes()['debtPerson'] || '').matchAll(/>([^<]+)</g)].map(m => m[1]);
 check('the picker lists the people the Show filter leaves',
   (() => { debtFor('', 'owing'); return debtPickerNames(); })(),
-  ['All employees', 'Ayanda Ncube · T042', 'Bongi Ndlovu · T099']);
+  ['All employees', 'Ayanda Ncube · T042 · Soweto',
+    'Bongi Ndlovu · T099 · Tzaneen']);
 check('and on settled only, only the person who has settled something',
   (() => { debtFor('', 'settled'); return debtPickerNames(); })(),
-  ['All employees', 'Bongi Ndlovu · T099']);
+  ['All employees', 'Bongi Ndlovu · T099 · Tzaneen']);
 check('so switching Show past the person picked releases them',
   debtFor('T042', 'settled'), { people: ['Bongi'], invoices: ['INV-2'] });
 check('and that filter was cleared too', portal.debtFilters.person, '');

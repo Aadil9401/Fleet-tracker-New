@@ -1964,9 +1964,7 @@ function renderToday() {
           <div class="exception">
             <div class="who">
               <div class="nm caps">${esc(fullName(e))}</div>
-              ${[e.province, e.teamName].filter(Boolean).length
-                ? `<div class="meta caps">${esc([e.province, e.teamName].filter(Boolean).join(' · '))}</div>`
-                : ''}
+              ${personMeta(e.province, e.teamName, e.dateOfBirth, 'caps')}
             </div>
             <button class="ghost" data-entry="${esc(e.id)}">Record day</button>
           </div>`).join('')}
@@ -2140,9 +2138,8 @@ function renderToday() {
 function personLine(uid, fallbackName) {
   const person = data.employees.find(e => e.id === uid);
   const name = person ? fullName(person) : (fallbackName || 'Unknown');
-  const detail = [person?.province, person?.teamName].filter(Boolean).join(' · ');
   return `<div class="nm">${esc(name)}</div>`
-    + (detail ? `<div class="meta">${esc(detail)}</div>` : '');
+    + personMeta(person?.province, person?.teamName, person?.dateOfBirth);
 }
 
 /**
@@ -2238,7 +2235,10 @@ function tileDetail(key) {
             `<div class="nm">${esc(v.name || plate(v.registrationNumber))}</div>`
               + `<div class="meta">${esc(plate(v.registrationNumber))}</div>`,
             nextServiceAtKm(v) > 0 ? km(nextServiceAtKm(v)) : '—',
-            holder ? esc(fullName(holder)) : '<span class="meta">nobody</span>'
+            holder
+              ? esc(fullName(holder))
+                + esc(personTail('', holder.teamName, holder.dateOfBirth))
+              : '<span class="meta">nobody</span>'
           ];
         }) };
     }
@@ -2286,7 +2286,9 @@ function openEntryModal(uid) {
   const person = data.employees.find(e => e.id === uid);
   $('entryTitle').textContent = row.noEntry ? 'Record day' : 'Edit day';
   $('entrySub').textContent =
-    `${row.employeeName || (person ? fullName(person) : '')} · ${prettyDate(selectedDate)}`;
+    `${row.employeeName || (person ? fullName(person) : '')}`
+    + personTail(person?.province, person?.teamName, person?.dateOfBirth)
+    + ` · ${prettyDate(selectedDate)}`;
   $('enStart').value = timeValue(row.startTimeMillis);
   $('enEnd').value = timeValue(row.endTimeMillis);
   $('enStartKm').value = row.startOdometerKm ?? '';
@@ -2435,17 +2437,55 @@ $('exportDay').addEventListener('click', () => {
 const fullName = (e) => `${e.name || ''} ${e.surname || ''}`.trim();
 
 /**
+ * WHO SOMEBODY IS, past their name: their province, their team, and how old they are
+ * today.
+ *
+ * Aadil: "add employee name, surname and team, eg, george dzingotiwandira, mamelodi,
+ * this should apply to all employees" — and then "and age".
+ *
+ * ONE FUNCTION FOR EVERY SCREEN. The name line and this line were written out
+ * separately on eight screens, three of which had drifted apart already; anything
+ * added to a person's identity from here on has to be added once.
+ *
+ * THE AGE IS WORKED OUT EVERY TIME IT IS DRAWN, from the date of birth (see ageOn). An
+ * age is never stored, so nobody's is ever a year out of date.
+ *
+ * BLANKS ARE DROPPED rather than shown as dashes. Two of the 63 staff records have no
+ * team and thirteen have no date of birth, and a column of dashes down every screen
+ * would say less than a shorter line does.
+ */
+function personBits(province, team, dateOfBirth) {
+  return [province, team, ageOn(dateOfBirth) === null ? '' : ageLabel(dateOfBirth)]
+    .map(v => String(v ?? '').trim())
+    .filter(Boolean);
+}
+
+/** personBits() as the small line under a name — or nothing, where there is nothing. */
+function personMeta(province, team, dateOfBirth, extraClass = '') {
+  const bits = personBits(province, team, dateOfBirth);
+  return bits.length
+    ? `<div class="meta${extraClass ? ' ' + extraClass : ''}">${esc(bits.join(' · '))}</div>`
+    : '';
+}
+
+/** The same thing on one line, for a dropdown option: " · MAMELODI · 41 years". */
+function personTail(province, team, dateOfBirth) {
+  const bits = personBits(province, team, dateOfBirth);
+  return bits.length ? ' · ' + bits.join(' · ') : '';
+}
+
+/**
  * "Christian Dube, Eastern Cape, Mthatha" — province and team come off the employee
  * record rather than the log, so they're looked up by uid.
  */
 function personCell(log) {
   const person = data.employees.find(e => e.id === log.uid);
   const name = log.employeeName || (person ? fullName(person) : '');
-  const detail = [person?.province, person?.teamName].filter(Boolean).join(' · ');
   // Two lines rather than one comma-run: the name is what you scan for, and in
-  // capitals "SARAH DUBE, EASTERN CAPE, MTHATHA" gives the eye nothing to catch.
+  // capitals "SARAH DUBE, EASTERN CAPE, MTHATHA, 41 YEARS" gives the eye nothing to
+  // catch.
   return `<div class="nm">${esc(name)}</div>`
-    + (detail ? `<div class="meta">${esc(detail)}</div>` : '');
+    + personMeta(person?.province, person?.teamName, person?.dateOfBirth);
 }
 
 /**
@@ -2627,11 +2667,10 @@ function renderEmployees() {
             <div class="avatar ${active ? '' : 'dim'}">${esc(initials(e.name, e.surname))}</div>
             <div>
               <div class="nm">${esc(fullName(e))}</div>
-              <div class="meta">${esc([e.employeeNumber && 'No. ' + e.employeeNumber, e.teamName,
-                // Only where there is one. A dash here would put a column of them down
-                // the list for a field most records have never had filled in.
-                ageOn(e.dateOfBirth) === null ? '' : ageLabel(e.dateOfBirth)]
-                .filter(Boolean).join(' • '))}</div>
+              <div class="meta">${esc([e.employeeNumber && 'No. ' + e.employeeNumber,
+                // The province is this table's own column, so it is not repeated here.
+                ...personBits('', e.teamName, e.dateOfBirth)]
+                .filter(Boolean).join(' · '))}</div>
               ${e.cellNumber
                 ? `<div class="meta email"><a href="tel:${esc(String(e.cellNumber).replace(/[^\d+]/g, ''))}"
                      style="font-weight:600">${esc(e.cellNumber)}</a></div>`
@@ -2740,7 +2779,8 @@ function renderAdmins() {
       <thead><tr><th>Name</th><th>Email</th><th></th></tr></thead>
       <tbody>
         ${data.admins.map(a => `<tr>
-          <td>${esc(fullName(a) || '—')}</td>
+          <td><div class="nm">${esc(fullName(a) || '—')}</div>${
+            personMeta(a.province, a.teamName, a.dateOfBirth)}</td>
           <td class="email">${esc(a.contactEmail || a.email || '')}</td>
           <td>${a.id === currentUid
             ? '<span class="chip">you</span>'
@@ -4617,6 +4657,10 @@ async function runReport() {
           name: p ? fullName(p) : (name || 'Unknown'),
           province: p?.province || '',
           team: p?.teamName || '',
+          // Carried on the row rather than looked up at draw time: these rows outlive
+          // one render, and an age worked out in the table would go looking for an
+          // employee record the row has already been keyed away from.
+          dateOfBirth: p?.dateOfBirth || '',
           days: 0, absent: 0, open: 0, late: 0, minutes: 0, km: 0, fuel: 0,
           // Filled in once the totals are known — see below. Held on the row rather
           // than recomputed in three places, so the column cannot sort by one number
@@ -4758,9 +4802,7 @@ function renderReport() {
         : 'Nobody matches that filter.'}</td></tr>`
     : rows.map(r => `<tr>
         <td><div class="nm">${esc(r.name)}</div>${
-          [r.province, r.team].filter(Boolean).length
-            ? `<div class="meta">${esc([r.province, r.team].filter(Boolean).join(' · '))}</div>`
-            : ''}</td>
+          personMeta(r.province, r.team, r.dateOfBirth)}</td>
         <td>${r.days}</td>
         <td>${r.absent}</td>
         <td${r.open > 0 ? ' style="color:var(--error);font-weight:700"' : ''}>${r.open}</td>
@@ -4856,6 +4898,7 @@ function performanceRows(month, network) {
         name: fullName(e),
         province: e.province || '',
         team,
+        dateOfBirth: e.dateOfBirth || '',
         teamKey: teamKey(team),
         stock: figure(theirTeam, 'stock'),
         connections: figure(theirTeam, 'connections'),
@@ -4957,6 +5000,7 @@ function fyRows(month, network) {
         name: person ? fullName(person) : '',
         province: person ? (person.province || '') : '',
         team: person ? (person.teamName || '') : '',
+        dateOfBirth: person ? (person.dateOfBirth || '') : '',
         network: networkKey(r.network),
         stock: value(r.fyStock),
         connections: value(r.fyConnections),
@@ -4992,7 +5036,12 @@ function personOptions(rows) {
       key,
       // The number is on every label, not only the nameless ones: it is how an admin
       // tells two people with one name apart, and it is what the upload was keyed on.
-      label: r.name ? `${r.name} · ${number}` : `${number} · not on the staff list`
+      // The team and the age ride along behind the number, so the option says who
+      // this is and not only what they are called: "GEORGE DZINGOTIWANDIRA · T042 ·
+      // MAMELODI · 41 years". Both are dropped where the row has neither.
+      label: r.name
+        ? `${r.name} · ${number}` + personTail('', r.team, r.dateOfBirth)
+        : `${number} · not on the staff list`
     };
   });
   return Object.values(byKey).sort((a, b) => a.label.localeCompare(b.label));
@@ -5148,9 +5197,8 @@ function renderFy() {
         fyFilters.query ? ' matching that search' : ''}.</td></tr>`
     : rows.map(r => `<tr>
         <td><div class="nm">${esc(r.name || '—')}</div>${
-          [r.province, r.team].filter(Boolean).length
-            ? `<div class="meta">${esc([r.province, r.team].filter(Boolean).join(' · '))}</div>`
-            : '<div class="meta">not on the staff list</div>'}</td>
+          personMeta(r.province, r.team, r.dateOfBirth)
+            || '<div class="meta">not on the staff list</div>'}</td>
         <td>${esc(r.employeeNumber || '—')}</td>
         <td><span class="chip">${esc(NETWORK_LABELS[r.network] || r.network)}</span></td>
         <td>${figure(r.stock, num)}</td>
@@ -5372,9 +5420,7 @@ function renderPerformance() {
         : 'Nobody matches that search.'}</td></tr>`
     : rows.map(r => `<tr>
         <td><div class="nm">${esc(r.name)}</div>${
-          [r.province, r.team].filter(Boolean).length
-            ? `<div class="meta">${esc([r.province, r.team].filter(Boolean).join(' · '))}</div>`
-            : ''}</td>
+          personMeta(r.province, r.team, r.dateOfBirth)}</td>
         <td>${esc(r.employeeNumber || '—')}</td>
         <td>${figure(r.stock, num)}</td>
         <td>${figure(r.connections, num)}</td>
@@ -5888,6 +5934,7 @@ function debtInvoices() {
         name: person ? fullName(person) : '',
         province: person ? (person.province || '') : '',
         team: person ? (person.teamName || '') : '',
+        dateOfBirth: person ? (person.dateOfBirth || '') : '',
         invoiceNumber: line.invoiceNumber,
         invoiceDate: line.invoiceDate || '',
         lines: [],
@@ -5952,6 +5999,7 @@ function debtByEmployee(invoices = debtInvoices()) {
         name: inv.name,
         province: inv.province,
         team: inv.team,
+        dateOfBirth: inv.dateOfBirth || '',
         billed: 0, paid: 0, outstanding: 0,
         invoices: 0, unpaid: 0,
         oldestUnpaidDate: '', oldestDays: null
@@ -6050,9 +6098,8 @@ function renderDebt() {
         : 'Nobody matches that.'}</td></tr>`
     : people.map(r => `<tr>
         <td><div class="nm">${esc(r.name || '—')}</div>${
-          [r.province, r.team].filter(Boolean).length
-            ? `<div class="meta">${esc([r.province, r.team].filter(Boolean).join(' · '))}</div>`
-            : '<div class="meta">not on the staff list</div>'}</td>
+          personMeta(r.province, r.team, r.dateOfBirth)
+            || '<div class="meta">not on the staff list</div>'}</td>
         <td>${esc(r.employeeNumber || '—')}</td>
         <td>${num(r.invoices)}${r.unpaid ? ` <span class="meta">(${r.unpaid} owing)</span>` : ''}</td>
         <td>${rand(r.billed)}</td>
@@ -6072,7 +6119,8 @@ function renderDebt() {
         <td><div class="nm">${esc(inv.invoiceNumber)}</div></td>
         <td>${esc(inv.invoiceDate || '—')}</td>
         <td>${daysLabel(inv.daysOutstanding)}</td>
-        <td>${esc(inv.name || inv.employeeNumber)}</td>
+        <td><div class="nm">${esc(inv.name || inv.employeeNumber)}</div>${
+          personMeta('', inv.team, inv.dateOfBirth)}</td>
         <td>${inv.lines.map(l =>
             `<div class="meta">${esc(l.product || '—')} × ${num(l.quantity || 0)} — ${
               rand(Number(l.amountRands || 0))}</div>`).join('')}</td>
@@ -6090,7 +6138,8 @@ function renderDebt() {
     ...data.employees.filter(e => numberKey(e.employeeNumber))
       .sort((a, b) => String(fullName(a)).localeCompare(String(fullName(b))))
       .map(e => `<option value="${esc(e.employeeNumber)}">${esc(fullName(e))} — ${
-        esc(e.employeeNumber)}</option>`)].join('');
+        esc(e.employeeNumber)}${
+        esc(personTail('', e.teamName, e.dateOfBirth))}</option>`)].join('');
 
   $('debtProductList').innerHTML = debtProducts()
     .map(name => `<option value="${esc(name)}"></option>`).join('');
@@ -6102,7 +6151,8 @@ function renderDebt() {
     ? '<option value="">Nothing outstanding</option>'
     : ['<option value="">Choose an invoice</option>',
        ...payable.map(i => `<option value="${esc(i.key)}">${esc(i.invoiceNumber)} — ${
-         esc(i.name || i.employeeNumber)} — ${rand(i.outstanding)} owing</option>`)].join('');
+         esc(i.name || i.employeeNumber)}${esc(personTail('', i.team, i.dateOfBirth))} — ${
+         rand(i.outstanding)} owing</option>`)].join('');
   showPayOutstanding();
 }
 
