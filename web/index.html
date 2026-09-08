@@ -3597,13 +3597,21 @@ $('deleteAllBtn').addEventListener('click', async () => {
 });
 
 /* ---------------- bulk service interval ---------------- */
-/** Vehicles whose name or registration contains the match text. */
+/**
+ * Vehicles whose name or registration matches the text.
+ *
+ * SPACING IS NOT PART OF A PLATE, and this box was the one place that thought it was.
+ * The fleet search has always used plateMatches, so "BC45" finds BC 45 DF GP there — and
+ * found nothing here. On a box that sets the service interval for everything it matches,
+ * a search that quietly finds fewer vehicles than the one above it means an interval
+ * applied to some of the fleet while the preview reads as though it were all of them.
+ */
 function vehiclesMatchingInterval() {
-  const q = $('svcMatch').value.trim().toLowerCase();
+  const q = $('svcMatch').value.trim();
   if (!q) return [];
   return data.vehicles.filter(v =>
-    String(v.name || '').toLowerCase().includes(q) ||
-    String(v.registrationNumber || '').toLowerCase().includes(q));
+    plateMatches(v.registrationNumber, q) ||
+    String(v.name || '').toLowerCase().includes(q.toLowerCase()));
 }
 
 function previewIntervalMatches() {

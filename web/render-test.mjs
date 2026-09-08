@@ -30,6 +30,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'normaliseDate', 'renderDebt', 'renderFy', 'fyFilters', 'monthFigureCount',
   'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
   'clearButtonLabel', 'renderLeaderboard',
+  'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
+  'parseServiceDate',
   'birthdayBoardDoc', 'boardEntriesFor', 'renderBirthdaysToday'
 ]);
 
@@ -1926,6 +1928,70 @@ check('and a missing document is told apart from a failed read',
   src.includes('birthdaysReadable: birthdays !== null'), true);
 check('so the first publish only happens when the read actually worked',
   /if \(data\.birthdaysReadable && !data\.birthdays/.test(src), true);
+
+/* ---------------- the load-bearing bits nothing was watching ---------------- */
+/* Asked whether everything had been looked at, the honest answer was no — so the portal's
+   functions were listed against the tests that name them, and forty-nine had none. Most
+   are UI plumbing that cannot be driven under these stubs. These four are not: they are
+   pure, they are load-bearing, and a wrong answer from any of them is quiet. */
+
+/* SETTING A SERVICE INTERVAL ACROSS THE FLEET, by name or plate.
+   Spacing is not part of a plate, and this box was the one place that thought it was:
+   "BC45" found the vehicle in the fleet list above and nothing here. On a box that
+   writes an interval to everything it matches, that means the interval lands on some of
+   the fleet while the preview reads as though it were all of it. */
+portal.data.vehicles = [
+  { id: 'v1', name: 'Magnite', registrationNumber: 'BC 45 DF GP' },
+  { id: 'v2', name: 'Bakkie 2', registrationNumber: 'ND111111' },
+  { id: 'v3', name: 'Magnite 2', registrationNumber: 'CA 99 ZZ GP' }
+];
+const matching = (text) => { setValue('svcMatch', text);
+  return portal.vehiclesMatchingInterval().map(v => v.id); };
+check('a plate matches however it is spaced', matching('BC45'), ['v1']);
+check('and with the spacing too', matching('BC 45 DF GP'), ['v1']);
+check('and lower case', matching('bc45dfgp'), ['v1']);
+check('a name still matches, and matches every vehicle carrying it',
+  matching('magnite'), ['v1', 'v3']);
+check('a partial plate matches the fleet it belongs to', matching('ND'), ['v2']);
+// Empty means nothing rather than everything: this text sets an interval on what it
+// finds, so an empty box must never mean "the whole fleet".
+check('an empty box matches nothing at all', matching('   '), []);
+check('and text matching nobody matches nobody', matching('zzzz'), []);
+
+/* A PROVINCE, HOWEVER IT WAS TYPED. Get this wrong and somebody vanishes from every
+   province filter — which looks like they left rather than like a spelling. */
+check('a province is recognised however it is written',
+  ['Gauteng', 'GAUTENG', 'gauteng', '  Limpopo  ', 'KWA-ZULU NATAL', 'kwazulu natal',
+   'Kwa Zulu-Natal', 'North-West', 'NORTHWEST', 'Western  Cape'].map(portal.canonicalProvince),
+  ['Gauteng', 'Gauteng', 'Gauteng', 'Limpopo', 'KwaZulu-Natal', 'KwaZulu-Natal',
+   'KwaZulu-Natal', 'North West', 'North West', 'Western Cape']);
+/* AND ONE IT DOES NOT RECOGNISE IS KEPT AS TYPED, never guessed at. Aadil's own REPS
+   sheet says "JHB" and "KZN"; turning those into a province by resemblance is how
+   somebody ends up filed in the wrong one, which is worse than being filed in none. */
+check('and anything else is kept exactly as typed',
+  ['JHB', 'KZN', 'Gautng', ''].map(portal.canonicalProvince),
+  ['JHB', 'KZN', 'Gautng', '']);
+
+/* HOURS ON A DAY, which is the figure behind every hours total on the dashboard. */
+const shift = (from, to) => portal.minutesWorked({
+  startTimeMillis: from === null ? 0 : at(day, from),
+  endTimeMillis: to === null ? 0 : at(day, to)
+});
+check('a normal day is the minutes between', shift('08:00', '17:30'), 570);
+// Every degenerate shape is nought rather than a negative or a nonsense figure: these
+// are counted into a day's total, and one bad row would move it.
+check('a day never finished counts nothing', shift('08:00', null), 0);
+check('a day never started counts nothing', shift(null, '17:00'), 0);
+check('and neither counts nothing', shift(null, null), 0);
+check('knocking off before clocking in counts nothing, not a negative',
+  shift('17:00', '08:00'), 0);
+
+/* A SERVICE DATE, read DAY FIRST like every other date in this app. */
+check('a service date is read however it is written',
+  portal.parseServiceDate('2026-09-08'), portal.parseServiceDate('08/09/2026'));
+check('and anything that is not a date is nought, not today',
+  ['', 'not a date', '2026-13-01', '8 Sep 2026'].map(portal.parseServiceDate),
+  [0, 0, 0, 0]);
 
 /* ---------------- one case, everywhere ---------------- */
 /* A name that reads "Soweto" in a dropdown and "SOWETO" in the table below it makes
