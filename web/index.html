@@ -473,6 +473,9 @@
 
     <!-- DAY VIEW -->
     <section id="tab-today">
+      <!-- Whose birthday it is, above everything. Empty and invisible on a day with
+           none, so it is never a card saying "nothing today". -->
+      <div id="birthdayBanner"></div>
       <div class="card daynav">
         <button id="dayPrev" class="outline">◀</button>
         <div class="grow" style="text-align:center">
@@ -1889,6 +1892,7 @@ function renderAll() {
 }
 
 function renderToday() {
+  renderBirthdaysToday();
   const activeEmployees = data.employees.filter(e => e.active !== false);
   const started = data.todaysLogs.filter(l => l.startTimeMillis > 0);
   const knockedOff = data.todaysLogs.filter(l => l.endTimeMillis > 0).length;
@@ -6356,20 +6360,55 @@ async function publishBirthdays(quiet = true) {
   }
 }
 
-/** The line on the Employees tab, so today's birthdays can be seen without a phone. */
+/**
+ * Whose birthday it is, on the portal: a banner where the admin lands, and a line beside
+ * the publish button.
+ *
+ * TWO PLACES ON PURPOSE. The banner is the notification — it has to be on the day view,
+ * because that is the screen an admin opens and the one where a birthday going past
+ * unnoticed actually costs something. The line on the Employees tab is the diagnostic: it
+ * sits beside the button that publishes the board and says how many people have a date on
+ * file, which is the question asked when the banner is empty.
+ *
+ * Both read the PUBLISHED document rather than rebuilding it, so what is shown is what
+ * the phones are reading. A board that has gone stale shows as stale.
+ */
 function renderBirthdaysToday() {
+  const board = data.birthdays;
+  const today = board ? boardEntriesFor(board) : [];
+  const names = esc(today.map(e => e.name).join(', '));
+
+  // The banner. Nothing at all on a day with no birthdays — a card saying "none today"
+  // is noise on a screen that is about the day's work.
+  const banner = $('birthdayBanner');
+  if (banner) {
+    banner.innerHTML = today.length === 0 ? '' : `
+      <div class="card" style="background:var(--primary-container);
+           color:var(--on-primary-container);display:flex;align-items:center;gap:12px">
+        <div style="font-size:1.6rem">🎂</div>
+        <div>
+          <div style="font-weight:700;font-size:1.05rem" class="caps">${names}</div>
+          <div style="font-size:.85rem;opacity:.85">${
+            today.length === 1 ? 'has' : 'have'} a birthday today — and every employee `
+          + `signed in on the app can see it.</div>
+        </div>
+      </div>`;
+  }
+
+  // The line beside the publish button.
   const el = $('birthdaysToday');
   if (!el) return;
-  const board = data.birthdays;
-  if (!board) { el.innerHTML = ''; return; }
-  const today = boardEntriesFor(board);
+  if (!board) {
+    el.innerHTML = '<span class="meta">Birthdays have never been published. '
+      + 'Press Publish birthdays once and it keeps itself up to date after that.</span>';
+    return;
+  }
   el.innerHTML = today.length === 0
     ? `<span class="meta">No birthdays today. ${board.people} ${
         board.people === 1 ? 'person has' : 'people have'} one on file.</span>`
-    : `<b style="color:var(--primary)">🎂 ${
-        esc(today.map(e => e.name).join(', '))}</b> <span class="meta">— ${
-        today.length === 1 ? 'has' : 'have'} a birthday today. Everybody signed in on the `
-      + `app sees this.</span>`;
+    : `<b style="color:var(--primary)">🎂 ${names}</b> <span class="meta">— ${
+        today.length === 1 ? 'has' : 'have'} a birthday today, and every employee `
+      + `signed in on the app sees it.</span>`;
 }
 
 /**

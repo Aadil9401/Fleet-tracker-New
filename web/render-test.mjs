@@ -30,7 +30,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'normaliseDate', 'renderDebt', 'renderFy', 'fyFilters', 'monthFigureCount',
   'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
   'clearButtonLabel', 'renderLeaderboard',
-  'birthdayBoardDoc', 'boardEntriesFor'
+  'birthdayBoardDoc', 'boardEntriesFor', 'renderBirthdaysToday'
 ]);
 
 let failures = 0;
@@ -1800,6 +1800,61 @@ check('the board is rebuilt from the records, never patched',
 // later, and nothing on any screen says why.
 check('publishing happens wherever a date of birth can change',
   (src.match(/await publishBirthdays\(\);/g) || []).length >= 2, true);
+
+/* THE NOTIFICATION HAS TO BE WHERE THE ADMIN LANDS. It was on the Employees tab inside
+   the staff-list card — three screens down a tab nobody opens first — which is why
+   George's birthday went past this morning with nothing said. */
+portal.data.employees = [
+  { id: 'u1', name: 'George', surname: 'D', dateOfBirth: '1979-09-08' },
+  { id: 'u2', name: 'Gwinyai', surname: 'M', dateOfBirth: '1988-09-23' }
+];
+portal.data.birthdays = portal.birthdayBoardDoc();
+
+setValue('dayDate', '2026-09-08');
+portal.renderBirthdaysToday();
+const banner = writes()['birthdayBanner'] || '';
+check('the banner names whoever has a birthday today', banner.includes('George'), true);
+check('and nobody who has one another day', banner.includes('Gwinyai'), false);
+check('and says the whole company can see it too',
+  banner.includes('signed in on the app'), true);
+
+/* NOTHING AT ALL on a day with no birthdays. A card reading "no birthdays today" is
+   noise on the screen that is about the day's work — an empty banner takes no room. */
+portal.data.employees = [{ id: 'u3', name: 'Nobody', surname: 'Today', dateOfBirth: '1988-01-15' }];
+portal.data.birthdays = portal.birthdayBoardDoc();
+portal.renderBirthdaysToday();
+check('a day with no birthdays shows no banner at all',
+  (writes()['birthdayBanner'] || '').trim(), '');
+// The line beside the publish button still speaks, because that is the diagnostic: it
+// answers "is anything published at all" when the banner is silent.
+check('but the line beside the button still says how many are on file',
+  (writes()['birthdaysToday'] || '').includes('person has'), true);
+
+/* A BOARD THAT WAS NEVER PUBLISHED SAYS SO, rather than looking the same as a day with
+   no birthdays. Those are different problems and only one of them needs acting on. */
+portal.data.birthdays = null;
+portal.renderBirthdaysToday();
+check('an unpublished board asks to be published',
+  (writes()['birthdaysToday'] || '').includes('never been published'), true);
+check('and still shows no banner', (writes()['birthdayBanner'] || '').trim(), '');
+
+// Both read the PUBLISHED document, not a fresh rebuild, so a stale board shows as
+// stale rather than being quietly corrected on screen while the phones read the old one.
+check('the portal shows what was published, not what would be',
+  src.includes('const board = data.birthdays;'), true);
+
+/* AND IT IS ACTUALLY DRAWN. The tests above call the render directly, which proves the
+   markup and says nothing about whether anything calls it — so a mutation that drops the
+   call from the day view passed them all while the banner never appeared. Checked at
+   source, because the day view cannot be driven far enough under these stubs. */
+const drawsBanner = (fn) =>
+  new RegExp(`function ${fn}\\(\\) \\{\\s*renderBirthdaysToday\\(\\);`).test(src);
+check('the day view draws it, which is where the notification belongs',
+  drawsBanner('renderToday'), true);
+check('and the employees tab draws its line too',
+  drawsBanner('renderEmployees'), true);
+check('and the banner has somewhere to be drawn into',
+  src.includes('id="birthdayBanner"'), true);
 
 /* ---------------- one case, everywhere ---------------- */
 /* A name that reads "Soweto" in a dropdown and "SOWETO" in the table below it makes
