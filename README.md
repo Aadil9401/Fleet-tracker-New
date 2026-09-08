@@ -38,6 +38,10 @@ whatever is on `main` — worth checking first if the portal seems to be missing
 - **Start time** — clocks in, records the vehicle's opening odometer reading and
   the areas being worked
 - **Knock off** — clocks out, records the closing reading and areas
+- **Parking late needs a reason** — once the curfew has passed, knocking off asks why
+  the vehicle is being parked late and will not let the day be closed without it. The
+  admin sees it beside the minutes on the day view, so an hour late comes with its half
+  of the answer
 - **Not working today** — records an absence with a reason (sick, annual,
   family responsibility, unpaid, public holiday, no work allocated, vehicle in
   for service, other), rather than leaving the day looking unaccounted for
@@ -220,6 +224,30 @@ birthday" beside an age that has not moved reads as a bug.
 
 The portal greets nobody, so it answers only the age column. Both facts share one file
 because of the 29 February rule above.
+
+## What an employee owes
+
+Staff take stock on account. An invoice is a NUMBER, and it is grouped on that number
+reduced to letters, digits and single spaces — "INV-1042" and "INV 1042" are one invoice.
+They were once grouped as typed while the document id used the reduced form, so a second
+line silently replaced the first and the screen showed two invoices with the payment on
+only one of them.
+
+What is left on an invoice is rounded to the cent **before** it is judged settled,
+because 0.1 + 0.2 is not 0.3 in binary and an invoice paid to the last cent must read as
+settled rather than as owing R0,00. Part payments come off the invoice, not off a line,
+because that is how people pay. Invoices are listed unsettled first, then oldest, then by
+number: somebody opening the screen wants to know what they owe.
+
+| | |
+|---|---|
+| **The specification** | `debt-cases.csv` — a table of cases, at the repo root |
+| Phone app | `Debt.kt`, checked by `DebtSpecTest` (`gradle testDebugUnitTest`) |
+| Admin portal | inline in `index.html`, checked by `web/debt-spec-test.mjs` |
+
+The three rollups the phone screen needs — a balance, what has been paid to date, the age
+of the oldest unpaid — are not in the table. They are the phone's alone, and each returns
+nothing rather than nought, because "paid up" and "R0,00 owing" are different sentences.
 
 ## Registration plates
 

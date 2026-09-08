@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.ABSENCE_REASONS
 import co.za.cspc.fleettracker.data.model.Birthday
+import co.za.cspc.fleettracker.data.model.ParkingCurfew
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.VEHICLE_IN_SERVICE
 import co.za.cspc.fleettracker.data.repository.FleetRepository
@@ -340,7 +341,7 @@ fun EmployeeHomeScreen(
             // The vehicle's stored reading is where it was left at the last knock off,
             // so today can't start below it.
             minimumKm = state.vehicle?.currentOdometerKm,
-            onConfirm = { km, areas ->
+            onConfirm = { km, areas, _ ->
                 showClockInDialog = false
                 viewModel.clockIn(km, areas)
             },
@@ -358,9 +359,19 @@ fun EmployeeHomeScreen(
             initialAreas = state.todaysLog?.mainAreasWorked ?: "",
             areasLabel = "Areas worked today",
             minimumKm = state.todaysLog?.startOdometerKm,
-            onConfirm = { km, areas ->
+            /*
+             * Judged against THE DAY BEING CLOSED, not today. Somebody knocking off at
+             * half past midnight is closing yesterday, and measuring them against
+             * tonight's curfew would let the latest case of all through as if it were
+             * early.
+             */
+            askLateReason = ParkingCurfew.isParkedLate(
+                state.todaysLog?.date ?: FleetRepository.todayString(),
+                System.currentTimeMillis()
+            ),
+            onConfirm = { km, areas, lateReason ->
                 showClockOutDialog = false
-                viewModel.clockOut(km, areas)
+                viewModel.clockOut(km, areas, lateReason)
             },
             onDismiss = { showClockOutDialog = false }
         )
@@ -579,11 +590,21 @@ private fun OdometerDialog(
     initialAreas: String,
     areasLabel: String,
     minimumKm: Long?,
-    onConfirm: (odometerKm: Long, mainAreasWorked: String) -> Unit,
+    /**
+     * Whether the vehicle is being parked after the curfew, in which case a reason is
+     * required before the day can be closed.
+     *
+     * Passed in rather than worked out here: the day being closed is the day they
+     * CLOCKED IN, which is not today's date once somebody knocks off after midnight, and
+     * a dialog has no business knowing that.
+     */
+    askLateReason: Boolean = false,
+    onConfirm: (odometerKm: Long, mainAreasWorked: String, lateReason: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var text by remember { mutableStateOf(if (initialValue > 0) initialValue.toString() else "") }
     var areas by remember { mutableStateOf(initialAreas) }
+    var lateReason by remember { mutableStateOf("") }
 
     // Catches the classic slip of dropping a digit at knock off, which would
     // otherwise record a day of 0 km.
@@ -592,7 +613,16 @@ private fun OdometerDialog(
     // Areas are required on both clock in and knock off — a day with no areas is of
     // no use in the reports, and chasing it up afterwards never works.
     val areasMissing = areas.isBlank()
-    val canConfirm = entered != null && !tooLow && !areasMissing
+    /*
+     * MANDATORY ONCE THE CURFEW HAS PASSED. Aadil: "if an employee parks late, add a
+     * reason, this should be a mandatory field to allow them to knock off".
+     *
+     * The same shape as the areas above: the button will not enable until it is filled
+     * in, rather than the day being closed and the reason chased afterwards — which
+     * never works.
+     */
+    val lateReasonMissing = askLateReason && lateReason.isBlank()
+    val canConfirm = entered != null && !tooLow && !areasMissing && !lateReasonMissing
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -615,6 +645,31 @@ private fun OdometerDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (askLateReason) {
+                    Text(
+                        "It is past ${ParkingCurfew.PARK_BY}. Say why the vehicle is "
+                            + "being parked late — you cannot knock off without it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedTextField(
+                        value = lateReason,
+                        onValueChange = { lateReason = it },
+                        label = { Text("Why you are parking late *") },
+                        visualTransformation = CAPITALS_WHILE_TYPING,
+                        isError = lateReasonMissing,
+                        supportingText = {
+                            if (lateReasonMissing) {
+                                Text("Required — e.g. late delivery, traffic, customer held me")
+                            }
+                        },
+                        minLines = 2,
+                        maxLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
                 OutlinedTextField(
                     value = areas,
                     onValueChange = { areas = it },
@@ -638,7 +693,7 @@ private fun OdometerDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(entered ?: 0L, areas) },
+                onClick = { onConfirm(entered ?: 0L, areas, lateReason.trim()) },
                 enabled = canConfirm
             ) { Text(confirmLabel) }
         },

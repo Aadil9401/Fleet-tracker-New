@@ -586,13 +586,19 @@ class FleetRepository(
         uid: String,
         vehicleId: String,
         endOdometerKm: Long,
-        mainAreasWorked: String
+        mainAreasWorked: String,
+        lateReason: String = ""
     ) {
         val docId = "${uid}_${todayString()}"
         val updates = mutableMapOf<String, Any>(
             "endTimeMillis" to System.currentTimeMillis(),
             "endOdometerKm" to endOdometerKm
         )
+        // Only written when there is one. A day that finished on time must not carry an
+        // empty reason, or the admin's late list cannot be told from a blank field.
+        if (lateReason.isNotBlank()) {
+            updates["lateReason"] = lateReason.trim()
+        }
         // Blank means "leave it alone", so knocking off never wipes what was typed
         // at the start of the day.
         if (mainAreasWorked.isNotBlank()) {

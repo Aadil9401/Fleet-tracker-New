@@ -257,11 +257,19 @@ object DayBreakdown {
 
             "late" -> Breakdown(
                 title = "Parked after ${ParkingCurfew.PARK_BY}",
-                columns = listOf("Employee", "Knocked off", "Late by"),
+                // THE REASON IS THE POINT OF THE LIST. Knowing somebody parked an hour
+                // late is half an answer; the other half is why, and it is now required
+                // of them before they can knock off.
+                columns = listOf("Employee", "Knocked off", "Late by", "Why"),
                 empty = "Everyone was parked by ${ParkingCurfew.PARK_BY}.",
                 rows = logs.filter { it.isParkedLate }
                     .sortedByDescending { it.minutesParkedLate }
-                    .map { row(it.uid, it.employeeName, at(it.endTimeMillis), it.lateLabel) }
+                    .map {
+                        row(it.uid, it.employeeName, at(it.endTimeMillis), it.lateLabel,
+                            // Blank for a day closed before this was asked for, which
+                            // reads better than inventing "none given".
+                            it.lateReason.asCaptured().ifBlank { "—" })
+                    }
             )
 
             "service" -> {

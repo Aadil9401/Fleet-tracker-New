@@ -311,6 +311,67 @@ check('nor a knock-off time', footCells[2], '—');
 check('and contributes no hours', footCells[3], '—');
 check('nor any distance', footCells[4], '—');
 
+/* ---------------- a late knock-off has to say why ---------------- */
+/* Aadil: "if an employee parks late, add a reason, this should be a mandatory field to
+   allow them to knock off". The requiring happens on the phone, where the day is closed;
+   what the PORTAL owes is showing the answer to whoever asked for it. */
+
+// A day with something behind every figure, so the invariant below actually runs. By
+// this point in the file the earlier fixtures are down to absences, and every breakdown
+// renders a sentence rather than a table — an invariant that silently skips is worse
+// than no invariant, so this sets the stage on purpose.
+portal.data.employees = [
+  { id: 'e1', name: 'Lerato', surname: 'Mokoena', province: 'Gauteng', teamName: 'Jozi',
+    vehicleRegistration: 'BC45DFGP' },
+  { id: 'e2', name: 'Sarah', surname: 'Dube', province: 'Eastern Cape', teamName: 'Mthatha' },
+  { id: 'e3', name: 'Never', surname: 'Turnedup', province: 'Limpopo', teamName: 'Polokwane' }
+];
+portal.data.todaysLogs = [
+  { id: 'x1', uid: 'e1', employeeName: 'Lerato Mokoena', date: day,
+    startTimeMillis: at(day, '08:00'), endTimeMillis: at(day, '20:15'),
+    startOdometerKm: 1000, endOdometerKm: 1100,
+    mainAreasWorked: 'Soweto', lateReason: 'customer held me at the till' },
+  { id: 'x2', uid: 'e2', employeeName: 'Sarah Dube', date: day,
+    startTimeMillis: at(day, '08:00'), endTimeMillis: at(day, '21:00'),
+    startOdometerKm: 1000, endOdometerKm: 1050, mainAreasWorked: 'Midrand' }
+];
+portal.data.dayFuelLogs = [
+  { id: 'f1', uid: 'e1', employeeName: 'Lerato Mokoena', date: day, amountSpentRands: 450.5 }
+];
+portal.data.vehicles = [
+  { id: 'v1', registrationNumber: 'BC 45 DF GP', name: 'Magnite',
+    serviceIntervalKm: 15000, lastServiceOdometerKm: 15000, currentOdometerKm: 30000 }
+];
+
+/* EVERY BREAKDOWN'S COLUMNS MUST MATCH ITS CELLS. The phone has held this invariant
+   since the day view was built and the portal never did — which is exactly the mistake
+   adding a "Why" column invites: a heading with no cell under it, shifting every figure
+   one place left, on a screen nobody would think to re-check. */
+let tablesChecked = 0;
+tileKeys.forEach(key => {
+  const body = opened(key).body;
+  const headings = (body.match(/<th\b/g) ?? []).length;
+  if (headings === 0) return;   // a figure of nought renders a sentence, not a table
+  [...body.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].slice(1).forEach((r, i) => {
+    tablesChecked += 1;
+    const cells = (r[1].match(/<td\b/g) ?? []).length;
+    check(`the ${key} breakdown: row ${i + 1} fills all ${headings} columns`, cells, headings);
+  });
+});
+// And the invariant is not vacuous: it has to have looked at real rows.
+check('the column invariant looked at several tables', tablesChecked >= 5, true);
+
+// The reason itself, on the late list.
+const lateNow = opened('late');
+check('the late list has a Why column', lateNow.body.includes('Why'), true);
+check('and shows what they typed',
+  lateNow.body.toLowerCase().includes('customer held me at the till'), true);
+/* A DAY CLOSED BEFORE THIS WAS ASKED FOR shows a dash, not "none given". Every day
+   already in the database has no reason on it, and blaming somebody for not answering a
+   question they were never asked would be the wrong reading. */
+check('and a dash where nobody was ever asked',
+  (lateNow.body.match(/—/g) ?? []).length >= 1, true);
+
 /* ---------------- the employee CSV export ---------------- */
 // This is the copy of the staff list that leaves the system, so what it contains and
 // who it covers both matter more than usual.

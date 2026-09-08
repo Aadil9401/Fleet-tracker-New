@@ -68,6 +68,15 @@ jobs:
       - name: Portal matches the birthday spec
         run: node web/birthday-spec-test.mjs web/index.html birthday-cases.csv
 
+      # And for what an employee owes. The last rule that was implemented twice with
+      # nothing tying the two together — the employee reads their balance on the phone
+      # and Aadil reads the same balance on the portal, so a drift is an argument about
+      # money with nothing on either screen to settle it. Writing the file found them
+      # already disagreeing about the order invoices are listed in. The phone's copy is
+      # checked by gradle test in the build-apk workflow.
+      - name: Portal matches the debt spec
+        run: node web/debt-spec-test.mjs web/index.html debt-cases.csv
+
       - name: Cloud Functions parse
         run: |
           node --check functions/index.js

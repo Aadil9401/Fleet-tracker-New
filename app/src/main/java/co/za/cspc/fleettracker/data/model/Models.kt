@@ -168,7 +168,16 @@ data class TimeLog(
     /** Marked absent for the day — no clocking in or out, and no attendance alert. */
     val notWorking: Boolean = false,
     /** Why they're not working, e.g. "Sick leave", "Annual leave". */
-    val notWorkingReason: String = ""
+    val notWorkingReason: String = "",
+    /**
+     * Why the vehicle was parked after the curfew. Required to knock off once the
+     * curfew has passed, and blank on every day that finished on time.
+     *
+     * The lateness itself is not stored: it is worked out from the day's own curfew and
+     * the knock-off time by [ParkingCurfew], on both surfaces, so there is nothing here
+     * that can disagree with the figure an admin is looking at.
+     */
+    val lateReason: String = ""
 ) {
     val hasStarted: Boolean get() = startTimeMillis > 0L
     val hasEnded: Boolean get() = endTimeMillis > 0L

@@ -2210,10 +2210,15 @@ function tileDetail(key) {
       const rows = logs.filter(isParkedLate)
         .sort((a, b) => minutesParkedLate(b) - minutesParkedLate(a));
       return { title: `Parked after ${PARK_BY}`,
-        columns: ['Employee', 'Knocked off', 'Late by'],
+        // The reason is the point of the list: an hour late is half an answer, and the
+        // other half is now required of them before they can knock off.
+        columns: ['Employee', 'Knocked off', 'Late by', 'Why'],
         empty: `Everyone was parked by ${PARK_BY}.`,
         rows: rows.map(l => [personLine(l.uid, l.employeeName), hhmm(l.endTimeMillis),
-          `<span class="badge late">${esc(lateLabel(minutesParkedLate(l)))}</span>`]) };
+          `<span class="badge late">${esc(lateLabel(minutesParkedLate(l)))}</span>`,
+          // A dash for a day closed before this was asked for, rather than inventing
+          // "none given" for somebody who was never asked.
+          esc(String(l.lateReason ?? '').trim() || '—')]) };
     }
     case 'service': {
       // Who is driving it matters more than the vehicle on its own — somebody has to
@@ -5904,8 +5909,17 @@ function debtInvoices() {
       daysOutstanding: outstanding > 0 ? daysSince(invoice.invoiceDate) : null
     };
   }).sort((a, b) =>
-    // Oldest debt first, because that is the one to chase.
-    String(a.invoiceDate).localeCompare(String(b.invoiceDate))
+    /*
+     * UNSETTLED FIRST, then oldest, then by number — the order the phone has always
+     * used, and the portal did not.
+     *
+     * Sorting purely by date buried what is owed among what is paid, so on "everything,
+     * paid included" an invoice from March that is still owing sat below settled ones
+     * from April. Somebody opening this wants to know what they owe; a wall of paid
+     * invoices above it is in the way. The two surfaces now answer debt-cases.csv.
+     */
+    (a.settled === b.settled ? 0 : (a.settled ? 1 : -1))
+    || String(a.invoiceDate).localeCompare(String(b.invoiceDate))
     || String(a.invoiceNumber).localeCompare(String(b.invoiceNumber)));
 }
 

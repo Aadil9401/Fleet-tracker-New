@@ -148,12 +148,13 @@ class EmployeeViewModel(
         }
     }
 
-    fun clockOut(odometerKm: Long, mainAreasWorked: String) {
+    fun clockOut(odometerKm: Long, mainAreasWorked: String, lateReason: String = "") {
         val profile = uiState.profile ?: return
         uiState = uiState.copy(busy = true, message = null)
         viewModelScope.launch {
             try {
-                repo.clockOut(profile.uid, profile.assignedVehicleId, odometerKm, mainAreasWorked)
+                repo.clockOut(profile.uid, profile.assignedVehicleId, odometerKm,
+                    mainAreasWorked, lateReason)
                 uiState = uiState.copy(
                     busy = false,
                     todaysLog = repo.todaysTimeLog(profile.uid),
