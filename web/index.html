@@ -1737,7 +1737,10 @@ async function loadAll() {
         // Read whole, not by month. A debt is not a monthly figure — the ones worth
         // seeing are precisely the ones that have been sitting there since March, so
         // there is no window that could be narrowed without hiding them.
-        getDoc(doc(db, 'config', 'birthdays')),
+        // Caught on its own, so a birthday cannot take the dashboard down with it. Every
+        // other read here is something the portal is FOR; this one is a greeting, and it
+        // had no business sitting in a Promise.all that fails as a whole.
+        getDoc(doc(db, 'config', 'birthdays')).catch(() => null),
         getDocs(collection(db, 'debtLines')),
         getDocs(collection(db, 'debtPayments'))
         // Performance figures are NOT loaded here — see loadPerfMonth. Both tabs show
@@ -1754,7 +1757,11 @@ async function loadAll() {
       recentTimeLogs: rows(recentTimeLogs),
       fuelLogs: rows(fuelLogs),
       roster: rows(roster),
-      birthdays: birthdays.exists() ? birthdays.data() : null,
+      birthdays: birthdays && birthdays.exists() ? birthdays.data() : null,
+      // Whether the board could be READ at all, as against there not being one yet. A
+      // failed read must not be taken for an empty board and answered by publishing a
+      // fresh one on every single page load.
+      birthdaysReadable: birthdays !== null,
       debtLines: rows(debtLines),
       debtPayments: rows(debtPayments),
       // Not part of the bulk load: fetched a month at a time by loadPerfMonth. Emptied
@@ -1791,7 +1798,8 @@ async function loadAll() {
      * per refresh for no reason; after this the board keeps itself up to date, because
      * anything that can change a date of birth publishes it again.
      */
-    if (!data.birthdays && data.employees.some(e => isRealDate(e.dateOfBirth))) {
+    if (data.birthdaysReadable && !data.birthdays
+      && data.employees.some(e => isRealDate(e.dateOfBirth))) {
       await publishBirthdays();
     }
   } catch (err) {

@@ -46,7 +46,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # The run number becomes the app's version, so a phone can be asked which build it
+      # has and give a useful answer. Without it every APK called itself 1.0.
       - name: Build debug APK
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: gradle assembleDebug --no-daemon
 
       - name: Upload APK

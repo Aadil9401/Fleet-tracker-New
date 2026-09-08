@@ -60,16 +60,26 @@ class EmployeeViewModel(
                 // the screen should still work.
                 val recent = runCatching { repo.listMyRecentTimeLogs(profile.uid) }
                     .getOrDefault(emptyList())
-                // Read once per load rather than per recomposition, and never allowed to
-                // stop the rest of the screen loading.
-                val birthdays = repo.birthdaysToday(profile.uid)
                 uiState = uiState.copy(
                     loading = false,
                     vehicle = vehicle,
                     todaysLog = log,
-                    myRecentDays = recent,
-                    othersBirthdays = birthdays
+                    myRecentDays = recent
                 )
+
+                /*
+                 * THE GREETING IS FETCHED AFTER THE SCREEN IS UP, not before.
+                 *
+                 * This used to be awaited above, so a whole extra read stood between
+                 * somebody opening the app and being able to clock in — for a birthday
+                 * card. The comment on it even claimed it never held the screen up,
+                 * which it did.
+                 *
+                 * Read once per load rather than per recomposition, and folded in when
+                 * it arrives. copy() takes the state as it is by then, so a clock-in in
+                 * the meantime is not overwritten.
+                 */
+                uiState = uiState.copy(othersBirthdays = repo.birthdaysToday(profile.uid))
             } catch (e: Exception) {
                 uiState = uiState.copy(
                     loading = false,

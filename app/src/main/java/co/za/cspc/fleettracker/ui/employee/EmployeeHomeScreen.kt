@@ -316,6 +316,17 @@ fun EmployeeHomeScreen(
                 }
             }
 
+            /*
+             * WHICH BUILD THIS IS, at the foot of the screen.
+             *
+             * With sixty phones to update, "have you got the new app?" needs an answer
+             * somebody can read out. The version sat at 1.0 through twenty rebuilds and
+             * appeared nowhere, so there was none.
+             *
+             * Read from the installed package rather than BuildConfig, which would mean
+             * turning on another build feature for one string.
+             */
+            item { AppVersion() }
         }
     }
 
@@ -463,6 +474,25 @@ fun EmployeeHomeScreen(
  * Deliberately the loudest thing on the screen — tertiaryContainer rather than the
  * primary the work cards use, so it does not read as one of them.
  */
+/** "App version 1.0.42" — quiet, and the same words every time so it can be read out. */
+@Composable
+private fun AppVersion() {
+    val context = LocalContext.current
+    val version = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty()
+    }
+    if (version.isBlank()) return
+    Text(
+        "App version $version",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+    )
+}
+
 @Composable
 private fun BirthdayCard(message: String) {
     Card(

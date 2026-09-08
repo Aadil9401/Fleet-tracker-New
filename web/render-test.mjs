@@ -1856,6 +1856,16 @@ check('and the employees tab draws its line too',
 check('and the banner has somewhere to be drawn into',
   src.includes('id="birthdayBanner"'), true);
 
+/* THE BOARD MUST NOT BE ABLE TO TAKE THE DASHBOARD DOWN, and a failed read of it must
+   not be mistaken for "no board yet" and answered by publishing one on every load.
+   Both are checked at source: loadAll cannot be driven under these stubs. */
+check('the board read is caught on its own',
+  src.includes("getDoc(doc(db, 'config', 'birthdays')).catch(() => null)"), true);
+check('and a missing document is told apart from a failed read',
+  src.includes('birthdaysReadable: birthdays !== null'), true);
+check('so the first publish only happens when the read actually worked',
+  /if \(data\.birthdaysReadable && !data\.birthdays/.test(src), true);
+
 /* ---------------- one case, everywhere ---------------- */
 /* A name that reads "Soweto" in a dropdown and "SOWETO" in the table below it makes
    somebody stop and check whether they are the same place. These rules are display

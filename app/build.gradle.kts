@@ -12,8 +12,19 @@ android {
         applicationId = "co.za.cspc.fleettracker"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        /*
+         * A BUILD NUMBER THAT ACTUALLY MOVES.
+         *
+         * These sat at 1 and "1.0" through twenty rebuilds, so nobody on a phone could
+         * tell whether they had installed the new app — and with sixty phones to update,
+         * "have you got the latest?" was a question with no answer.
+         *
+         * CI passes its run number in. A local build has none and says so, rather than
+         * pretending to be a numbered release.
+         */
+        val buildNumber = (System.getenv("BUILD_NUMBER") ?: "0").toIntOrNull() ?: 0
+        versionCode = 1 + buildNumber
+        versionName = if (buildNumber == 0) "1.0-local" else "1.0.$buildNumber"
 
         vectorDrawables {
             useSupportLibrary = true
