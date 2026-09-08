@@ -39,11 +39,17 @@ class DayBreakdownTest {
         startOdometerKm = 100L, endOdometerKm = 180L
     )
 
-    /** Lerato: 08:30 to 19:15, three quarters of an hour past the curfew. 60 km. */
+    /**
+     * Lerato: 08:30 to 19:15, three quarters of an hour past the curfew. 60 km.
+     *
+     * With a reason, which is now required of anybody knocking off after the curfew —
+     * so the late list can answer "why" as well as "how late".
+     */
     private val leratosDay = TimeLog(
         uid = "u2", employeeName = "Lerato Mokoena", date = DAY,
         startTimeMillis = curfew(-600), endTimeMillis = curfew(45),
-        startOdometerKm = 200L, endOdometerKm = 260L
+        startOdometerKm = 200L, endOdometerKm = 260L,
+        lateReason = "customer held me at the till"
     )
 
     /** Naledi is off. Thabo has no entry at all. */
@@ -148,9 +154,25 @@ class DayBreakdownTest {
         val late = opened("late")
         assertEquals("Parked after ${ParkingCurfew.PARK_BY}", late.title)
         assertEquals(listOf("Lerato Mokoena"), late.rows.map { it.heading })
-        assertEquals("with how late they were, and when they knocked off",
-            listOf("19:15", "45 min"), late.rows.single().cells)
+        assertEquals("with when they knocked off, how late, and why",
+            listOf("19:15", "45 min", "CUSTOMER HELD ME AT THE TILL"),
+            late.rows.single().cells)
         assertEquals("KwaZulu-Natal · Durban", late.rows.single().meta)
+    }
+
+    /**
+     * A DAY CLOSED BEFORE THE REASON WAS ASKED FOR shows a dash.
+     *
+     * Every day already in the database is like this. Blaming somebody for not answering
+     * a question they were never asked would be the wrong reading of a blank field.
+     */
+    @Test
+    fun aLateDayWithNoReasonOnItShowsADash() {
+        val silent = leratosDay.copy(lateReason = "")
+        val late = DayBreakdown.of(
+            "late", listOf(sarah, lerato), listOf(silent), emptyList(), emptyList(), NOW
+        )!!
+        assertEquals(listOf("19:15", "45 min", "—"), late.rows.single().cells)
     }
 
     @Test
