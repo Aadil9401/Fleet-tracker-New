@@ -65,11 +65,12 @@ class BirthdayBoardTest {
             } else ""
 
             val onTheBoard = theirKey.isNotEmpty()
+                // The portal publishes somebody when their date is a REAL DAY, so that
+                // is what decides whether they can be on the board at all. Testing for
+                // an age instead is the fault this file caught: an implausible year has
+                // no age but is still a real day, and the greeting greets it.
+                && Birthday.isRealDate(dob)
                 && Birthday.keysForToday(today).contains(theirKey)
-                // A date that is the right shape but not a real day — "1986-13-01" — is
-                // refused by the greeting, so it must not be published to the board
-                // either. The portal builds the board through the same reader.
-                && Birthday.age(dob, today) != null
 
             assertEquals(
                 "$dob on $today: the board and the greeting disagree",

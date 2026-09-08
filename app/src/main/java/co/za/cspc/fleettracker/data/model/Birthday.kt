@@ -47,6 +47,19 @@ object Birthday {
     }
 
     /**
+     * Is this a real day, written as yyyy-MM-dd?
+     *
+     * The question the BOARD asks before publishing somebody, and the same one the
+     * portal's isRealDate() asks. Shape alone is not enough: "1986-13-01" matches the
+     * pattern and is not a day.
+     *
+     * Deliberately NOT "does this yield an age". An implausible year has no age but is
+     * still a real day, and the greeting has never looked at the year — testing for an
+     * age left those people greeted on their own phone and hidden from everybody else.
+     */
+    fun isRealDate(date: String): Boolean = parse(date) != null
+
+    /**
      * Is [today] their birthday?
      *
      * The YEAR of birth is ignored on purpose. It is the one part of a date of birth
