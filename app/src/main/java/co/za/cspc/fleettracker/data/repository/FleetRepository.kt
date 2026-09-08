@@ -2,6 +2,7 @@ package co.za.cspc.fleettracker.data.repository
 
 import co.za.cspc.fleettracker.data.model.AppSettings
 import co.za.cspc.fleettracker.data.model.Debt
+import co.za.cspc.fleettracker.data.model.Birthday
 import co.za.cspc.fleettracker.data.model.FuelLog
 import co.za.cspc.fleettracker.data.model.Performance
 import co.za.cspc.fleettracker.data.model.Role
@@ -248,6 +249,31 @@ class FleetRepository(
      * Deliberately excludes role, login email and password: role is a security
      * boundary, and the other two live in Firebase Auth rather than this document.
      */
+    /**
+     * Whose birthday it is today, for EVERYBODY to see.
+     *
+     * Read from config/birthdays, which the admin portal publishes. It cannot be worked
+     * out here: a phone may read its own user record and no other, which is the rule that
+     * keeps everybody's cell number and pay out of everybody else's app. What is shared is
+     * a first name and a day, and nothing else.
+     *
+     * [excludeUid] leaves the reader off their own list — they already get their own card,
+     * and two greetings for one person reads as a fault.
+     *
+     * Empty on any failure. A greeting is not worth an error message, and a phone with no
+     * signal should show the day's work rather than a complaint.
+     */
+    suspend fun birthdaysToday(excludeUid: String): List<String> = runCatching {
+        val snap = db.collection("config").document("birthdays").get().await()
+        @Suppress("UNCHECKED_CAST")
+        val days = snap.get("days") as? Map<String, List<Map<String, Any?>>> ?: return emptyList()
+        Birthday.keysForToday(todayString())
+            .flatMap { days[it].orEmpty() }
+            .filter { (it["uid"] as? String).orEmpty() != excludeUid }
+            .mapNotNull { (it["name"] as? String)?.trim()?.ifEmpty { null } }
+            .distinct()
+    }.getOrDefault(emptyList())
+
     suspend fun updateEmployeeDetails(
         uid: String,
         name: String,

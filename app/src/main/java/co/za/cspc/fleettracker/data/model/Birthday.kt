@@ -103,6 +103,23 @@ object Birthday {
     }
 
     /**
+     * The keys of the board to read for [today], as "MM-dd".
+     *
+     * The board is filed under each person's own month and day, so a 29 February birthday
+     * is stored as "02-29" and will not be found by looking up "02-28". On the 28th of a
+     * common year both keys are read — the same substitution [isToday] and [age] make,
+     * from the same place, so the board cannot greet on a different day from the card.
+     *
+     * Empty when [today] is not a date, which greets nobody rather than everybody.
+     */
+    fun keysForToday(today: String): List<String> {
+        val now = parse(today) ?: return emptyList()
+        val key = "%02d-%02d".format(now.second, now.third)
+        val alsoLeapDay = now.second == 2 && now.third == 28 && !isLeapYear(now.first)
+        return if (alsoLeapDay) listOf(key, "02-29") else listOf(key)
+    }
+
+    /**
      * Aadil's wording, with their first name in it.
      *
      * Takes the name already in whatever case it should be shown in — the capitals rule
@@ -114,5 +131,24 @@ object Birthday {
         val first = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
         return if (first.isEmpty()) "Happy birthday, have a blessed day"
         else "Happy birthday $first, have a blessed day"
+    }
+
+    /**
+     * The same sentence for SEVERAL people, which is Aadil's reason for the board:
+     * "i want every single person signed up on the app to see whose birthday it is, that
+     * would create team spirit".
+     *
+     * "GEORGE and THABO", "GEORGE, THABO and SARAH" — read out loud rather than listed,
+     * because a greeting that reads like a roll call is not a greeting.
+     */
+    fun greetingFor(names: List<String>): String {
+        val clean = names.map { it.trim() }.filter { it.isNotEmpty() }
+        if (clean.isEmpty()) return ""
+        val joined = when (clean.size) {
+            1 -> clean[0]
+            2 -> "${clean[0]} and ${clean[1]}"
+            else -> clean.dropLast(1).joinToString(", ") + " and " + clean.last()
+        }
+        return "Happy birthday $joined, have a blessed day"
     }
 }

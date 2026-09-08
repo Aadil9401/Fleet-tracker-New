@@ -103,7 +103,26 @@ fun EmployeeHomeScreen(
              * empty card asking to be filled in is not a greeting.
              */
             if (Birthday.isToday(profile.dateOfBirth, FleetRepository.todayString())) {
-                item { BirthdayCard(profile.name) }
+                item { BirthdayCard(Birthday.greeting(profile.name.asCaptured())) }
+            }
+
+            /*
+             * AND WHOSE BIRTHDAY IT IS AMONG EVERYONE ELSE.
+             *
+             * "i want every single person signed up on the app to see whose birthday it
+             * is, that would create team spirit, eg, everyone to see happy birthday
+             * george".
+             *
+             * The reader is already left off this list by the repository, so somebody
+             * whose own birthday it is gets their card above and this one only if a
+             * colleague shares the day.
+             */
+            if (state.othersBirthdays.isNotEmpty()) {
+                item {
+                    BirthdayCard(
+                        Birthday.greetingFor(state.othersBirthdays.map { it.asCaptured() })
+                    )
+                }
             }
 
             item { StatusCard(state) }
@@ -445,7 +464,7 @@ fun EmployeeHomeScreen(
  * primary the work cards use, so it does not read as one of them.
  */
 @Composable
-private fun BirthdayCard(name: String) {
+private fun BirthdayCard(message: String) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.tertiaryContainer
@@ -463,9 +482,10 @@ private fun BirthdayCard(name: String) {
                 tint = MaterialTheme.colorScheme.onTertiaryContainer
             )
             Text(
-                // The name in capitals like every other captured detail; the sentence
-                // around it left as written, because that rule is for data.
-                Birthday.greeting(name.asCaptured()),
+                // Built by the caller: the name arrives already in capitals, like every
+                // other captured detail, and the sentence around it left as written
+                // because that rule is for data rather than for what we say.
+                message,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onTertiaryContainer

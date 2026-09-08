@@ -49,6 +49,9 @@ whatever is on `main` — worth checking first if the portal seems to be missing
 - **Happy birthday** — a greeting on their home screen on the day, once an admin has
   put a date of birth on their record. Nothing on any other day, and nothing for
   somebody whose date of birth was never captured
+- **Whose birthday it is** — everybody sees the day's birthdays, not only their own, so
+  the team can say something. Published by an admin into `config/`, which every signed-in
+  user may already read: what is shared is a first name and a day, and nothing else
 
 ### Admins, on the phone
 

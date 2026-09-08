@@ -622,6 +622,7 @@
             placeholder="1234, Christian, Dube, Eastern Cape, Mthatha, ND987654, 082 123 4567, 1986-09-07"></textarea>
         </div>
         <div class="toolbar">
+          <button id="publishBirthdays" class="outline">Publish birthdays</button>
           <button id="rosterDownload" class="outline">Download current list</button>
           <button id="rosterUpload">Save staff list</button>
           <button id="rosterFill" class="outline">Fill from staff list</button>
@@ -629,6 +630,7 @@
           <button id="rosterClear" class="danger">Clear list</button>
         </div>
         <div class="count" id="rosterStatus"></div>
+        <div class="count" id="birthdaysToday"></div>
         <details class="help">
           <summary>Format</summary>
           <pre id="rosterFormat"></pre>
@@ -1291,7 +1293,7 @@ const db = getFirestore(app);
 
 // Everything loaded for the signed-in admin.
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
-  recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [],
+  recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [], birthdays: null,
   perfMonthly: [], perfTeams: [], perfFy: [], debtLines: [], debtPayments: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
@@ -1710,7 +1712,7 @@ async function loadAll() {
   $('appView').classList.add('busy');
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
-      activityWindow, fuelHistory, roster, debtLines, debtPayments] = await Promise.all([
+      activityWindow, fuelHistory, roster, birthdays, debtLines, debtPayments] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -1732,6 +1734,7 @@ async function loadAll() {
         // Read whole, not by month. A debt is not a monthly figure — the ones worth
         // seeing are precisely the ones that have been sitting there since March, so
         // there is no window that could be narrowed without hiding them.
+        getDoc(doc(db, 'config', 'birthdays')),
         getDocs(collection(db, 'debtLines')),
         getDocs(collection(db, 'debtPayments'))
         // Performance figures are NOT loaded here — see loadPerfMonth. Both tabs show
@@ -1748,6 +1751,7 @@ async function loadAll() {
       recentTimeLogs: rows(recentTimeLogs),
       fuelLogs: rows(fuelLogs),
       roster: rows(roster),
+      birthdays: birthdays.exists() ? birthdays.data() : null,
       debtLines: rows(debtLines),
       debtPayments: rows(debtPayments),
       // Not part of the bulk load: fetched a month at a time by loadPerfMonth. Emptied
@@ -2545,6 +2549,7 @@ function employeeExportRows() {
 }
 
 function renderEmployees() {
+  renderBirthdaysToday();
   const counts = {};
   data.employees.forEach(e => { counts[e.province] = (counts[e.province] || 0) + 1; });
   const current = filters.province;
@@ -2813,6 +2818,9 @@ $('editSave').addEventListener('click', async () => {
     editingUid = null;
     showMsg('Employee details updated.');
     await loadAll();
+    // The date of birth may have changed, and the board is what every employee's phone
+    // reads. Republished from the records rather than patched, so it cannot drift.
+    await publishBirthdays();
   } catch (err) {
     showMsg('Could not save: ' + err.message, 'err');
   } finally {
@@ -3217,6 +3225,8 @@ $('rosterUpload').addEventListener('click', async () => {
 
 $('rosterFormat').textContent = ROSTER_COLUMNS.join(', ');
 
+$('publishBirthdays').addEventListener('click', () => publishBirthdays(false));
+
 $('rosterDownload').addEventListener('click', () => {
   const rows = staffTemplateRows();
   if (rows.length === 1) {
@@ -3289,6 +3299,9 @@ $('rosterFill').addEventListener('click', async () => {
     if (unmatched.length) report += ` Not on the list: ${unmatched.join('; ')}.`;
     showMsg(report, unmatched.length ? 'err' : 'ok');
     await loadAll();
+    // Dates of birth may have arrived with that fill, and the board is what every
+    // employee's phone reads. Republished whole rather than patched.
+    await publishBirthdays();
   } catch (err) { showMsg('Could not update: ' + err.message, 'err'); }
 });
 
@@ -6190,6 +6203,26 @@ function normaliseDate(value) {
 }
 
 /**
+ * Is this a real day, written as yyyy-MM-dd?
+ *
+ * Shape alone is not enough: "1986-13-01" matches the pattern and is not a day, and
+ * "1986-02-30" never happened.
+ *
+ * Extracted because the AGE and the BIRTHDAY BOARD both have to answer this the same
+ * way. The board used to test "does this yield an age", which is stricter — an
+ * implausible year has no age but is still a real day — so somebody with a typed-wrong
+ * year was greeted on their own phone and left off everybody else's.
+ */
+function isRealDate(text) {
+  const m = String(text ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const [, y, mo, d] = m.map(Number);
+  const leapYear = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const lengths = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return mo >= 1 && mo <= 12 && d >= 1 && d <= lengths[mo - 1];
+}
+
+/**
  * How old somebody is today, or null where there is no date of birth to work from.
  *
  * Derived, never stored. An age in the database is wrong for up to a year and nobody
@@ -6218,9 +6251,7 @@ function ageOn(dateOfBirth, today = todayString()) {
    * birthday reads as still to come — a wrong answer that looks like a right one. The
    * same validation the phone's birthday rule does, so the two agree on what a date is.
    */
-  const monthLength = [31, leap(by) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  if (bm < 1 || bm > 12 || bd < 1 || bd > monthLength[bm - 1]) return null;
-  if (nm < 1 || nm > 12 || nd < 1 || nd > 31) return null;
+  if (!isRealDate(dateOfBirth) || !isRealDate(today)) return null;
 
   // Their birthday AS IT FALLS THIS YEAR, which for a 29 February birth in a common
   // year is the 28th.
@@ -6237,6 +6268,109 @@ const ageLabel = (dateOfBirth) => {
   const age = ageOn(dateOfBirth);
   return age === null ? '—' : `${age} year${age === 1 ? '' : 's'}`;
 };
+
+/**
+ * TODAY'S BIRTHDAYS, for everybody to see.
+ *
+ * Aadil: "i want every single person signed up on the app to see whose birthday it is,
+ * that would create team spirit, eg, everyone to see happy birthday george".
+ *
+ * WHY THIS IS A PUBLISHED DOCUMENT RATHER THAN A QUERY. An employee's phone can read its
+ * OWN user record and no other — that is the rule that keeps everybody's cell number,
+ * contact email and pay out of everybody else's app, and it is not worth loosening for a
+ * greeting. So the admin publishes the one thing that has to be shared, into config/,
+ * which every signed-in user may already read and only an admin may write.
+ *
+ * WHAT IS SHARED IS DELIBERATELY SMALL: a first name and a day of the year. No year of
+ * birth, no surname, no contact details, nobody who has no date of birth on file.
+ *
+ * REBUILT WHOLE every time, never patched. A board assembled from edits drifts out of
+ * step with the records behind it and there is no way to see that it has; rebuilding is
+ * idempotent, so republishing is always a repair.
+ */
+function birthdayBoardDoc() {
+  const days = {};
+  let people = 0;
+
+  data.employees.forEach(e => {
+    /*
+     * THE SAME QUESTION THE GREETING ASKS: is this a real day.
+     *
+     * It used to ask "does this yield an age", which is stricter — an implausible YEAR
+     * has no age but is still a real day, and the greeting has never looked at the year.
+     * So those people were greeted on their own phone and invisible to everybody else.
+     * One test of a date, shared, and the two cannot drift apart again.
+     */
+    if (!isRealDate(e.dateOfBirth)) return;
+    const key = e.dateOfBirth.slice(5);
+    // The FIRST NAME, which is what the greeting says. The uid rides along so a phone can
+    // leave its owner off the list — they get their own card, and two greetings for one
+    // person reads as a fault.
+    const name = String(e.name ?? '').trim() || String(e.surname ?? '').trim();
+    if (!name) return;
+    (days[key] = days[key] || []).push({ uid: e.id, name });
+    people += 1;
+  });
+
+  // Sorted so republishing an unchanged staff list produces an unchanged document.
+  Object.keys(days).forEach(k => days[k].sort((a, b) => a.name.localeCompare(b.name)));
+
+  return { days, people, publishedAtMillis: Date.now() };
+}
+
+/** Today's entries off a board document, with the 29 February rule. */
+function boardEntriesFor(board, today = todayString()) {
+  const days = (board && board.days) || {};
+  const key = today.slice(5);
+  const [y, m, d] = today.split('-').map(Number);
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  // Somebody born on the 29th is greeted on the 28th in a common year — the same rule
+  // birthday-cases.csv holds both implementations to.
+  const also = (m === 2 && d === 28 && !leap) ? '02-29' : null;
+  return [...(days[key] || []), ...(also ? (days[also] || []) : [])];
+}
+
+/**
+ * Publishes the board.
+ *
+ * Called after anything that can change a date of birth, so it is never something an
+ * admin has to remember. A stale board is invisible — it shows the wrong name on the
+ * wrong day, weeks later, and nothing on any screen says why.
+ */
+async function publishBirthdays(quiet = true) {
+  const doc_ = birthdayBoardDoc();
+  try {
+    await setDoc(doc(db, 'config', 'birthdays'), doc_);
+    data.birthdays = doc_;
+    renderBirthdaysToday();
+    if (!quiet) {
+      const today = boardEntriesFor(doc_);
+      showMsg(`Birthdays published — ${doc_.people} ${
+        doc_.people === 1 ? 'person' : 'people'} across ${
+        Object.keys(doc_.days).length} day(s). ${
+        today.length ? 'Today: ' + today.map(e => e.name).join(', ') + '.'
+          : 'Nobody has a birthday today.'}`);
+    }
+  } catch (err) {
+    showMsg('Could not publish birthdays: ' + err.message, 'err');
+  }
+}
+
+/** The line on the Employees tab, so today's birthdays can be seen without a phone. */
+function renderBirthdaysToday() {
+  const el = $('birthdaysToday');
+  if (!el) return;
+  const board = data.birthdays;
+  if (!board) { el.innerHTML = ''; return; }
+  const today = boardEntriesFor(board);
+  el.innerHTML = today.length === 0
+    ? `<span class="meta">No birthdays today. ${board.people} ${
+        board.people === 1 ? 'person has' : 'people have'} one on file.</span>`
+    : `<b style="color:var(--primary)">🎂 ${
+        esc(today.map(e => e.name).join(', '))}</b> <span class="meta">— ${
+        today.length === 1 ? 'has' : 'have'} a birthday today. Everybody signed in on the `
+      + `app sees this.</span>`;
+}
 
 /**
  * A DATE OF BIRTH as yyyy-MM-dd — normaliseDate(), with one extra rule for the century.

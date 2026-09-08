@@ -29,7 +29,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'parseDebtLines', 'DEBT_COLUMNS', 'DEBT_SAMPLE', 'daysSince', 'productKey',
   'normaliseDate', 'renderDebt', 'renderFy', 'fyFilters', 'monthFigureCount',
   'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
-  'clearButtonLabel', 'renderLeaderboard'
+  'clearButtonLabel', 'renderLeaderboard',
+  'birthdayBoardDoc', 'boardEntriesFor'
 ]);
 
 let failures = 0;
@@ -1700,6 +1701,105 @@ setValue('fyMonth', '2026-07');
 check('FY counts against its own month, not the performance tab\'s',
   [portal.clearButtonLabel('fy').text, portal.clearButtonLabel('commission').text],
   ['Remove 2026-07 (1)', 'Remove 2026-08 (2)']);
+
+/* ---------------- whose birthday it is, for everybody ---------------- */
+/* Aadil: "i want every single person signed up on the app to see whose birthday it is,
+   that would create team spirit, eg, everyone to see happy birthday george".
+
+   AN EMPLOYEE'S PHONE MAY READ ITS OWN USER RECORD AND NO OTHER. That rule keeps
+   everybody's cell number, contact email and pay out of everybody else's app, and it is
+   not worth loosening for a greeting. So the admin publishes the one thing that has to be
+   shared into config/, which every signed-in user may already read and only an admin may
+   write — no rules change, and nothing new exposed. */
+portal.data.employees = [
+  { id: 'u1', name: 'George', surname: 'Dzingotiwandira', employeeNumber: 'T090',
+    dateOfBirth: '1979-09-08' },
+  { id: 'u2', name: 'Thabo', surname: 'Ncube', employeeNumber: 'T039',
+    dateOfBirth: '1988-09-08' },
+  { id: 'u3', name: 'Gwinyai', surname: 'Marange', employeeNumber: 'T054',
+    dateOfBirth: '1988-09-23' },
+  // No date of birth: most of the staff list, and they must not appear at all.
+  { id: 'u4', name: 'Nobody', surname: 'Yet', employeeNumber: 'T100', dateOfBirth: '' },
+  // A leap-day birthday, which is filed under its own day and read on the 28th.
+  { id: 'u5', name: 'Leap', surname: 'Person', employeeNumber: 'T111',
+    dateOfBirth: '1988-02-29' }
+];
+
+const todayBoard = portal.birthdayBoardDoc();
+check('only the people with a date of birth are on the board', todayBoard.people, 4);
+check('and they are filed under the day, not the date',
+  Object.keys(todayBoard.days).sort(), ['02-29', '09-08', '09-23']);
+
+/* WHAT IS SHARED IS DELIBERATELY SMALL: a first name and a day. No year of birth, no
+   surname, no employee number, no contact details — the todayBoard is readable by every
+   signed-in employee, so every field on it is a decision. */
+check('a board entry is a first name and a uid, and nothing else',
+  Object.keys(todayBoard.days['09-23'][0]).sort(), ['name', 'uid']);
+check('the name is the first name, which is what the greeting says',
+  todayBoard.days['09-23'][0].name, 'Gwinyai');
+check('no year of birth reaches the board',
+  JSON.stringify(todayBoard).includes('1979'), false);
+
+// Two people on one day, in a settled order so republishing an unchanged list produces
+// an unchanged document.
+check('two people on one day are both there, in name order',
+  todayBoard.days['09-08'].map(e => e.name), ['George', 'Thabo']);
+
+/* READ BACK BY DAY, with the 29 February rule — the same substitution the greeting and
+   the age make, so the todayBoard cannot greet on a different day from the card. */
+check('today reads today',
+  portal.boardEntriesFor(todayBoard, '2026-09-08').map(e => e.name), ['George', 'Thabo']);
+check('a day with nobody on it reads empty',
+  portal.boardEntriesFor(todayBoard, '2026-09-09'), []);
+check('a leap-day birthday is read on the 28th in a common year',
+  portal.boardEntriesFor(todayBoard, '2026-02-28').map(e => e.name), ['Leap']);
+check('and on the 29th in a leap year',
+  portal.boardEntriesFor(todayBoard, '2028-02-29').map(e => e.name), ['Leap']);
+check('but not on the 28th of a leap year',
+  portal.boardEntriesFor(todayBoard, '2028-02-28'), []);
+// An absent board is a quiet nothing, not a crash: it does not exist until it is
+// published for the first time.
+check('no board at all greets nobody', portal.boardEntriesFor(null, '2026-09-08'), []);
+check('and neither does an empty one', portal.boardEntriesFor({}, '2026-09-08'), []);
+
+/* A DATE THE PHONE WOULD REFUSE NEVER REACHES THE BOARD, so no name can appear on a day
+   it cannot be greeted on. The todayBoard is built through the same reader the greeting uses. */
+portal.data.employees = [
+  // A TYPED-WRONG YEAR IS STILL A REAL DAY, and the greeting has never looked at the
+  // year — so this person IS on the board. Leaving them off was the first version of
+  // this rule, and it greeted them on their own phone while hiding them from everybody
+  // else, which is the opposite of what the board is for.
+  { id: 'b1', name: 'Future', surname: 'Typo', dateOfBirth: '2086-09-08' },
+  // Not a day at all: month thirteen, and a date the phone would refuse.
+  { id: 'b2', name: 'Bad', surname: 'Month', dateOfBirth: '1986-13-01' },
+  { id: 'b5', name: 'Never', surname: 'Happened', dateOfBirth: '1986-02-30' },
+  // Not the shape the portal stores, so nothing can be read from it.
+  { id: 'b3', name: 'Slashed', surname: 'Date', dateOfBirth: '08/09/1986' },
+  // A real day, but no name to greet.
+  { id: 'b4', name: '', surname: '', dateOfBirth: '1986-09-08' }
+];
+const refused = portal.birthdayBoardDoc();
+check('only the real days with a name reach the board', refused.people, 1);
+check('and it is the one whose year is merely wrong',
+  portal.boardEntriesFor(refused, '2026-09-08').map(e => e.name), ['Future']);
+check('a date that is not a day is left off',
+  JSON.stringify(refused).includes('Bad') || JSON.stringify(refused).includes('Never'),
+  false);
+check('so is one the portal would never have stored',
+  JSON.stringify(refused).includes('Slashed'), false);
+check('and so is somebody with no name to greet',
+  refused.days['09-08'].length, 1);
+
+// Rebuilt WHOLE every time. A board assembled from edits drifts out of step with the
+// records behind it and there is no way to see that it has.
+check('the board is rebuilt from the records, never patched',
+  src.includes('function birthdayBoardDoc()')
+  && src.includes("setDoc(doc(db, 'config', 'birthdays')"), true);
+// Published after anything that can change a date of birth, so it is never something an
+// admin has to remember: a stale board shows the wrong name on the wrong day, weeks
+// later, and nothing on any screen says why.
+check('publishing happens wherever a date of birth can change',
+  (src.match(/await publishBirthdays\(\);/g) || []).length >= 2, true);
 
 /* ---------------- one case, everywhere ---------------- */
 /* A name that reads "Soweto" in a dropdown and "SOWETO" in the table below it makes

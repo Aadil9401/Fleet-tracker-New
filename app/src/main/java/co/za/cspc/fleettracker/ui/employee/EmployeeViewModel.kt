@@ -19,7 +19,13 @@ data class EmployeeUiState(
     /** The person's own recent days, so they can check their own hours. */
     val myRecentDays: List<TimeLog> = emptyList(),
     val message: String? = null,
-    val busy: Boolean = false
+    val busy: Boolean = false,
+    /**
+     * Whose birthday it is today, this person excluded — they get their own card, and
+     * two greetings for one person reads as a fault. Empty on any failure: a greeting is
+     * not worth an error message, and a phone with no signal should still show the work.
+     */
+    val othersBirthdays: List<String> = emptyList()
 )
 
 /**
@@ -54,11 +60,15 @@ class EmployeeViewModel(
                 // the screen should still work.
                 val recent = runCatching { repo.listMyRecentTimeLogs(profile.uid) }
                     .getOrDefault(emptyList())
+                // Read once per load rather than per recomposition, and never allowed to
+                // stop the rest of the screen loading.
+                val birthdays = repo.birthdaysToday(profile.uid)
                 uiState = uiState.copy(
                     loading = false,
                     vehicle = vehicle,
                     todaysLog = log,
-                    myRecentDays = recent
+                    myRecentDays = recent,
+                    othersBirthdays = birthdays
                 )
             } catch (e: Exception) {
                 uiState = uiState.copy(
