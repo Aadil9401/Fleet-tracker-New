@@ -716,6 +716,79 @@ check('a heading is matched however it was written',
     .map(h => portal.parseRosterLines(h + '\nT042,1986-09-07')[0].dateOfBirth),
   ['1986-09-07', '1986-09-07', '1986-09-07']);
 
+/* ---------------- a file uploaded in the wrong box ---------------- */
+/* THIS ONE COST A MONTH OF FIGURES.
+
+   Every team file is the same shape — team, month, network, then a figure — and the
+   parser takes the figure BY POSITION. So the stock file loaded through the connections
+   box was accepted in silence: September's connections were replaced by September's
+   stock, 65 rows of it, and the only clue was that the numbers came out suspiciously
+   round. I handed over both files minutes apart, differing in one heading and which box
+   to use, which made it a trap rather than a mistake.
+
+   The heading row already had to be recognised so it could be skipped. It is now READ.
+   The whole file is refused, because a month half-loaded into the wrong figure is worse
+   than a month not loaded at all. */
+const stockInWrongBox = [portal.perfColumns('stock').join(','),
+  'ALEXANDRA,2026-09,MTN,2400', 'ALEXANDRA,2026-09,Vodacom,1200'].join('\n');
+const connInWrongBox = [portal.perfColumns('connections').join(','),
+  'ALEXANDRA,2026-09,MTN,60', 'ALEXANDRA,2026-09,Vodacom,251'].join('\n');
+
+const asStock = portal.parsePerformanceLines(stockInWrongBox, 'connections');
+check('the stock file is refused by the connections box', asStock.rows.length, 0);
+check('and the complaint names the box it belongs in',
+  asStock.errors[0].why.includes('Stock box'), true);
+check('and names the box it was given to, so both are on screen',
+  asStock.errors[0].why.includes('Connections'), true);
+
+// Both directions: the same trap works the other way round.
+const asConn = portal.parsePerformanceLines(connInWrongBox, 'stock');
+check('and the connections file is refused by the stock box', asConn.rows.length, 0);
+check('with the boxes the other way round',
+  asConn.errors[0].why.includes('Connections box'), true);
+
+// EVERY FILE STILL LOADS IN ITS OWN BOX. A guard that refuses good files is worse than
+// no guard, so this is driven from the upload table: a seventh figure cannot be added
+// without being covered.
+Object.keys(portal.PERF_UPLOADS).forEach(kind => {
+  const own = [portal.perfColumns(kind).join(','), ...portal.PERF_UPLOADS[kind].sample
+    .map(r => r.join(','))].join('\n');
+  const parsed = portal.parsePerformanceLines(own, kind);
+  check('the ' + kind + ' file still loads in its own box', parsed.errors, []);
+  check('and still produces rows: ' + kind, parsed.rows.length > 0, true);
+});
+
+/* AND EVERY WRONG PAIRING IS REFUSED. Driven from the table too, so the guard cannot
+   quietly stop covering a pair. Only files keyed the same way are comparable — a team
+   file in the commission box already fails on "no employee number". */
+Object.keys(portal.PERF_UPLOADS).forEach(mine => {
+  Object.keys(portal.PERF_UPLOADS).forEach(theirs => {
+    if (mine === theirs) return;
+    if (portal.PERF_UPLOADS[mine].keyedOn !== portal.PERF_UPLOADS[theirs].keyedOn) return;
+    const file = [portal.perfColumns(theirs).join(','),
+      ...portal.PERF_UPLOADS[theirs].sample.map(r => r.join(','))].join('\n');
+    const parsed = portal.parsePerformanceLines(file, mine);
+    check(`the ${theirs} file is refused by the ${mine} box`, parsed.rows.length, 0);
+  });
+});
+
+/* FY'S COLUMNS ARE NOT THE STOCK FILE'S. "MTN stock" belongs to FY and must not be read
+   as the stock file's "Stock" — matching on part of a heading is how a guard starts
+   refusing files that were perfectly correct. */
+check('a heading is matched whole, never in part',
+  portal.parsePerformanceLines(
+    [portal.perfColumns('fy').join(','), portal.PERF_UPLOADS.fy.sample[0].join(',')].join('\n'),
+    'fy').errors, []);
+
+/* A FILE WITH NO HEADING IS UNTOUCHED, which is what pasting a few rows out of Excel
+   gives, and a heading naming a figure nobody knows is left alone — being unhelpful
+   about an unfamiliar file is better than refusing a good one. */
+check('a headless file is not second-guessed',
+  portal.parsePerformanceLines('ALEXANDRA,2026-09,MTN,60', 'connections').errors, []);
+check('and an unfamiliar heading is not refused',
+  portal.parsePerformanceLines(
+    'Team name,Month,Network,Widgets\nALEXANDRA,2026-09,MTN,60', 'connections').errors, []);
+
 /* ---------------- every template the portal hands out, uploaded back into it ---------------- */
 /* THIS IS THE TEST THAT SHOULD ALWAYS HAVE BEEN HERE.
 

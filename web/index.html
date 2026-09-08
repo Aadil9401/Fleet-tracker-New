@@ -1778,6 +1778,22 @@ async function loadAll() {
     // loadAll to show what it just wrote.
     perfMonthsLoaded.clear();
     renderAll();
+
+    /*
+     * PUBLISHES THE BIRTHDAY BOARD THE FIRST TIME, so nobody has to know it needs
+     * bootstrapping.
+     *
+     * A feature that only works after somebody presses a button they were never told
+     * about is a feature that stays off — the board sat unpublished for a day, and the
+     * banner had nothing to show on the one morning somebody actually had a birthday.
+     *
+     * ONLY WHEN IT DOES NOT EXIST YET. Republishing on every page load would be a write
+     * per refresh for no reason; after this the board keeps itself up to date, because
+     * anything that can change a date of birth publishes it again.
+     */
+    if (!data.birthdays && data.employees.some(e => isRealDate(e.dateOfBirth))) {
+      await publishBirthdays();
+    }
   } catch (err) {
     showMsg('Could not load data: ' + err.message, 'err');
   } finally {
@@ -4102,6 +4118,57 @@ const isMonth = (value) => normaliseMonth(value) !== '';
  * rows with three mistakes in it should load the thirty-seven and say exactly which
  * three did not, rather than failing as a whole and leaving the admin to hunt.
  */
+/**
+ * Which upload a figure column belongs to, by its heading.
+ *
+ * Matched on the whole heading reduced to letters and digits, never on part of one:
+ * "MTN stock" is FY's column and must not be taken for the stock file's "Stock".
+ */
+function figureOwners() {
+  const owners = {};
+  Object.keys(PERF_UPLOADS).forEach(k => {
+    perfFigures(k).forEach(f => {
+      const key = String(f.label).toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!owners[key]) owners[key] = [];
+      if (!owners[key].includes(k)) owners[key].push(k);
+    });
+  });
+  return owners;
+}
+
+/**
+ * Refuses a file that belongs in a DIFFERENT upload box, by reading its heading row.
+ *
+ * These files are all the same shape — team or employee, month, sometimes network, then
+ * a figure — and the parser takes the figure by POSITION. So the stock file loaded
+ * through the connections box is accepted in silence, and a month of connections is
+ * replaced by a month of stock. That is not hypothetical: it happened to September, and
+ * the only reason it was caught is that the numbers were suspiciously round.
+ *
+ * The heading row already has to be recognised so it can be skipped. This reads it
+ * instead of throwing it away, and refuses the WHOLE file — one clear error naming both
+ * boxes — rather than loading rows the admin did not mean to load. A heading naming a
+ * figure nobody knows is left alone: being unhelpful about an unfamiliar file is better
+ * than refusing a good one.
+ */
+function wrongBox(headerCells, kind) {
+  const owners = figureOwners();
+  const mine = new Set(perfFigures(kind)
+    .map(f => String(f.label).toLowerCase().replace(/[^a-z0-9]/g, '')));
+
+  for (const cell of headerCells) {
+    const key = String(cell ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!key || mine.has(key)) continue;
+    const owner = (owners[key] || []).find(k => k !== kind);
+    if (owner) {
+      return `this looks like the ${PERF_UPLOADS[owner].label.toUpperCase()} file — `
+        + `its heading says "${cell}". Upload it in the ${PERF_UPLOADS[owner].label} `
+        + `box, or check you picked the right file for ${PERF_UPLOADS[kind].label}`;
+    }
+  }
+  return '';
+}
+
 function parsePerformanceLines(text, kind) {
   const spec = PERF_UPLOADS[kind];
   if (!spec) return { rows: [], errors: [{ line: '', why: 'unknown upload type ' + kind }] };
@@ -4109,6 +4176,20 @@ function parsePerformanceLines(text, kind) {
   const delimiter = perfDelimiter(text);
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const rows = [], errors = [];
+
+  /*
+   * THE FILE SAYS WHICH BOX IT BELONGS IN. Checked once, before anything is read, and a
+   * mismatch refuses the lot: a file half loaded into the wrong figure is worse than one
+   * refused outright.
+   */
+  const firstCells = lines.length ? splitCells(lines[0], delimiter) : [];
+  const firstKey = String(firstCells[0] ?? '').toLowerCase();
+  const looksLikeHeader = firstKey.startsWith('employee') || firstKey.startsWith('emp no')
+    || firstKey === 'no.' || firstKey.startsWith('team');
+  if (looksLikeHeader) {
+    const complaint = wrongBox(firstCells, kind);
+    if (complaint) return { rows: [], errors: [{ line: lines[0], why: complaint }] };
+  }
 
   lines.forEach(line => {
     const parts = splitCells(line, delimiter);
