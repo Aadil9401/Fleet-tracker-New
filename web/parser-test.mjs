@@ -1017,9 +1017,16 @@ check('however the spreadsheet wrote it',
 /* A TWO-DIGIT YEAR IS THE PREVIOUS CENTURY when this one would put it in the future.
    "7-Sep-86" is 1986 — nobody on the staff list was born in 2086 — while the same two
    digits on an invoice mean 2026 and must go on meaning that. */
+/* THE THIRD CASE IS BUILT FROM NEXT YEAR, because "would be in the future" stops being
+   true of any year you type in here. It was 26, expecting 1926, which is right until
+   31 December 2026 and wrong every day after — this test would have gone red four months
+   from now for a rule that had not changed. Next year is future whichever year it is run.
+   (86 above is left as it is: it is the readable case, and it holds until 2086.) */
+const yearAhead = new Date().getFullYear() + 1;
+const twoDigitsAhead = String(yearAhead % 100).padStart(2, '0');
 check('a two-digit birth year that would be in the future goes back a century',
-  ['7-Sep-86', '07/09/86', '31/12/26'].map(portal.normaliseBirthDate),
-  ['1986-09-07', '1986-09-07', '1926-12-31']);
+  ['7-Sep-86', '07/09/86', `31/12/${twoDigitsAhead}`].map(portal.normaliseBirthDate),
+  ['1986-09-07', '1986-09-07', `${yearAhead - 100}-12-31`]);
 // Still in the past this century, so it is left where it is: a sixteen-year-old is
 // likelier on a staff list than a hundred-and-sixteen-year-old.
 check('and one that is already in the past is left alone',

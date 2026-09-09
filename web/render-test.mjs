@@ -34,7 +34,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
   'parseServiceDate',
   'birthdayBoardDoc', 'boardEntriesFor', 'renderBirthdaysToday',
-  'personBits', 'personMeta', 'personCell', 'shiftDate'
+  'personBits', 'personMeta', 'personCell', 'shiftDate', 'todayString'
 ]);
 
 let failures = 0;
@@ -654,8 +654,13 @@ check('the posting is read from the employee record',
 
 /* The filters. An export covering a different set than the table shows would be
    invisible to whoever ran it, so both go through visiblePerformanceRows(). */
-// The month has to be set for visiblePerformanceRows(), which reads it off the picker.
-writes()['perfMonth'] = '2026-09';
+/* The month has to be set for visiblePerformanceRows(), which reads it off the picker.
+   setValue(), NOT writes(): the harness keeps what a page RENDERS INTO an element apart
+   from what an input HOLDS, and .value reads the second. Writing the month into the
+   first left the picker empty, so visiblePerformanceRows() fell through to its default
+   of the current month — which happened to be September 2026 when this was written, and
+   is the only month these figures line up under. Green here, red from October. */
+setValue('perfMonth', '2026-09');
 const allRows = portal.visiblePerformanceRows().length;
 // Three people on the staff list. The GHOST9 figures are NOT a fourth row: they belong
 // to nobody, so they are reported on their own card rather than as a phantom employee.
@@ -1668,8 +1673,17 @@ const yearsAgo = (years) => {
 };
 check('and the age is worked out from the date of birth, today',
   portal.personBits('', 'MAMELODI', yearsAgo(41)), ['MAMELODI', '41 years']);
+/* NOT SIMPLY THE DAY AFTER. Where the birth year is a leap one, the day after the 28th
+   is the 29th — and a 29 February birthday is deliberately read as falling TODAY in a
+   common year, which is the rule birthday-cases.csv holds both implementations to. So on
+   28 February 2025 this built somebody whose birthday is now and asserted they were a
+   year younger. Step over the 29th; the point is a birthday not yet come round. */
+const dayAfterBirthdayOf = (date) => {
+  const next = portal.shiftDate(date, 1);
+  return next.slice(5) === '02-29' ? portal.shiftDate(date, 2) : next;
+};
 check('so somebody whose birthday is tomorrow is still a year younger',
-  portal.personBits('', '', portal.shiftDate(yearsAgo(41), 1)), ['40 years']);
+  portal.personBits('', '', dayAfterBirthdayOf(yearsAgo(41))), ['40 years']);
 // One year reads as a year, not "1 years".
 check('one year is singular', portal.personBits('', '', yearsAgo(1)), ['1 year']);
 
@@ -1684,8 +1698,10 @@ check('a date that is not a date is not an age',
   portal.personBits('', 'MAMELODI', '1985-13-40'), ['MAMELODI']);
 // A date of birth in the future is a typo. "-59 years" beside a name is worse than
 // nothing at all.
+// Tomorrow, not a year typed in: 2099 sat here, which stops being the future in 2099.
 check('and a date of birth in the future is left off',
-  portal.personBits('', 'MAMELODI', '2099-01-01'), ['MAMELODI']);
+  portal.personBits('', 'MAMELODI', portal.shiftDate(portal.todayString(), 1)),
+  ['MAMELODI']);
 
 // The markup, once: escaped, in a meta line, with whatever extra class it was given.
 check('the line is a meta line, escaped',
@@ -1976,8 +1992,12 @@ check('a board entry is a first name and a uid, and nothing else',
   Object.keys(todayBoard.days['09-23'][0]).sort(), ['name', 'uid']);
 check('the name is the first name, which is what the greeting says',
   todayBoard.days['09-23'][0].name, 'Gwinyai');
+/* Over the DAYS alone. The document also carries publishedAtMillis, and the digits of
+   a live clock can spell any four in a row — they spell 1979 on 1 September 2027. A leak
+   check that goes red on the clock is one nobody will trust the day it means something,
+   and the claim here is about what the entries carry anyway. */
 check('no year of birth reaches the board',
-  JSON.stringify(todayBoard).includes('1979'), false);
+  JSON.stringify(todayBoard.days).includes('1979'), false);
 
 // Two people on one day, in a settled order so republishing an unchanged list produces
 // an unchanged document.
@@ -2043,13 +2063,23 @@ check('publishing happens wherever a date of birth can change',
 /* THE NOTIFICATION HAS TO BE WHERE THE ADMIN LANDS. It was on the Employees tab inside
    the staff-list card — three screens down a tab nobody opens first — which is why
    George's birthday went past this morning with nothing said. */
+/* THE DATES COME OFF TODAY, rather than being written into the fixture. This asked
+   about 8 September, so it passed on 8 September and went red every morning after —
+   and the setValue('dayDate', …) that used to sit here was never doing anything at all,
+   because renderBirthdaysToday() has never read the picker. It reads the wall clock on
+   purpose: a birthday is today whichever day is being looked at. So the fixture is what
+   has to move. The birth year is a leap one, so a run on 29 February still gets a real
+   date out of it. */
+const birthdayIsToday = '1980-' + portal.todayString().slice(5);
+// A hundred days off, so it can never be today, and can never be the 29 February that
+// today's 28th would also greet.
+const birthdayIsAnotherDay = '1980-' + portal.shiftDate(portal.todayString(), 100).slice(5);
 portal.data.employees = [
-  { id: 'u1', name: 'George', surname: 'D', dateOfBirth: '1979-09-08' },
-  { id: 'u2', name: 'Gwinyai', surname: 'M', dateOfBirth: '1988-09-23' }
+  { id: 'u1', name: 'George', surname: 'D', dateOfBirth: birthdayIsToday },
+  { id: 'u2', name: 'Gwinyai', surname: 'M', dateOfBirth: birthdayIsAnotherDay }
 ];
 portal.data.birthdays = portal.birthdayBoardDoc();
 
-setValue('dayDate', '2026-09-08');
 portal.renderBirthdaysToday();
 const banner = writes()['birthdayBanner'] || '';
 check('the banner names whoever has a birthday today', banner.includes('George'), true);
@@ -2059,7 +2089,8 @@ check('and says the whole company can see it too',
 
 /* NOTHING AT ALL on a day with no birthdays. A card reading "no birthdays today" is
    noise on the screen that is about the day's work — an empty banner takes no room. */
-portal.data.employees = [{ id: 'u3', name: 'Nobody', surname: 'Today', dateOfBirth: '1988-01-15' }];
+portal.data.employees = [
+  { id: 'u3', name: 'Nobody', surname: 'Today', dateOfBirth: birthdayIsAnotherDay }];
 portal.data.birthdays = portal.birthdayBoardDoc();
 portal.renderBirthdaysToday();
 check('a day with no birthdays shows no banner at all',
