@@ -862,6 +862,7 @@
             <label for="vehSearch">Search</label>
             <input id="vehSearch" type="search" placeholder="Registration or vehicle name">
           </div>
+          <button id="exportVehicles" class="outline">Export CSV</button>
           <button id="deleteAllBtn" class="danger">Delete all</button>
         </div>
         <div class="table-wrap"><table>
@@ -2902,7 +2903,7 @@ $('editSave').addEventListener('click', async () => {
 });
 
 $('vehSearch').addEventListener('input', (e) => {
-  vehFilter = e.target.value.trim();
+  vehFilters.query = e.target.value.trim();
   renderVehicles();
 });
 
@@ -3420,8 +3421,14 @@ $('autoAssignBtn').addEventListener('click', async () => {
   } catch (err) { showMsg('Auto-assign failed: ' + err.message, 'err'); }
 });
 
-/** What is typed in the fleet search box. Empty means show everything. */
-let vehFilter = '';
+/**
+ * What is typed in the fleet search box. Empty means show everything.
+ *
+ * An object, like every other filter on the page, so that the render and the export are
+ * both driveable from a test — which is what the CSV export needs: the check that
+ * matters most about it is that it covers exactly the fleet on screen.
+ */
+const vehFilters = { query: '' };
 
 /**
  * The tank-to-tank cost per kilometre for one vehicle, with what it rests on.
@@ -3447,16 +3454,85 @@ function vehicleCostCell(vehicle) {
     discarded > 0 ? ` · ${discarded} skipped` : ''}</div>`;
 }
 
+/**
+ * The vehicles currently on screen: the fleet search applied.
+ *
+ * Extracted for the same reason as filteredEmployees() — the table and the CSV export
+ * must not disagree about which vehicles they cover. An export that quietly held a
+ * different set from the list above it would have nothing on screen to give it away.
+ *
+ * Spacing is not part of identity, so "bc45" and "BC 45" both find BC 45 DF GP — see
+ * plateMatches(). The name is searched too, since half the fleet is known by one.
+ */
+function visibleVehicles() {
+  const q = vehFilters.query;
+  if (!q) return data.vehicles;
+  return data.vehicles.filter(v =>
+    plateMatches(v.registrationNumber, q) ||
+    String(v.name || '').toLowerCase().includes(q.toLowerCase()));
+}
+
+/**
+ * The team behind a vehicle.
+ *
+ * A VEHICLE CARRIES NO TEAM OF ITS OWN. A team is a person's, so this reads it off
+ * whoever drives the vehicle — and there are two links to a driver, which can disagree.
+ * assignedVehicleId is the admin's assignment; vehicleRegistration is free text the
+ * employee typed for themselves before that vehicle necessarily existed on the fleet.
+ * Per employee, their assignment wins where they have one, which is also the link the
+ * phone app reads to decide whose service reminder is whose.
+ *
+ * Active drivers win over dormant accounts, so a vehicle handed on does not keep
+ * reporting the team of whoever left. Where a vehicle really is shared, every team is
+ * named rather than one of them quietly chosen: a pool vehicle two teams drive is a
+ * fact about the fleet, not a tie to be broken.
+ */
+function teamsForVehicle(vehicle) {
+  const reg = normReg(vehicle.registrationNumber);
+  const drivers = data.employees.filter(e => e.assignedVehicleId
+    ? e.assignedVehicleId === vehicle.id
+    : reg && normReg(e.vehicleRegistration) === reg);
+  const active = drivers.filter(e => e.active !== false);
+  return [...new Set((active.length ? active : drivers)
+    .map(e => String(e.teamName || '').trim())
+    .filter(Boolean))].join('; ');
+}
+
+/**
+ * The fleet as CSV rows, header first.
+ *
+ * Three columns, because three were asked for: which vehicle it is, whose team drives
+ * it, and how far it has been.
+ *
+ * The registration is spaced the way it is shown everywhere else, and still reduces to
+ * the same key, so it can be read back in. The odometer goes out as a bare number rather
+ * than "85 000 km", so it lands in a spreadsheet as something that sorts and totals.
+ *
+ * Sorted by registration, so two exports of the same fleet are comparable rather than
+ * arriving in whatever order Firestore handed them over.
+ */
+function vehicleExportRows() {
+  const header = ['Registration', 'Team', 'Current odometer km'];
+  const rows = visibleVehicles()
+    .slice()
+    .sort((a, b) => plate(a.registrationNumber).localeCompare(plate(b.registrationNumber)))
+    .map(v => [
+      plate(v.registrationNumber),
+      teamsForVehicle(v),
+      // The reading the whole portal shows for this vehicle, kept current by the
+      // driver's own clock-in and knock-off. 0 where none was ever recorded, which is
+      // what the fleet table above it shows too.
+      Number(v.currentOdometerKm || 0)
+    ]);
+  return [header, ...rows];
+}
+
 function renderVehicles() {
   renderIntervalWarning();
-  // Spacing is not part of identity, so "bc45" and "BC 45" both find BC 45 DF GP —
-  // see plateMatches(). The name is searched too, since half the fleet is known by one.
-  const visible = !vehFilter ? data.vehicles : data.vehicles.filter(v =>
-    plateMatches(v.registrationNumber, vehFilter) ||
-    String(v.name || '').toLowerCase().includes(vehFilter.toLowerCase()));
+  const visible = visibleVehicles();
 
   // The count follows the filter, so it always describes what is on screen.
-  $('vehCount').textContent = vehFilter
+  $('vehCount').textContent = vehFilters.query
     ? `${visible.length} of ${data.vehicles.length}`
     : data.vehicles.length;
 
@@ -3618,6 +3694,13 @@ $('svcSave').addEventListener('click', async () => {
   } finally {
     $('svcSave').disabled = false;
   }
+});
+
+$('exportVehicles').addEventListener('click', () => {
+  const rows = vehicleExportRows();
+  // The count is in the filename, for the same reason as the staff list: a filtered
+  // export sitting in a downloads folder cannot later be mistaken for the whole fleet.
+  downloadCsv(`fleet-${rows.length - 1}-vehicles-${todayString()}.csv`, rows);
 });
 
 $('deleteAllBtn').addEventListener('click', async () => {

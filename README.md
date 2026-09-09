@@ -111,6 +111,12 @@ are due with the name of whoever is driving them.
 - **Vehicles** — add individually or in bulk, set service intervals per vehicle or
   by name match across the fleet, mark a vehicle serviced and record the
   dealership
+- **Export the fleet** — the Vehicles tab exports to CSV: registration, team and
+  current odometer. Follows the fleet search, and the row count is in the filename, the
+  same as the staff list. A vehicle carries no team of its own, so the team is read off
+  whoever drives it — the admin's assignment where there is one, otherwise the
+  registration the employee typed. Where a vehicle really is shared, every team is named
+  rather than one of them quietly chosen
 - **Logs** — work days and fuel logs over any date range
 
 The day view, reports and both log tables export to CSV.

@@ -31,6 +31,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
+  'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
   'parseServiceDate',
   'birthdayBoardDoc', 'boardEntriesFor', 'renderBirthdaysToday',
   'personBits', 'personMeta', 'personCell', 'shiftDate'
@@ -288,6 +289,97 @@ portal.data.vehicles = [];
 portal.renderVehicles();
 check('an empty fleet explains itself',
   (writes()['vehRows'] ?? '').includes('No vehicles yet'), true);
+
+/* ---------------- the fleet CSV export ---------------- */
+// Three columns were asked for and three is what this carries: which vehicle it is,
+// whose team drives it, and how far it has been. The team is the part with any thinking
+// in it — a vehicle has no team of its own, so it has to be read off whoever drives it.
+portal.data.vehicles = [
+  { id: 'v1', registrationNumber: 'bc45dfgp', name: 'Magnite', currentOdometerKm: 85000 },
+  { id: 'v2', registrationNumber: 'XY-67-ZW-GP', name: 'Bakkie 2', currentOdometerKm: 20000 },
+  { id: 'v3', registrationNumber: 'AA11BBGP', name: 'Spare', currentOdometerKm: 0 },
+  { id: 'v4', registrationNumber: 'CC22DDGP', name: 'Handed on', currentOdometerKm: 40000 },
+  { id: 'v5', registrationNumber: 'EE33FFGP', name: 'Pool', currentOdometerKm: 10000 },
+  { id: 'v6', registrationNumber: 'GG44HHGP', name: 'Loaner', currentOdometerKm: 5000 }
+];
+portal.data.employees = [
+  // Assigned by an admin — the authoritative link.
+  { id: 'd1', name: 'Zanele', surname: 'Buthelezi', teamName: 'Midrand',
+    assignedVehicleId: 'v1', vehicleRegistration: 'bc45dfgp', active: true },
+  // Never assigned, but typed a registration for themselves. Spelt differently again.
+  { id: 'd2', name: 'Andile', surname: 'Adams', teamName: 'Cape Town',
+    assignedVehicleId: '', vehicleRegistration: 'xy 67 zw gp', active: true },
+  // Left. Still holding the assignment nobody cleared.
+  { id: 'd3', name: 'Gone', surname: 'Away', teamName: 'Polokwane',
+    assignedVehicleId: 'v4', vehicleRegistration: '', active: false },
+  { id: 'd4', name: 'Thabo', surname: 'Nkosi', teamName: 'Mthatha',
+    assignedVehicleId: 'v4', vehicleRegistration: '', active: true },
+  // One vehicle, genuinely two teams.
+  { id: 'd5', name: 'John', surname: 'Smith', teamName: 'Jozi',
+    assignedVehicleId: 'v5', vehicleRegistration: '', active: true },
+  { id: 'd6', name: 'Lerato', surname: 'Mokoena', teamName: 'Bloem',
+    assignedVehicleId: 'v5', vehicleRegistration: '', active: true },
+  // Assigned the loaner, but their typed registration is a stale one for v1.
+  { id: 'd7', name: 'Stale', surname: 'Typed', teamName: 'Ghost',
+    assignedVehicleId: 'v6', vehicleRegistration: 'bc45dfgp', active: true }
+];
+portal.vehFilters.query = '';
+
+const fleetExport = portal.vehicleExportRows();
+const fleetExportHeader = fleetExport[0];
+const teamOf = (reg) =>
+  (fleetExport.slice(1).find(r => r[0] === reg) ?? [])[fleetExportHeader.indexOf('Team')];
+const odoOf = (reg) => (fleetExport.slice(1).find(r => r[0] === reg) ?? [])[
+  fleetExportHeader.indexOf('Current odometer km')];
+
+check('the fleet export has a header and a row per vehicle', fleetExport.length, 7);
+check('and the three columns that were asked for', fleetExportHeader,
+  ['Registration', 'Team', 'Current odometer km']);
+check('every row has as many fields as the header',
+  fleetExport.slice(1).every(r => r.length === fleetExportHeader.length), true);
+
+// Same rule as everywhere else the plate is shown. It still reduces to the same key,
+// so an export can be read back in.
+check('registrations are spaced as they are shown everywhere else',
+  [fleetExport[2][0], fleetExport[6][0]], ['BC 45 DF GP', 'XY 67 ZW GP']);
+check('the raw spelling is not what gets written',
+  fleetExport.slice(1).some(r => /bc45dfgp|XY-67-ZW-GP/.test(r[0])), false);
+
+// Sorted, so two exports of the same fleet can be put side by side.
+check('rows are ordered by registration', fleetExport.slice(1).map(r => r[0]),
+  ['AA 11 BB GP', 'BC 45 DF GP', 'CC 22 DD GP', 'EE 33 FF GP', 'GG 44 HH GP', 'XY 67 ZW GP']);
+
+check('the team comes off the assigned driver', teamOf('BC 45 DF GP'), 'Midrand');
+// The assignment is the admin's; the registration is what the employee typed. Where
+// there is no assignment the typed one still has to find the vehicle, spacing and all.
+check('and off the typed registration where nobody assigned one',
+  teamOf('XY 67 ZW GP'), 'Cape Town');
+// A stale registration on somebody assigned elsewhere must not pull their team onto a
+// vehicle they do not drive.
+check('an assignment elsewhere beats a stale typed registration',
+  [teamOf('BC 45 DF GP'), teamOf('GG 44 HH GP')], ['Midrand', 'Ghost']);
+// A vehicle handed on keeps no trace of whoever left, as long as somebody is on it now.
+check('a dormant account does not hold the team of a vehicle handed on',
+  teamOf('CC 22 DD GP'), 'Mthatha');
+// Two teams on one vehicle is a fact about the fleet, not a tie to be broken quietly.
+check('a vehicle two teams drive names both', teamOf('EE 33 FF GP'), 'Jozi; Bloem');
+check('a vehicle nobody drives has a blank team, not a guess', teamOf('AA 11 BB GP'), '');
+
+// A spreadsheet wants a number it can sort and total, not "85 000 km".
+check('the odometer is a bare number', odoOf('BC 45 DF GP'), 85000);
+check('and reads 0 where none was recorded, as the fleet table shows it',
+  odoOf('AA 11 BB GP'), 0);
+
+// The export must cover exactly the fleet on screen. Exporting a different set from the
+// table would be invisible to the person doing it.
+portal.vehFilters.query = 'bc45';
+const filteredFleet = portal.vehicleExportRows();
+check('the export follows the fleet search', filteredFleet.slice(1).map(r => r[0]),
+  ['BC 45 DF GP']);
+check('and covers exactly what the table shows',
+  filteredFleet.length - 1, portal.visibleVehicles().length);
+portal.vehFilters.query = '';
+
 
 /* ---------------- a day with nothing but an absence ---------------- */
 // Last, because it replaces the fixtures the checks above read from. An absence has no
