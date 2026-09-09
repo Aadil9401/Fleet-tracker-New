@@ -77,6 +77,47 @@ jobs:
       - name: Portal matches the debt spec
         run: node web/debt-spec-test.mjs web/index.html debt-cases.csv
 
+      # THE SAME CHECKS, ON OTHER DAYS. A fixture with a date typed into it passes on the
+      # day it is written and goes red later for a rule that never changed — quietly, and
+      # long after the change that should have caught it. Seven of them had collected in
+      # this suite before this step existed: one went red the morning after it was
+      # written, one was three weeks off, and four had only ever been green because the
+      # current month happened to be the September their figures were keyed to. None of
+      # that shows in a run on one day, which is the whole problem — the suite looks fine.
+      #
+      # Three dates ahead of whenever this runs, so the sweep always looks forward rather
+      # than at years somebody chose once, plus the two calendar edges that never stop
+      # mattering: 29 February, and the 28th of a common year, which is the day somebody
+      # born on the 29th is greeted and aged.
+      - name: The same checks, run as if it were another day
+        run: |
+          DATES="$(date -d '+40 days' +%F) $(date -d '+1 year' +%F) $(date -d '+5 years' +%F) 2027-02-28 2028-02-29"
+          CHECKS=(
+            "web/smoke-test.mjs web/index.html"
+            "web/parser-test.mjs web/index.html"
+            "web/render-test.mjs web/index.html"
+            "web/service-schedule-test.mjs web/index.html service-schedule-cases.csv"
+            "functions/service-schedule-test.mjs service-schedule-cases.csv"
+            "web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv"
+            "web/plate-format-test.mjs web/index.html plate-format-cases.csv"
+            "web/performance-spec-test.mjs web/index.html performance-network-cases.csv performance-rank-cases.csv"
+            "web/birthday-spec-test.mjs web/index.html birthday-cases.csv"
+            "web/debt-spec-test.mjs web/index.html debt-cases.csv"
+          )
+          FAILED=0
+          for D in $DATES; do
+            echo "::group::as if it were $D"
+            for C in "${CHECKS[@]}"; do
+              # Unquoted on purpose: each entry is a command and its arguments.
+              node web/at-date.mjs "$D" $C || {
+                echo "::error::${C%% *} fails when run as if it were $D — a fixture is pinned to a date, or the rule really is wrong on that day"
+                FAILED=1
+              }
+            done
+            echo "::endgroup::"
+          done
+          [ "$FAILED" = 0 ]
+
       - name: Cloud Functions parse
         run: |
           node --check functions/index.js

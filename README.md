@@ -154,6 +154,24 @@ node web/smoke-test.mjs web/index.html && node web/parser-test.mjs web/index.htm
 
 Those three share the browser and Firebase stubs in `portal-harness.mjs`.
 
+**Any check can be run as if it were another day**, which is how a fixture with a date
+typed into it gets caught:
+
+```bash
+node web/at-date.mjs 2028-02-29 web/render-test.mjs web/index.html
+```
+
+Only `new Date()` and `Date.now()` move, so a date written out in full still means what
+it says. `checks.yml` sweeps the whole suite this way on every push — three dates ahead
+of whenever it runs, plus 29 February and the 28th of a common year, which is the day
+somebody born on the 29th is greeted and aged.
+
+It is there because a test built on a date somebody typed passes on the day it is written
+and goes red later for a rule that never changed. Seven of those had collected: one went
+red the morning after it was written, one was three weeks off, and four had only ever
+been green because the current month happened to be the September their figures were
+keyed to. A run on one day cannot tell any of that from a real fault.
+
 The phone app's own logic is checked by `gradle testDebugUnitTest`, which the APK
 workflow runs: the service rules, the parking curfew, and the day view's eight figures
 and the rows behind each one.
