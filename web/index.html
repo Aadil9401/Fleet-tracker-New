@@ -722,6 +722,10 @@
           <div class="grow"><label for="enEndKm">End odometer</label><input id="enEndKm" type="number" min="0"></div>
         </div>
         <div class="field"><label for="enAreas">Areas worked</label><input id="enAreas"></div>
+        <div class="field hidden" id="enLateField">
+          <label for="enLateReason">Why was the vehicle parked late?</label>
+          <input id="enLateReason" placeholder="Required once the knock off is past the curfew">
+        </div>
         <div id="entryError"></div>
         <p class="sub" style="font-size:.8rem">
           Corrections made here are recorded as edited by you, so it stays clear which
@@ -2384,9 +2388,44 @@ function openEntryModal(uid) {
   $('enStartKm').value = row.startOdometerKm ?? '';
   $('enEndKm').value = row.endOdometerKm ?? '';
   $('enAreas').value = row.mainAreasWorked || '';
+  $('enLateReason').value = row.lateReason || '';
+  syncEntryLate();
   $('entryError').innerHTML = '';
   $('entryOverlay').classList.remove('hidden');
 }
+
+/**
+ * Whether a day being recorded here needs a reason for parking late.
+ *
+ * THE SAME RULE THE PHONE APPLIES, and the reason this exists at all: the phone has
+ * refused to close a late day without one since it was asked for, and this form did not
+ * — so a day recorded or corrected by an admin could sit past the curfew with a dash
+ * against it for ever, which is the one row on the late list nobody can chase up.
+ *
+ * Judged against THE DAY BEING EDITED, not today. An admin correcting last Tuesday must
+ * have that Tuesday's curfew applied — which matters the moment the curfew is ever moved
+ * again, as it has been once already.
+ *
+ * Unlike the phone, this form cannot express a knock-off after midnight: the time is
+ * resolved against the day being edited, and a knock-off before the start time is refused
+ * on the line above. A day that genuinely ended at 00:30 has to be recorded on the phone,
+ * or left as it was.
+ *
+ * No knock-off time at all means the day is not closed, which is a different state and
+ * already shown as its own.
+ */
+function entryNeedsLateReason(date, endTime) {
+  if (!endTime) return false;
+  return isParkedLate({ date, endTimeMillis: millisFor(date, endTime) });
+}
+
+/** Shows the reason box the moment the typed knock-off passes the curfew. */
+function syncEntryLate() {
+  $('enLateField').classList.toggle('hidden',
+    !entryNeedsLateReason(selectedDate, $('enEnd').value));
+}
+
+$('enEnd').addEventListener('input', syncEntryLate);
 
 $('entryCancel').addEventListener('click', () => {
   $('entryOverlay').classList.add('hidden');
@@ -2403,8 +2442,15 @@ $('entrySave').addEventListener('click', async () => {
     $('entryError').innerHTML = `<div class="msg err">${esc(msg)}</div>`;
   };
 
+  const lateReason = $('enLateReason').value.trim();
+
   if (!startTime) return fail('A start time is needed.');
   if (endTime && endTime < startTime) return fail('Knock off cannot be before the start time.');
+  // The same refusal the phone makes, for the same reason: a day closed now and the
+  // reason chased afterwards is a day whose reason never arrives.
+  if (entryNeedsLateReason(selectedDate, endTime) && !lateReason) {
+    return fail(`This knock off is after ${PARK_BY}. A reason for parking late is required.`);
+  }
   if (startKm !== null && endKm !== null && endKm < startKm) {
     return fail('End odometer cannot be lower than the start odometer.');
   }
@@ -2424,6 +2470,10 @@ $('entrySave').addEventListener('click', async () => {
       startOdometerKm: startKm ?? 0,
       endOdometerKm: endKm ?? 0,
       mainAreasWorked: $('enAreas').value.trim(),
+      // Always written, not only when late. Correcting a knock-off back to before the
+      // curfew must not leave yesterday's reason attached to a day that is no longer
+      // late — with merge:true, omitting it would.
+      lateReason: entryNeedsLateReason(selectedDate, endTime) ? lateReason : '',
       notWorking: false,
       // Marks the figures as adjusted, so an employee's own entry and an admin
       // correction stay distinguishable.

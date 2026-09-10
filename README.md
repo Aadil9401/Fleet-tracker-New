@@ -223,6 +223,26 @@ Cases are written as offsets from the curfew rather than as clock times, so **mo
 curfew needs no change to the table** — only the two one-line constants. It has moved
 once already, from 18:00 to 18:30.
 
+### A reason is required, on both sides
+
+Knocking off after the curfew asks why, and will not close the day without an answer. The
+phone has refused since it was asked for; **the portal did not**, and its Record day form
+had no box for a reason at all — so a day recorded or corrected by an admin could sit past
+the curfew with a permanent dash against it. That is the one row on the late list nobody
+can chase up, because the person who could answer was never asked.
+
+Both sides now refuse it. The reason box appears the moment the typed knock-off passes the
+curfew, and the day cannot be saved without it. It is judged against **the day being
+edited**, not today, which matters the moment the curfew moves again.
+
+Unlike the phone, the portal cannot express a knock-off after midnight: the time is
+resolved against the day being edited, and a knock-off before the start time is already
+refused. A day that genuinely ended at 00:30 has to be recorded on the phone.
+
+Neither side is enforced in `firestore.rules`. A rule would have to do curfew arithmetic
+in a timezone, and getting it wrong locks every driver out of knocking off — a worse
+failure than the one it guards against.
+
 ## Insurance claims
 
 An admin records a claim on the portal; nobody else can. An employee **may read the

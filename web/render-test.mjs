@@ -32,6 +32,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
+  'entryNeedsLateReason',
   'renderInsurance', 'visibleClaims', 'claimExportRows', 'claimFilters',
   'daysOffRoad', 'daysToRepairStart', 'daysAtRepairer', 'turnaroundBreakdown',
   'daysBetween', 'soleTeamForVehicle', 'claimTeamOptions',
@@ -385,6 +386,46 @@ check('and covers exactly what the table shows',
   filteredFleet.length - 1, portal.visibleVehicles().length);
 portal.vehFilters.query = '';
 
+
+/* ---------------- a reason for parking late, on the PORTAL ---------------- */
+/* The phone has refused to close a late day without a reason since it was asked for.
+   This form did not — so a day recorded or corrected by an admin could sit past the
+   curfew with a dash against it for ever, and that is the one row on the late list
+   nobody can chase up, because the person who could answer was never asked.
+
+   Written as offsets from PARK_BY rather than as clock times, for the same reason
+   parking-curfew-cases.csv is: the curfew has moved once already, and every case below
+   stays correct when it moves again. */
+const curfewAt = (offsetMinutes) => {
+  const [h, m] = portal.PARK_BY.split(':').map(Number);
+  const total = h * 60 + m + offsetMinutes;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+};
+const lateDay = '2026-03-16';
+
+check('a day with no knock off needs no reason yet',
+  portal.entryNeedsLateReason(lateDay, ''), false);
+check('an ordinary day needs none',
+  portal.entryNeedsLateReason(lateDay, curfewAt(-60)), false);
+// The boundary belongs to the driver: parked AT the curfew is parked on time.
+check('parked exactly on the curfew is on time',
+  portal.entryNeedsLateReason(lateDay, curfewAt(0)), false);
+check('a minute past it is not',
+  portal.entryNeedsLateReason(lateDay, curfewAt(1)), true);
+check('and an hour past it certainly is not',
+  portal.entryNeedsLateReason(lateDay, curfewAt(60)), true);
+
+// The form must actually carry the box, or the rule above has nothing to read.
+// Over the whole file rather than the tab: the entry modal is an overlay and lives
+// outside the tab sections, so tabMarkup() cannot see it.
+check('the modal has somewhere to type the reason',
+  [src.includes('id="enLateReason"'), src.includes('id="enLateField"')], [true, true]);
+/* And the reason must be WRITTEN on every save, not only on a late one: with merge:true,
+   omitting it would leave yesterday's reason attached to a day an admin has just
+   corrected back to before the curfew. */
+check('correcting a day back to on time clears the reason rather than leaving it',
+  src.includes("lateReason: entryNeedsLateReason(selectedDate, endTime) ? lateReason : ''"),
+  true);
 
 /* ---------------- insurance claims ---------------- */
 // The tab an admin types into and a driver reads. Two things carry real weight: the
