@@ -4127,6 +4127,9 @@ const PERF_UPLOADS = {
   fy: {
     label: 'FY incentive',
     keyedOn: 'employee',
+    // Which collection these land in. Named rather than inferred from the key, because
+    // there are now two FY uploads and "is this one of them" is asked in five places.
+    stores: 'perfFy',
     /*
      * WIDE: one row per person per month, with each network's three figures as its own
      * columns — so both payables sit side by side on one line.
@@ -4151,8 +4154,49 @@ const PERF_UPLOADS = {
       ['T042', '2026-08', '1000', '400', '5600.00', '600', '210', '2940.00'],
       ['T099', '2026-08', '500', '125', '1750.00', '', '', '']
     ]
+  },
+
+  /*
+   * FY CONNECTIONS ON THEIR OWN, and it exists because the full file cannot do this.
+   *
+   * Aadil: "i also want a template for fy connections only ... without interfering with
+   * stock figures". Leaving the stock columns blank on the FY file does not leave stock
+   * alone — a blank COUNT is read as nought, deliberately and correctly, because on a
+   * file that carries stock an empty cell means none was issued. So a connections-only
+   * pass through the wide file would write nought over every stock figure it did not
+   * mention, and the conversion percentages behind them would follow it down.
+   *
+   * A file that never carries a stock column cannot do that. It writes fyConnections and
+   * nothing else, merged onto whatever rows are already there, so the stock and the
+   * payable stay exactly as they were.
+   *
+   * Same collection, same document per person per month per network, same shape
+   * downstream. The only difference is how much of the row this particular file is
+   * allowed to speak for.
+   */
+  fyConnections: {
+    label: 'FY connections only',
+    keyedOn: 'employee',
+    stores: 'perfFy',
+    layout: 'wide',
+    networks: FY_NETWORKS,
+    figures: [
+      { label: 'connections', field: 'fyConnections', kind: 'count' }
+    ],
+    sample: [
+      ['T042', '2026-08', '400', '210'],
+      ['T099', '2026-08', '125', '']
+    ]
   }
 };
+
+/**
+ * Whether an upload lands in the FY collection.
+ *
+ * Was `kind === 'fy'` in five places, which stopped being the question the moment there
+ * was a second FY file. Asked of the table instead, so a third one needs no new branch.
+ */
+const perfOnFy = (kind) => PERF_UPLOADS[kind].stores === 'perfFy';
 
 /**
  * The networks a team's figures are filed under.
@@ -4407,11 +4451,33 @@ const isMonth = (value) => normaliseMonth(value) !== '';
  * Matched on the whole heading reduced to letters and digits, never on part of one:
  * "MTN stock" is FY's column and must not be taken for the stock file's "Stock".
  */
+/**
+ * The headings a file of this kind actually carries, normalised for comparison.
+ *
+ * THE BARE LABEL IS NOT WHAT A WIDE FILE WRITES. Its columns are network-prefixed —
+ * "MTN connections", not "connections" — so a guard reading bare labels never recognised
+ * a wide file's heading at all, and could not tell it apart from anything. That went
+ * unnoticed while FY was the only wide file, because every FY row is far too wide for
+ * another box and was refused on its width before the heading mattered. A narrower wide
+ * file has no such accident protecting it.
+ *
+ * Registered in the form the file actually writes, and only that form.
+ */
+function perfFigureHeadingKeys(kind) {
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  // ONLY the form this file really writes. Registering the bare label for a wide file as
+  // well made FY a claimant on the stock file's own heading, and the stock file in the
+  // connections box was then told it might belong in the FY box — an instruction that
+  // sounds certain and is wrong. A wide file never carries a bare "stock" column.
+  if (!perfIsWide(kind)) return perfFigures(kind).map(f => norm(f.label));
+  return perfNetworks(kind).flatMap(network =>
+    perfFigures(kind).map(f => norm(`${NETWORK_LABELS[network]} ${f.label}`)));
+}
+
 function figureOwners() {
   const owners = {};
   Object.keys(PERF_UPLOADS).forEach(k => {
-    perfFigures(k).forEach(f => {
-      const key = String(f.label).toLowerCase().replace(/[^a-z0-9]/g, '');
+    perfFigureHeadingKeys(k).forEach(key => {
       if (!owners[key]) owners[key] = [];
       if (!owners[key].includes(k)) owners[key].push(k);
     });
@@ -4436,16 +4502,23 @@ function figureOwners() {
  */
 function wrongBox(headerCells, kind) {
   const owners = figureOwners();
-  const mine = new Set(perfFigures(kind)
-    .map(f => String(f.label).toLowerCase().replace(/[^a-z0-9]/g, '')));
+  const mine = new Set(perfFigureHeadingKeys(kind));
 
   for (const cell of headerCells) {
     const key = String(cell ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
     if (!key || mine.has(key)) continue;
-    const owner = (owners[key] || []).find(k => k !== kind);
-    if (owner) {
-      return `this looks like the ${PERF_UPLOADS[owner].label.toUpperCase()} file — `
-        + `its heading says "${cell}". Upload it in the ${PERF_UPLOADS[owner].label} `
+    /*
+     * EVERY box that heading could belong to, not the first one found. "MTN connections"
+     * is a column of both FY files, and naming one of them at random sends somebody to
+     * the wrong tab with an instruction that sounds certain.
+     */
+    const others = (owners[key] || []).filter(k => k !== kind);
+    if (others.length) {
+      const names = others.map(k => PERF_UPLOADS[k].label);
+      const list = names.length === 1 ? names[0]
+        : names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1];
+      return `this looks like the ${list.toUpperCase()} file — `
+        + `its heading says "${cell}". Upload it in the ${list} `
         + `box, or check you picked the right file for ${PERF_UPLOADS[kind].label}`;
     }
   }
@@ -5686,7 +5759,7 @@ function renderPerformance() {
  * you upload in is on the same screen as the figures it produces.
  */
 const perfUploadKinds = (container) => Object.keys(PERF_UPLOADS)
-  .filter(kind => (kind === 'fy') === (container === 'fyUploads'));
+  .filter(kind => perfOnFy(kind) === (container === 'fyUploads'));
 
 /** The upload cards, built from the same table the parser reads. */
 function renderPerformanceUploads(container = 'perfUploads') {
@@ -5783,10 +5856,10 @@ function monthFigureCount(kind) {
    * the Performance tab happened to be showing — and named that month in the
    * confirmation, so the wrong answer looked like the right one.
    */
-  const picker = kind === 'fy' ? 'fyMonth' : 'perfMonth';
+  const picker = perfOnFy(kind) ? 'fyMonth' : 'perfMonth';
   const month = $(picker).value || todayString().slice(0, 7);
   const field = perfFigures(kind)[0].field;
-  const from = kind === 'fy' ? data.perfFy
+  const from = perfOnFy(kind) ? data.perfFy
     : PERF_UPLOADS[kind].keyedOn === 'team' ? data.perfTeams
     : data.perfMonthly;
   return {
@@ -5814,7 +5887,7 @@ function monthFigureCount(kind) {
 async function clearPerformanceMonth(kind) {
   const spec = PERF_UPLOADS[kind];
   // Reported beside the figures it removed, which for FY is its own tab.
-  const status = kind === 'fy' ? 'fyUploadStatus' : 'perfUploadStatus';
+  const status = perfOnFy(kind) ? 'fyUploadStatus' : 'perfUploadStatus';
   const { month, rows } = monthFigureCount(kind);
   if (rows === 0) {
     $(status).innerHTML = `<span class="meta">No ${
@@ -5834,7 +5907,7 @@ async function clearPerformanceMonth(kind) {
     return;
   }
 
-  const collectionName = kind === 'fy' ? 'perfFy'
+  const collectionName = perfOnFy(kind) ? 'perfFy'
     : spec.keyedOn === 'team' ? 'perfTeams' : 'perfMonthly';
   const fields = perfFigures(kind).map(f => f.field);
 
@@ -5898,7 +5971,7 @@ async function savePerformance(kind) {
   if (!text.trim()) { showMsg('Choose a file or paste the figures first.', 'err'); return; }
 
   // FY reports on its own tab, beside its own figures.
-  const status = kind === 'fy' ? 'fyUploadStatus' : 'perfUploadStatus';
+  const status = perfOnFy(kind) ? 'fyUploadStatus' : 'perfUploadStatus';
 
   const { rows, errors } = parsePerformanceLines(text, kind);
   if (rows.length === 0) {
@@ -5949,7 +6022,7 @@ async function savePerformance(kind) {
           // FY carries a network and lives in its own collection; pay does not and
           // shares one document per person per month. Both are merged, so loading one
           // figure never wipes another.
-          const onFy = kind === 'fy';
+          const onFy = perfOnFy(kind);
           const id = onFy
             ? `${r.key}_${r.month}_${r.network}`
             : `${r.key}_${r.month}`;

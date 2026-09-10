@@ -33,7 +33,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
-  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'normaliseMonth',
+  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'perfOnFy', 'normaliseMonth',
   'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore',
   'staffTemplateRows', 'ROSTER_COLUMNS', 'splitCells', 'parseDebtLines',
   'DEBT_COLUMNS', 'DEBT_SAMPLE', 'ageOn', 'ageLabel'
@@ -535,8 +535,10 @@ check('and every figure on the row is written, not just the first',
    check at a glance. It is stored per network all the same, so ONE row here becomes TWO
    documents — and that expansion is the thing worth pinning, because nothing downstream
    knows it happened. */
-check('FY is a wide file and the others are not',
-  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfIsWide(k)), ['fy']);
+// Two of them now: the full FY file and the connections-only one, which is wide for the
+// same reason — a network per column rather than a row per network.
+check('the FY files are the wide ones and the others are not',
+  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfIsWide(k)), ['fy', 'fyConnections']);
 check('its columns carry each network by name',
   portal.perfColumns('fy'),
   ['Employee number', 'Month',
@@ -771,6 +773,52 @@ Object.keys(portal.PERF_UPLOADS).forEach(mine => {
     check(`the ${theirs} file is refused by the ${mine} box`, parsed.rows.length, 0);
   });
 });
+
+/* ---------------- FY connections, on their own ---------------- */
+/* THE WHOLE POINT OF THIS FILE IS WHAT IT DOES NOT CARRY. Aadil wanted to load FY
+   connections "without interfering with stock figures", and the full FY file cannot do
+   that: a blank COUNT is read as nought, correctly, because on a file that carries a
+   stock column an empty cell means none was issued. So blanking the stock columns on the
+   wide file writes nought over every stock figure it does not mention, and the conversion
+   percentages behind them follow it down.
+
+   A file with no stock column cannot do that. These pin that it never writes one — the
+   writer merges, so a field absent here is a field left alone in the database. */
+const fyConnFile = [portal.perfColumns('fyConnections').join(','),
+  ...portal.PERF_UPLOADS.fyConnections.sample.map(r => r.join(','))].join('\n');
+const fyConnParsed = portal.parsePerformanceLines(fyConnFile, 'fyConnections');
+
+check('the connections-only file loads', fyConnParsed.errors, []);
+// One row per person per network, the same expansion the wide FY file does.
+check('and one row per network it names', fyConnParsed.rows.length, 3);
+check('its columns name each network and nothing else',
+  portal.perfColumns('fyConnections'),
+  ['Employee number', 'Month', 'MTN connections', 'Telkom connections']);
+
+// THE PIN. Every field this file is capable of writing, across every row.
+check('it writes connections and nothing else, ever',
+  [...new Set(fyConnParsed.rows.flatMap(r => Object.keys(r.values)))], ['fyConnections']);
+check('and never a stock or a payable field',
+  fyConnParsed.rows.some(r => 'fyStock' in r.values || 'fyAmountRands' in r.values), false);
+// Which is only safe because the writer merges rather than replaces.
+check('and the writer merges, so an absent field is one left alone',
+  source.includes('...r.values,') && source.includes('{ merge: true }'), true);
+
+// It lands in the FY collection beside the full file, on the same document per person
+// per month per network — which is what lets one update the other's rows.
+check('it stores in perfFy, like the full FY file',
+  [portal.perfOnFy('fyConnections'), portal.perfOnFy('fy'), portal.perfOnFy('commission')],
+  [true, true, false]);
+
+/* AND THE WRONG BOX NAMES EVERY BOX IT COULD BE. "MTN connections" is a column of both
+   FY files, so naming one of them at random would send somebody to the wrong tab with an
+   instruction that sounds certain. */
+const fyConnInCommission = portal.parsePerformanceLines(fyConnFile, 'commission');
+check('the connections-only file is refused by the commission box',
+  fyConnInCommission.rows.length, 0);
+check('and the complaint names both FY boxes, since the heading fits either',
+  [fyConnInCommission.errors[0].why.includes('FY incentive'),
+   fyConnInCommission.errors[0].why.includes('FY connections only')], [true, true]);
 
 /* FY'S COLUMNS ARE NOT THE STOCK FILE'S. "MTN stock" belongs to FY and must not be read
    as the stock file's "Stock" — matching on part of a heading is how a guard starts
@@ -1150,7 +1198,7 @@ check('and the cached month is dropped so the tab re-reads what is left',
 check('every upload has a remove button',
   (source.match(/perfClear-/g) || []).length >= 2, true);
 check('and it goes to the right collection for the kind',
-  source.includes("const collectionName = kind === 'fy' ? 'perfFy'"), true);
+  source.includes("const collectionName = perfOnFy(kind) ? 'perfFy'"), true);
 
 /* Firestore commits at most 500 writes per batch, and a batch is a cliff rather than a
    slope: one row over and the whole upload fails with an error about batch size, saying
