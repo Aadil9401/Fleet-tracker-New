@@ -245,14 +245,14 @@ failure than the one it guards against.
 
 ## Insurance claims
 
-An admin records a claim on the portal; nobody else can. An employee **may read the
-claims for their own team** and no others.
+Claims are **admins only**, every way round — read, write and delete, enforced in
+`firestore.rules` rather than in the page.
 
-That is enforced in `firestore.rules`, not in the page: `create`, `update` and `delete`
-are admin-only, and `get`/`list` match the **teamName stored on the claim** against the
-team on the reader's own user record. Firestore only permits a query it can prove
-satisfies the rule, so an employee asking for every claim in the fleet is refused
-outright rather than filtered afterwards.
+They were briefly readable by the team a claim belonged to, for a screen on the phone
+that was then decided against: drivers do not need to see claims. The read was withdrawn
+with it, because a permission granted for a reader that does not exist is one nobody
+would ever notice going wrong — and what sits behind this one is what the fleet was paid
+out for writing a vehicle off.
 
 **The team is stored on the claim, not resolved through the vehicle.** Moving a vehicle
 between teams next year must not quietly change who can read a claim from this one. The
@@ -261,18 +261,13 @@ uses — but only where that is a single team: a pool vehicle two teams share ha
 answer, so it asks rather than guesses. A claim cannot be saved without one, because a
 claim with no team is one no employee will ever see and nobody will notice is missing.
 
-**A team can be typed, not only picked.** A claim for a team nobody has signed up for yet
-is recorded now and read by them the day somebody does, and the box says so as you type
-one — that is a real difference, not a mistake.
+**A team can be typed, not only picked**, so a claim can be recorded for a team nobody
+has signed up for yet. The box says when you have typed a team nobody is on.
 
-Which puts the weight of the whole feature on one string comparison, because the rule
-matches the claim's team against the reader's as plain text. So **a team already on the
-staff list is matched however it is capitalised and stored the way those records spell
-it**: a claim saved as `midrand` against records saying `Midrand` is one its own team can
-never read, and nothing on any screen would say why — it looks perfectly correct sitting
-in the admin's list. A team that genuinely does not exist yet is kept exactly as typed,
-because the staff records are the authority on how an existing team is spelt and nothing
-is the authority on one that is not there.
+**A team already on the staff list is matched however it is capitalised and stored the way
+those records spell it.** That was load-bearing while the rules matched teams as text; now
+that claims are admin-only it is only tidiness, but the tidiness is worth keeping — a list
+carrying `Midrand`, `midrand` and `MIDRAND` as three teams is a list nobody can total.
 
 ### Three turnaround figures, not one
 
@@ -299,12 +294,6 @@ still costing money at the top of the list of the ones that came back quickest.
 The averages are taken over the claims that have the dates for each figure, which is not
 the same set for all three: a vehicle at the repairer right now has a wait to average and
 no repair time yet. Averaging each over its own claims is the only honest way to do it.
-
-### What is not built yet
-
-**The driver's side.** The rules already allow it and every claim already carries the
-team it belongs to, but nothing on the phone reads them — there is no screen. That is
-Kotlin, and it is the next piece.
 
 ## Birthdays and ages
 
