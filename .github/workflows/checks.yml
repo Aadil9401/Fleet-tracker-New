@@ -77,6 +77,14 @@ jobs:
       - name: Portal matches the debt spec
         run: node web/debt-spec-test.mjs web/index.html debt-cases.csv
 
+      # And for what a recorded route means — how far apart two points are, and which
+      # points are worth keeping at all. Both implemented on both sides, and both
+      # invisible when wrong: a route that sums the drift of a parked phone draws a
+      # perfectly convincing map of a journey nobody made, and the distance it reports is
+      # the one an odometer reading is going to be checked against.
+      - name: Portal matches the location spec
+        run: node web/location-spec-test.mjs web/index.html location-distance-cases.csv location-filter-cases.csv
+
       # THE SAME CHECKS, ON OTHER DAYS. A fixture with a date typed into it passes on the
       # day it is written and goes red later for a rule that never changed — quietly, and
       # long after the change that should have caught it. Seven of them had collected in
@@ -103,6 +111,7 @@ jobs:
             "web/performance-spec-test.mjs web/index.html performance-network-cases.csv performance-rank-cases.csv"
             "web/birthday-spec-test.mjs web/index.html birthday-cases.csv"
             "web/debt-spec-test.mjs web/index.html debt-cases.csv"
+            "web/location-spec-test.mjs web/index.html location-distance-cases.csv location-filter-cases.csv"
           )
           FAILED=0
           for D in $DATES; do

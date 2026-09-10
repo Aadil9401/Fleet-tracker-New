@@ -126,6 +126,46 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    /*
+     * WHERE SOMEBODY WENT. The most sensitive thing in this database, and the rules are
+     * the only thing standing between one employee and everybody else's movements.
+     *
+     * Two collections, because they answer two different questions at two very different
+     * costs. trackBatches is append-only and holds the points themselves; trackDays is
+     * one small document per person per day, overwritten as the day goes, holding the
+     * last known position and the totals. The fleet overview reads the second, which is
+     * sixty-odd documents; only opening one person's day reads the first.
+     *
+     * NO EMPLOYEE MAY LIST ANOTHER'S. Not "may not read" — may not LIST: Firestore only
+     * permits a query it can prove satisfies the rule, so a client asking for everyone's
+     * movements is rejected outright rather than filtered afterwards.
+     */
+    match /trackBatches/{batchId} {
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      // Their own day, which is what an employee's own route screen would need. The
+      // dashboard is the only thing that queries across everyone.
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      // Only ever your own, and only ever new. An employee cannot write a batch under
+      // somebody else's uid, and nobody can rewrite one afterwards — a route that could
+      // be edited after the fact is a route nobody can rely on, including the driver
+      // being asked to account for it.
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if false;
+      // Admin-only, and it is the retention purge that uses it: on Spark there is no
+      // Cloud Function to expire this data, so old batches are deleted from the portal.
+      allow delete: if isAdmin();
+    }
+
+    match /trackDays/{dayId} {
+      allow get: if isAdmin() ||
+        (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create, update: if isAdmin() ||
+        (isSignedIn() && request.resource.data.uid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
     // Performance figures, uploaded by an admin from a spreadsheet. They split two ways,
     // because a team's output and a person's pay are not the same kind of secret.
 

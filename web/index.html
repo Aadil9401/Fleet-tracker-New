@@ -1375,6 +1375,103 @@ const lateLabel = (mins) => mins <= 0 ? '—'
   : mins < 60 ? `${mins} min`
   : `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
 
+/*
+ * ---------------- what a recorded route means ----------------
+ *
+ * The phone records where a vehicle went between clock-in and knock-off. Two rules
+ * decide what those points mean, and BOTH ARE IMPLEMENTED TWICE — here, and in
+ * LocationTrack.kt on the phone — because a self-contained HTML file with no build step
+ * cannot reach Kotlin. The specifications both answer to are `location-distance-cases.csv`
+ * and `location-filter-cases.csv` at the repo root; web/location-spec-test.mjs runs this
+ * copy against them and LocationTrackTest runs the phone's. Change a rule in the tables,
+ * then change it in both.
+ */
+
+/**
+ * Mean Earth radius. A sphere, not the ellipsoid: under half a percent out anywhere in
+ * South Africa, and a figure both sides compute identically is worth more here than one
+ * marginally truer on one side and unreproducible on the other.
+ */
+const EARTH_RADIUS_M = 6371000;
+
+/**
+ * How far the phone must have moved from the last KEPT point to record another, and the
+ * worst fix worth storing at all.
+ *
+ * A phone standing still does not report one position, it reports a slow drift of them
+ * for as long as it is on. Summed naively that is kilometres of travel by somebody who
+ * never left the depot — which is how a tracking feature comes to accuse an honest
+ * driver, over a map that looks perfectly convincing.
+ */
+const MIN_MOVE_M = 15;
+const MAX_ACCURACY_M = 50;
+
+/**
+ * The great-circle distance in metres. Haversine, which keeps its precision at the short
+ * distances this spends most of its time on — two points a few metres apart on one road.
+ *
+ * The longitude difference goes inside the sine, so a route crossing from +179.9 to
+ * -179.9 reads as 22 km rather than most of the way round the world.
+ */
+function metresBetween(lat1, lng1, lat2, lng2) {
+  const rad = (d) => d * Math.PI / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  // Math.min guards the rounding that can push a fractionally over 1 for two points at
+  // opposite ends of the Earth, where asin would then be NaN.
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/**
+ * Whether a fix is worth keeping.
+ *
+ * BOTH THRESHOLDS ARE INCLUSIVE — "moved at least this far", "accurate to within this
+ * much" — so a point exactly on the boundary is kept: where the two are
+ * indistinguishable, the side that keeps the data is the recoverable one.
+ *
+ * The first fix of the day has no previous kept point to have moved from, so distance
+ * does not apply to it. Accuracy still does: a day that opens on a fix good to half a
+ * kilometre opens in the wrong place.
+ */
+function shouldKeepPoint(isFirst, metresFromLastKept, accuracyMetres) {
+  if (Number(accuracyMetres) > MAX_ACCURACY_M) return false;
+  return isFirst || Number(metresFromLastKept) >= MIN_MOVE_M;
+}
+
+/**
+ * The points worth keeping, each measured against the last one KEPT rather than the last
+ * one seen. Measured against the last one seen, a phone creeping a metre at a time drops
+ * every point for ever and records a driver as having never moved.
+ */
+function keptPoints(points) {
+  const kept = [];
+  (points || []).forEach(p => {
+    const last = kept[kept.length - 1];
+    const moved = last ? metresBetween(last.lat, last.lng, p.lat, p.lng) : 0;
+    if (shouldKeepPoint(!last, moved, p.acc ?? p.accuracyMetres ?? 0)) kept.push(p);
+  });
+  return kept;
+}
+
+/**
+ * How far a route ran, over the points worth keeping — filtered first rather than summed
+ * raw, which is the whole point: the raw sum of a day's fixes is the drift plus the
+ * driving, and on a day spent mostly parked the drift is the larger of the two.
+ */
+function routeMetres(points) {
+  const kept = keptPoints(points);
+  let total = 0;
+  for (let i = 1; i < kept.length; i++) {
+    total += metresBetween(kept[i - 1].lat, kept[i - 1].lng, kept[i].lat, kept[i].lng);
+  }
+  return total;
+}
+
+/** Metres as the kilometres everything else on this page is stated in. */
+const routeKm = (points) => routeMetres(points) / 1000;
+
 /**
  * What it cost to cover a kilometre: fuel spent over distance driven, both taken over
  * the same period.

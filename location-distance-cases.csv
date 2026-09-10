@@ -1,0 +1,41 @@
+# How far apart two points are. THIS FILE IS THE SPECIFICATION.
+#
+# A recorded route is only ever a list of points; every distance the app or the portal
+# shows is worked out from them. So this rule decides what a day's travel reads as, and
+# it is the rule the odometer will be checked against — which means the two sides
+# disagreeing does not look like a fault, it looks like a driver whose readings are off.
+#
+# It is implemented twice, because the two places that need it cannot share code: the
+# admin portal is a single self-contained HTML file with no build step, and the Android
+# app is Kotlin. Nothing else stops those two drifting apart, so both are tested against
+# this table:
+#
+#   web/location-spec-test.mjs                                   the portal   (node)
+#   app/src/test/.../data/model/LocationTrackTest.kt             the app      (gradle)
+#
+# The great-circle (haversine) distance on a sphere of radius 6 371 000 m — the mean
+# Earth radius. NOT the ellipsoid: the difference is under 0.5% anywhere in South Africa,
+# and a figure both sides compute identically is worth more here than a figure that is
+# marginally truer on one side. The radius is a constant in both, so it is the one thing
+# that must be changed in two places if it is ever changed at all.
+#
+# Expected metres are ROUNDED TO WHOLE METRES. Anything finer is noise: a phone's own
+# fix is good to a few metres on a clear day and far worse between buildings.
+#
+# The last four cases are not South African and are there on purpose. A degree of
+# latitude is 111 195 m anywhere on this sphere, which is the arithmetic check; the
+# antimeridian pair crosses from +179.9 to -179.9 and must read 22 km rather than most of
+# the way round the world, which is what a naive subtraction of longitudes gives; and the
+# equator pair spans a sign change in latitude, the same trap one parallel further in.
+name,lat1,lng1,lat2,lng2,metres
+same point twice,-26.2041,28.0473,-26.2041,28.0473,0
+a metre or two of jitter,-26.2041,28.0473,-26.20411,28.04731,1
+ten metres up the road,-26.2041,28.0473,-26.20419,28.0473,10
+Johannesburg CBD to Sandton,-26.2041,28.0473,-26.1076,28.0567,10771
+Johannesburg to Pretoria,-26.2041,28.0473,-25.7479,28.2293,53891
+Johannesburg to Durban,-26.2041,28.0473,-29.8587,31.0218,500315
+Johannesburg to Cape Town,-26.2041,28.0473,-33.9249,18.4241,1261576
+one degree of latitude at the equator,0,0,1,0,111195
+one degree of longitude at the equator,0,0,0,1,111195
+across the antimeridian,0,179.9,0,-179.9,22239
+north and south of the equator,-0.5,28,0.5,28,111195

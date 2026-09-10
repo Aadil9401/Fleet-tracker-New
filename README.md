@@ -216,6 +216,57 @@ Cases are written as offsets from the curfew rather than as clock times, so **mo
 curfew needs no change to the table** — only the two one-line constants. It has moved
 once already, from 18:00 to 18:30.
 
+## Where a vehicle went
+
+**In progress — the rules are in, the recording and the map are not.** Nothing on the
+phone records a position yet and nothing in the portal draws one. What exists is the part
+that decides what a recorded route *means*, pinned on both sides before either side is
+built, because these two rules are the ones that go quietly wrong.
+
+The plan: the phone records a fix every half minute **between Start time and Knock off
+only**, buffers them, and writes one batched document every five minutes. The portal
+draws the route on a map. Bounded by the two clock events on purpose — it is the
+proportionate thing to record, and it is also what keeps the writes inside Spark's free
+20 000 a day.
+
+| | |
+|---|---|
+| **The specifications** | `location-distance-cases.csv` and `location-filter-cases.csv`, at the repo root |
+| Phone app | `LocationTrack.kt`, checked by `LocationTrackTest` (`gradle testDebugUnitTest`) |
+| Admin portal | inline in `index.html`, checked by `web/location-spec-test.mjs` |
+
+**Two rules, and the second is the one that matters.** The first is the distance between
+two points — haversine on a sphere of 6 371 000 m, so both sides get the same answer.
+
+The second decides which fixes are kept at all. **A phone standing still does not report
+one position; it reports a slow drift of them for as long as it is on.** Summed naively
+that is kilometres of travel by somebody who never left the depot — a perfectly
+convincing map of a journey nobody made. So a fix is kept only if the phone has moved at
+least 15 m from the last **kept** point, and only if the fix was accurate to within 50 m.
+Measured against the last kept point, never the last one seen: measured against the last
+one seen, a phone creeping a metre at a time drops every point for ever and records a
+driver as having never moved.
+
+Both thresholds will want tuning once real routes come back off the phones, which is why
+every case in the filter table is written as an **offset** from them rather than as
+metres — the same reason the parking curfew's cases are offsets from the curfew.
+
+### What is not settled yet
+
+- **The phones.** Background location needs a foreground service, a permanent
+  notification, and `ACCESS_BACKGROUND_LOCATION`, which the user has to grant in Settings
+  rather than inline. Most OEM Androids kill background services anyway unless each
+  handset is whitelisted in its own battery settings. This is the same class of risk that
+  killed fuel-slip scanning, and it is worth proving on one real phone in the field
+  before any of the rest is built.
+- **Retention.** Roughly 6 MB a day at sixty-odd staff fills Spark's free 1 GiB in about
+  seven months. With no Cloud Functions there is nothing to expire it automatically, so
+  the purge has to be a button an admin presses in the portal.
+- **POPIA.** Location tied to a named employee is personal information: it needs a lawful
+  basis, written notice to staff, proportionality and a retention limit. The clock-in to
+  knock-off boundary is the defensible scope; anything running outside working hours is
+  not.
+
 ## Birthdays and ages
 
 A date of birth is captured once, by an admin, and read two ways: the employee is

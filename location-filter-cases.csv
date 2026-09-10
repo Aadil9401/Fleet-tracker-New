@@ -1,0 +1,47 @@
+# Which recorded points are kept. THIS FILE IS THE SPECIFICATION.
+#
+# THE PROBLEM THIS SOLVES. A phone standing still does not report one position — it
+# reports a slow drift of them, metres apart, for as long as it is switched on. Summed
+# naively that is kilometres of travel by somebody who never left the depot, and it is
+# the classic way a tracking feature comes to accuse an honest driver. So a point is
+# only kept if the phone has actually moved far enough since the last kept one, and only
+# if the fix was good enough to believe in the first place.
+#
+# Implemented twice for the same reason as the distance, and tested against this table by
+# the same two runners:
+#
+#   web/location-spec-test.mjs                                   the portal   (node)
+#   app/src/test/.../data/model/LocationTrackTest.kt             the app      (gradle)
+#
+# The phone applies this as it records, so a dropped point is never stored and never
+# costs a write. The portal applies it again over whatever it reads back, so a day
+# recorded by an older build still totals the same way. Both must agree or the same
+# route reads two lengths.
+#
+# THE CASES ARE OFFSETS FROM THE THRESHOLDS, not metres. Both numbers are judgement
+# calls that will be tuned once the first real routes come back off the phones, and
+# written as offsets every case below stays correct when they are — the same reason
+# parking-curfew-cases.csv is written as offsets from the curfew.
+#
+#   moveOffset      metres past MIN_MOVE_M since the last KEPT point. 0 is exactly at
+#                   the threshold, -1 is one metre short of it.
+#   accuracyOffset  metres past MAX_ACCURACY_M on the fix's own reported accuracy. 0 is
+#                   exactly at the limit, +1 is one metre worse than allowed.
+#   first           yes when this is the first point of the day, which has no previous
+#                   kept point to have moved away from.
+#
+# At the threshold the point is KEPT, on both numbers: "moved at least this far" and
+# "accurate to within this much" are the readings, so the boundary belongs to the side
+# that keeps the data rather than the side that discards it.
+name,first,moveOffset,accuracyOffset,keep
+the first fix of the day,yes,0,-10,yes
+the first fix barely accurate enough,yes,0,0,yes
+the first fix too vague to place,yes,0,1,no
+standing still and drifting,no,-1,-10,no
+standing still and not moved at all,no,-15,-10,no
+exactly far enough to count,no,0,-10,yes
+a metre further than that,no,1,-10,yes
+walking away from the vehicle,no,20,-10,yes
+moving but the fix is too vague,no,20,1,no
+moving and the fix is just good enough,no,20,0,yes
+far enough but the fix is hopeless,no,5000,400,no
