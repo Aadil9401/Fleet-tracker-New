@@ -465,6 +465,7 @@
     <button data-tab="performance">Performance</button>
     <button data-tab="fy">FY</button>
     <button data-tab="debt">Debt</button>
+    <button data-tab="insurance">Insurance</button>
     <button data-tab="logs">Logs</button>
   </nav>
 
@@ -1166,6 +1167,78 @@
       </div>
     </section>
 
+    <!-- INSURANCE -->
+    <section id="tab-insurance" class="hidden">
+      <div class="card">
+        <h2 class="section">Record a claim</h2>
+        <div class="toolbar">
+          <div><label for="clmVehicle">Vehicle</label><select id="clmVehicle"></select></div>
+          <div><label for="clmTeam">Team</label><select id="clmTeam"></select></div>
+          <div><label for="clmIncidentDate">Incident date</label>
+            <input id="clmIncidentDate" type="date"></div>
+          <div><label for="clmClaimDate">Claim date</label>
+            <input id="clmClaimDate" type="date"></div>
+          <div><label for="clmClaimStatus">Claim status</label>
+            <select id="clmClaimStatus"></select></div>
+          <div><label for="clmVehicleStatus">Vehicle status</label>
+            <select id="clmVehicleStatus"></select></div>
+          <div id="clmRepairFields" class="hidden">
+            <label for="clmRepairer">Repairer</label>
+            <input id="clmRepairer" placeholder="Panel beater or dealership">
+          </div>
+          <div id="clmRepairStartedField" class="hidden">
+            <label for="clmRepairStarted">Date repairer started</label>
+            <input id="clmRepairStarted" type="date">
+          </div>
+          <div id="clmDateBackField" class="hidden">
+            <label for="clmDateBack">Date received back</label>
+            <input id="clmDateBack" type="date">
+          </div>
+          <div id="clmPaidField" class="hidden">
+            <label for="clmAmountPaid">Amount paid (R)</label>
+            <input id="clmAmountPaid" type="number" min="0" step="0.01"></div>
+          <button id="addClaimBtn">Add claim</button>
+        </div>
+        <p class="sub" style="font-size:.85rem;margin:var(--s3) 0 0">
+          A claim opens on <b>Awaiting assessment</b> because on the day you log it the
+          vehicle is usually neither being repaired nor written off yet — and a claim that
+          had to say one of those on day one would be recording a guess as a fact. Change
+          it as you learn. The <b>repairer</b> and the <b>date received back</b> are asked
+          for once it goes in for repair, and <b>amount paid</b> only once it is written
+          off, because those are the only times there is anything to record.
+          <br><br>
+          The <b>team</b> is what decides who sees the claim: an employee sees the claims
+          for their own team and nobody else's. It fills itself in from whoever drives the
+          vehicle you pick, and you can change it — a pool vehicle two teams share has no
+          single answer, so it asks rather than guesses.
+          <br><br>
+          Three figures are worked out from the dates, and they answer different
+          questions. <b>To repair starting</b> is the incident to the day the repairer took
+          it — assessment, authorisation and the queue, which is the part nobody is working
+          on the vehicle. <b>At the repairer</b> is their own clock, from the day they
+          started to the day it came back. <b>Off the road</b> is the whole thing, incident
+          to back, which is what the fleet actually loses. A slow repairer and a slow
+          insurer look identical in the total and quite different once it is split.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <h2 class="section" style="margin:0">Claims (<span id="clmCount">0</span>)</h2>
+          <div class="grow">
+            <label for="clmSearch">Search</label>
+            <input id="clmSearch" type="search" placeholder="Registration, status or repairer">
+          </div>
+          <button id="exportClaims" class="outline">Export CSV</button>
+        </div>
+        <div class="count" id="clmTotal"></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Vehicle</th><th>Team</th><th>Incident</th><th>Claimed</th><th>Claim status</th><th>Vehicle status</th><th>Repairer</th><th>Off the road</th><th>Paid out</th><th></th></tr></thead>
+          <tbody id="clmRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+
     <!-- LOGS -->
     <section id="tab-logs" class="hidden">
       <div class="card">
@@ -1297,6 +1370,7 @@ const db = getFirestore(app);
 
 // Everything loaded for the signed-in admin.
 let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLogs: [],
+  insuranceClaims: [],
   recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [], birthdays: null,
   perfMonthly: [], perfTeams: [], perfFy: [], debtLines: [], debtPayments: [] };
 let filters = { query: '', province: ALL_PROVINCES };
@@ -1716,7 +1790,8 @@ async function loadAll() {
   $('appView').classList.add('busy');
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
-      activityWindow, fuelHistory, roster, birthdays, debtLines, debtPayments] = await Promise.all([
+      activityWindow, fuelHistory, roster, birthdays, debtLines, debtPayments,
+      insuranceClaims] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -1743,7 +1818,8 @@ async function loadAll() {
         // had no business sitting in a Promise.all that fails as a whole.
         getDoc(doc(db, 'config', 'birthdays')).catch(() => null),
         getDocs(collection(db, 'debtLines')),
-        getDocs(collection(db, 'debtPayments'))
+        getDocs(collection(db, 'debtPayments')),
+        getDocs(collection(db, 'insuranceClaims'))
         // Performance figures are NOT loaded here — see loadPerfMonth. Both tabs show
         // one month at a time, and reading two years of them on every page load is the
         // single most expensive thing this portal could do.
@@ -1765,6 +1841,7 @@ async function loadAll() {
       birthdaysReadable: birthdays !== null,
       debtLines: rows(debtLines),
       debtPayments: rows(debtPayments),
+      insuranceClaims: rows(insuranceClaims),
       // Not part of the bulk load: fetched a month at a time by loadPerfMonth. Emptied
       // here so the month on screen is re-read rather than kept from the load before.
       perfMonthly: [],
@@ -1874,7 +1951,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['today','reports','employees','vehicles','performance','fy','debt','logs'].forEach(t =>
+    ['today','reports','employees','vehicles','performance','fy','debt','insurance','logs'].forEach(t =>
       $('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
     $('globalMsg').innerHTML = '';
 
@@ -1912,6 +1989,7 @@ function renderAll() {
   renderPerformance();
   renderFy();
   renderDebt();
+  renderInsurance();
   renderLeaderboard();
   renderLogs();
 }
@@ -7121,6 +7199,385 @@ $('exportLeaderboard').addEventListener('click', () => {
     r.team, r.province, r.people, month, network, lbFilters.metric
   ]));
   downloadCsv(`leaderboard-${lbFilters.metric}-${month}.csv`, rows);
+});
+
+/* ---------------- insurance claims ---------------- */
+/**
+ * Every claim against the fleet, and what became of the vehicle afterwards.
+ *
+ * THE VEHICLE IS SNAPSHOTTED, not only linked. The registration and the name are copied
+ * onto the claim as well as its id, because the Vehicles tab can delete a vehicle —
+ * there is a "Delete all" on it — and a claim that then showed a blank where the vehicle
+ * used to be would be the record of an accident to nothing. The id is kept alongside so
+ * a claim still knows which vehicle it was while that vehicle is still there.
+ */
+
+/** What is typed in the claims search box. An object, like every other filter here. */
+const claimFilters = { query: '' };
+
+/**
+ * A claim opens on "Awaiting assessment" because on the day it is logged the vehicle is
+ * usually neither being repaired nor written off yet, and a status that had to say one
+ * of those on day one would be recording a guess as a fact.
+ */
+const VEHICLE_STATUSES = ['Awaiting assessment', 'Being repaired', 'Repaired', 'Written off'];
+const CLAIM_STATUSES = ['Open', 'Settled', 'Rejected'];
+
+/** The statuses that mean a repairer is or was involved, so there is one to name. */
+const REPAIR_STATUSES = ['Being repaired', 'Repaired'];
+
+/** Whole days from one yyyy-MM-dd to another, or null if either is not a date. */
+function daysBetween(from, to) {
+  const parse = (d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d ?? ''))) return null;
+    const [y, m, day] = d.split('-').map(Number);
+    return new Date(y, m - 1, day);
+  };
+  const a = parse(from), b = parse(to);
+  if (!a || !b) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+/*
+ * THREE INTERVALS, and they answer different questions. A vehicle that was off the road
+ * for six weeks is a slow insurer or a slow repairer, and the total cannot tell you
+ * which — which is the whole reason the day the repairer started is asked for.
+ *
+ * All three are NULL, never zero, where the dates for them are not both in yet. A claim
+ * still open is not a repair that took no time, and a nought would sort as the fastest
+ * turnaround on record — putting the vehicle still costing money at the top of the list
+ * of the ones that came back quickest.
+ */
+
+/** The incident to the day the repairer took it: assessment, authorisation, the queue. */
+function daysToRepairStart(claim) {
+  return daysBetween(claim.incidentDate, claim.dateRepairStarted);
+}
+
+/** The repairer's own clock: the day they started to the day it came back. */
+function daysAtRepairer(claim) {
+  return daysBetween(claim.dateRepairStarted, claim.dateReceivedBack);
+}
+
+/** The whole thing, incident to back — what the fleet actually loses. */
+function daysOffRoad(claim) {
+  return daysBetween(claim.incidentDate, claim.dateReceivedBack);
+}
+
+/** The split under the total, naming only the parts whose dates are both in. */
+function turnaroundBreakdown(claim) {
+  const wait = daysToRepairStart(claim);
+  const shop = daysAtRepairer(claim);
+  return [
+    wait === null ? null : `${wait} to start`,
+    shop === null ? null : `${shop} at repairer`
+  ].filter(Boolean).join(' · ');
+}
+
+/** The claims currently on screen: the search box applied. */
+function visibleClaims() {
+  const q = claimFilters.query.trim().toLowerCase();
+  const rows = data.insuranceClaims || [];
+  const matching = !q ? rows : rows.filter(c =>
+    plateMatches(c.registrationNumber, q) ||
+    [c.vehicleName, c.teamName, c.claimStatus, c.vehicleStatus, c.repairerName]
+      .some(v => String(v ?? '').toLowerCase().includes(q)));
+  // Newest incident first — a claims list is read from the most recent thing that
+  // happened. createdAt breaks ties, so two claims on one day keep a settled order.
+  return matching.slice().sort((a, b) =>
+    String(b.incidentDate ?? '').localeCompare(String(a.incidentDate ?? ''))
+    || Number(b.createdAt || 0) - Number(a.createdAt || 0));
+}
+
+/**
+ * The claims as CSV rows, header first.
+ *
+ * Amounts and day counts go out as bare numbers so a spreadsheet can total them, and a
+ * blank stays blank: no payout on a vehicle that was repaired is not a payout of nought,
+ * and a vehicle that has not come back has no turnaround yet.
+ */
+function claimExportRows() {
+  const header = ['Registration', 'Vehicle', 'Team', 'Incident date', 'Claim date',
+    'Claim status', 'Vehicle status', 'Repairer',
+    'Date repairer started', 'Date received back',
+    'Days to repair starting', 'Days at the repairer', 'Days off the road',
+    'Amount paid R'];
+  const rows = visibleClaims().map(c => [
+    c.registrationNumber ? plate(c.registrationNumber) : '',
+    c.vehicleName || '',
+    c.teamName || '',
+    c.incidentDate || '',
+    c.claimDate || '',
+    c.claimStatus || '',
+    c.vehicleStatus || '',
+    c.repairerName || '',
+    c.dateRepairStarted || '',
+    c.dateReceivedBack || '',
+    daysToRepairStart(c) ?? '',
+    daysAtRepairer(c) ?? '',
+    daysOffRoad(c) ?? '',
+    c.vehicleStatus === 'Written off' ? Number(c.amountPaidRands || 0).toFixed(2) : ''
+  ]);
+  return [header, ...rows];
+}
+
+/**
+ * The two status pickers, filled from the constants above rather than written out in the
+ * markup as well. Two copies of a list of statuses is two places to add one to, and
+ * nothing on the page would say which had been missed.
+ */
+function renderClaimStatuses() {
+  [['clmClaimStatus', CLAIM_STATUSES], ['clmVehicleStatus', VEHICLE_STATUSES]]
+    .forEach(([id, values]) => {
+      const select = $(id);
+      if (!select) return;
+      const chosen = select.value;
+      select.innerHTML = values.map(v => `<option>${esc(v)}</option>`).join('');
+      // Defaults to the first, which is "Open" and "Awaiting assessment" — where a claim
+      // logged today actually stands.
+      if (chosen) select.value = chosen;
+    });
+}
+
+/**
+ * Every team on the staff list, which is where team names actually live — there is no
+ * collection of teams, only the name typed onto each person's record.
+ */
+function claimTeamOptions() {
+  return [...new Set(data.employees
+    .map(e => String(e.teamName || '').trim())
+    .filter(Boolean))].sort();
+}
+
+/**
+ * The team picker, kept on whatever was already chosen.
+ *
+ * THE TEAM IS WHO GETS TO SEE THE CLAIM, so it carries more weight than it looks: the
+ * security rules let an employee read the claims for their own team and no others, and
+ * this is the field they match on.
+ */
+function renderClaimTeams() {
+  const select = $('clmTeam');
+  if (!select) return;
+  const chosen = select.value;
+  select.innerHTML = ['<option value="">Choose a team</option>',
+    ...claimTeamOptions().map(t => `<option>${esc(t)}</option>`)].join('');
+  if (chosen) select.value = chosen;
+}
+
+/**
+ * The team that drives a vehicle, when there is exactly one of them.
+ *
+ * Empty where a vehicle is shared between teams or driven by nobody. Those have no right
+ * answer, and filling one in anyway would decide who sees the claim by guessing — so the
+ * form leaves it blank and asks.
+ */
+function soleTeamForVehicle(vehicle) {
+  if (!vehicle) return '';
+  const teams = teamsForVehicle(vehicle);
+  return teams.includes(';') ? '' : teams;
+}
+
+/** The vehicle picker on the claim form, keeping whatever was already chosen. */
+function renderClaimVehicles() {
+  const select = $('clmVehicle');
+  if (!select) return;
+  const chosen = select.value;
+  select.innerHTML = ['<option value="">Choose a vehicle</option>',
+    ...data.vehicles
+      .slice()
+      .sort((a, b) => plate(a.registrationNumber).localeCompare(plate(b.registrationNumber)))
+      .map(v => `<option value="${esc(v.id)}">${esc(plate(v.registrationNumber))}${
+        v.name ? ' - ' + esc(v.name) : ''}</option>`)
+  ].join('');
+  if (chosen) select.value = chosen;
+}
+
+/**
+ * Shows the boxes that belong to the vehicle's status and hides the ones that do not.
+ *
+ * A repairer and a date back mean nothing on a written-off vehicle, and a payout means
+ * nothing on one that was repaired. Asking for them anyway is how a claims list fills up
+ * with figures in the wrong columns.
+ */
+function syncClaimFields() {
+  const status = $('clmVehicleStatus').value;
+  const repairing = REPAIR_STATUSES.includes(status);
+  $('clmPaidField').classList.toggle('hidden', status !== 'Written off');
+  $('clmRepairFields').classList.toggle('hidden', !repairing);
+  $('clmRepairStartedField').classList.toggle('hidden', !repairing);
+  // Shown alongside the repairer, and only meaningful once one is named: the day it came
+  // back from nobody in particular is not a fact about anything.
+  $('clmDateBackField').classList.toggle('hidden', !repairing);
+}
+
+function renderInsurance() {
+  renderClaimStatuses();
+  renderClaimVehicles();
+  renderClaimTeams();
+  syncClaimFields();
+
+  const visible = visibleClaims();
+  const all = (data.insuranceClaims || []).length;
+  $('clmCount').textContent = claimFilters.query ? `${visible.length} of ${all}` : all;
+
+  // Only a written-off vehicle carries a payout, so this totals what was actually paid
+  // out rather than implying every claim produced money.
+  const writtenOff = visible.filter(c => c.vehicleStatus === 'Written off');
+  const paid = writtenOff.reduce((sum, c) => sum + Number(c.amountPaidRands || 0), 0);
+  // Averaged over the claims that HAVE the dates for each figure, which is not the
+  // same set: a vehicle can be at the repairer now, with a wait to average and no repair
+  // time yet. Averaging each over its own claims is the only honest way to do it.
+  const mean = (values) => values.length
+    ? Math.round(values.reduce((sum, v) => sum + v, 0) / values.length) : null;
+  const waits = visible.map(daysToRepairStart).filter(d => d !== null);
+  const shops = visible.map(daysAtRepairer).filter(d => d !== null);
+  const offRoad = visible.map(daysOffRoad).filter(d => d !== null);
+  $('clmTotal').textContent = visible.length === 0 ? '' : [
+    `${writtenOff.length} written off`,
+    `${rand(paid)} paid out`,
+    waits.length ? `${mean(waits)} days to repair starting, over ${waits.length}` : null,
+    shops.length ? `${mean(shops)} days at the repairer, over ${shops.length}` : null,
+    offRoad.length
+      ? `${mean(offRoad)} days off the road, over ${offRoad.length} back`
+      : 'nothing back on the road yet'
+  ].filter(Boolean).join(' · ');
+
+  $('clmRows').innerHTML = visible.length === 0
+    ? `<tr><td colspan="10" class="empty">${all === 0
+        ? 'No claims recorded. Add one above.'
+        : 'No claim matches that search.'}</td></tr>`
+    : visible.map(c => {
+        const days = daysOffRoad(c);
+        // Shown even where the vehicle is not back yet: "12 to start" is the useful half
+        // of an answer while the other half is still running.
+        const split = turnaroundBreakdown(c);
+        const off = c.vehicleStatus === 'Written off';
+        return `<tr>
+          <td><div class="nm">${esc(c.registrationNumber ? plate(c.registrationNumber) : '-')}</div>
+              ${c.vehicleName ? `<div class="meta">${esc(c.vehicleName)}</div>` : ''}</td>
+          <td>${esc(c.teamName || '-')}</td>
+          <td>${esc(c.incidentDate || '-')}</td>
+          <td>${esc(c.claimDate || '-')}</td>
+          <td>${esc(c.claimStatus || '-')}</td>
+          <td>${esc(c.vehicleStatus || '-')}</td>
+          <td>${esc(c.repairerName || '-')}</td>
+          <td>${days === null
+              ? `<span class="meta" title="Not back on the road yet">-</span>`
+              : `${days} ${days === 1 ? 'day' : 'days'}`}${
+              split ? `<div class="meta">${esc(split)}</div>` : ''}</td>
+          <td>${off ? rand(c.amountPaidRands || 0)
+              : `<span class="meta" title="Only a written-off vehicle has a payout">-</span>`}</td>
+          <td class="row-actions">
+            <button class="ghost danger" data-delclaim="${esc(c.id)}">Delete</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+  $('clmRows').querySelectorAll('[data-delclaim]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this claim? This cannot be undone.')) return;
+      try {
+        await deleteDoc(doc(db, 'insuranceClaims', btn.dataset.delclaim));
+        showMsg('Claim deleted.');
+        await loadAll();
+      } catch (err) { showMsg('Could not delete: ' + err.message, 'err'); }
+    });
+  });
+}
+
+$('clmVehicleStatus').addEventListener('change', syncClaimFields);
+
+/*
+ * Picking a vehicle fills the team in from whoever drives it — the same rule the fleet
+ * export uses. Only when the box is still empty, so an admin who has deliberately chosen
+ * a team does not have it overwritten by changing the vehicle afterwards.
+ */
+$('clmVehicle').addEventListener('change', () => {
+  const team = $('clmTeam');
+  if (team.value) return;
+  const derived = soleTeamForVehicle(data.vehicles.find(v => v.id === $('clmVehicle').value));
+  if (derived) team.value = derived;
+});
+
+$('clmSearch').addEventListener('input', (e) => {
+  claimFilters.query = e.target.value.trim();
+  renderInsurance();
+});
+
+$('exportClaims').addEventListener('click', () => {
+  const rows = claimExportRows();
+  // The count in the filename, the same as the staff list and the fleet: a filtered
+  // export sitting in a downloads folder must not later pass for every claim on record.
+  downloadCsv(`insurance-claims-${rows.length - 1}-${todayString()}.csv`, rows);
+});
+
+$('addClaimBtn').addEventListener('click', async () => {
+  const vehicleId = $('clmVehicle').value;
+  const vehicle = data.vehicles.find(v => v.id === vehicleId);
+  if (!vehicle) { showMsg('Choose which vehicle the claim is for.', 'err'); return; }
+  const teamName = $('clmTeam').value;
+  // Required, because it is what decides who may read the claim. A claim saved with no
+  // team is one no employee will ever see and nobody will know is missing.
+  if (!teamName) { showMsg('Choose the team this claim belongs to.', 'err'); return; }
+  const incidentDate = $('clmIncidentDate').value;
+  if (!incidentDate) { showMsg('An incident date is required.', 'err'); return; }
+
+  const claimDate = $('clmClaimDate').value;
+  const vehicleStatus = $('clmVehicleStatus').value;
+  const repairing = REPAIR_STATUSES.includes(vehicleStatus);
+  const dateRepairStarted = repairing ? $('clmRepairStarted').value : '';
+  const dateReceivedBack = repairing ? $('clmDateBack').value : '';
+
+  /*
+   * A claim cannot be lodged before the thing it is for, and a vehicle cannot come back
+   * before it went. Both are the sort of typo that produces a negative turnaround, and a
+   * negative turnaround drags the average down without ever looking wrong itself.
+   */
+  if (claimDate && claimDate < incidentDate) {
+    showMsg('The claim date is before the incident date.', 'err'); return;
+  }
+  if (dateRepairStarted && dateRepairStarted < incidentDate) {
+    showMsg('The repair started before the incident happened.', 'err'); return;
+  }
+  if (dateReceivedBack && dateReceivedBack < incidentDate) {
+    showMsg('The vehicle came back before the incident happened.', 'err'); return;
+  }
+  // The one that would otherwise produce a negative repair time, which drags an average
+  // down without ever looking wrong itself.
+  if (dateRepairStarted && dateReceivedBack && dateReceivedBack < dateRepairStarted) {
+    showMsg('The vehicle came back before the repair started.', 'err'); return;
+  }
+
+  try {
+    await setDoc(doc(collection(db, 'insuranceClaims')), {
+      vehicleId,
+      // Snapshotted, so the claim survives the vehicle being deleted.
+      registrationNumber: vehicle.registrationNumber || '',
+      vehicleName: vehicle.name || '',
+      // What the security rules match an employee against. Stored on the claim rather
+      // than looked up through the vehicle, so moving a vehicle between teams later does
+      // not silently change who can see an old claim.
+      teamName,
+      incidentDate,
+      claimDate,
+      claimStatus: $('clmClaimStatus').value,
+      vehicleStatus,
+      repairerName: repairing ? $('clmRepairer').value.trim() : '',
+      dateRepairStarted,
+      dateReceivedBack,
+      // Only a written-off vehicle has a payout. Zero anywhere else means "no payout",
+      // and the table and the export both show that as blank rather than as R0,00.
+      amountPaidRands: vehicleStatus === 'Written off'
+        ? Number($('clmAmountPaid').value || 0) : 0,
+      createdAt: Date.now()
+    });
+    ['clmIncidentDate', 'clmClaimDate', 'clmAmountPaid', 'clmRepairer',
+      'clmRepairStarted', 'clmDateBack']
+      .forEach(id => { $(id).value = ''; });
+    showMsg('Claim recorded.');
+    await loadAll();
+  } catch (err) { showMsg('Could not save: ' + err.message, 'err'); }
 });
 
 /* ---------------- logs ---------------- */

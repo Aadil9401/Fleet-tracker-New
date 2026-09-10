@@ -16,6 +16,19 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    /*
+     * The signed-in employee's own team name, or '' where they have none.
+     *
+     * Reads their user document the same way isAdmin() does — the established pattern
+     * here, and the only way rules can know anything about the caller beyond their uid.
+     * get() with a default rather than .teamName, because a record saved before teams
+     * existed has no such field and reading a missing one fails the whole rule.
+     */
+    function ownTeam() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid))
+        .data.get('teamName', '');
+    }
+
     // User profiles. Admin-created accounts come from the createEmployee Cloud
     // Function (Admin SDK bypasses these rules). Self-registration from the
     // sign-up screen is allowed, but ONLY for the caller's own document and ONLY
@@ -199,6 +212,34 @@ service cloud.firestore {
         (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
       allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow write: if isAdmin();
+    }
+
+    /*
+     * INSURANCE CLAIMS. Written only by an admin, on the portal — an employee cannot
+     * lodge one, amend one or delete one, which is the whole point: a claim is the
+     * company's record of an incident, and one the driver could edit afterwards would be
+     * worth nothing to either of them.
+     *
+     * READ BY THE TEAM IT BELONGS TO. An employee sees the claims for their own team and
+     * nobody else's, matched on the teamName stored on the claim itself rather than
+     * resolved through the vehicle — so moving a vehicle between teams next year does
+     * not quietly change who can read a claim from this one.
+     *
+     * The empty-team guard is not decoration. A claim saved without a team and an
+     * employee with no team on their record would otherwise match each other, and the
+     * accident nobody was told about would be visible to everybody nobody had assigned.
+     */
+    match /insuranceClaims/{claimId} {
+      allow get: if isAdmin() ||
+        (isSignedIn() && resource.data.get('teamName', '') != ''
+          && resource.data.get('teamName', '') == ownTeam());
+      // Firestore only permits a query it can prove satisfies this rule, so an employee
+      // asking for every claim in the fleet is refused outright rather than filtered
+      // afterwards. Their app has to ask for their own team by name.
+      allow list: if isAdmin() ||
+        (isSignedIn() && resource.data.get('teamName', '') != ''
+          && resource.data.get('teamName', '') == ownTeam());
+      allow create, update, delete: if isAdmin();
     }
 
     // Single settings document used by the app + Cloud Functions.

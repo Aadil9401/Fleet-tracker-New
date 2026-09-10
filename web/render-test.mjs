@@ -32,6 +32,10 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
+  'renderInsurance', 'visibleClaims', 'claimExportRows', 'claimFilters',
+  'daysOffRoad', 'daysToRepairStart', 'daysAtRepairer', 'turnaroundBreakdown',
+  'daysBetween', 'soleTeamForVehicle', 'claimTeamOptions',
+  'VEHICLE_STATUSES', 'CLAIM_STATUSES',
   'parseServiceDate',
   'birthdayBoardDoc', 'boardEntriesFor', 'renderBirthdaysToday',
   'personBits', 'personMeta', 'personCell', 'shiftDate', 'todayString'
@@ -380,6 +384,162 @@ check('and covers exactly what the table shows',
   filteredFleet.length - 1, portal.visibleVehicles().length);
 portal.vehFilters.query = '';
 
+
+/* ---------------- insurance claims ---------------- */
+// The tab an admin types into and a driver reads. Two things carry real weight: the
+// team, which decides who may see a claim at all, and the blanks — a vehicle that was
+// repaired has no payout, and one still in the shop has no turnaround yet, and a nought
+// in either column would be a different and confident-looking lie.
+portal.data.vehicles = [
+  { id: 'v1', registrationNumber: 'bc45dfgp', name: 'Magnite' },
+  { id: 'v2', registrationNumber: 'XY-67-ZW-GP', name: 'Bakkie 2' },
+  { id: 'v3', registrationNumber: 'AA11BBGP', name: 'Pool car' }
+];
+portal.data.employees = [
+  { id: 'c1', name: 'Zanele', surname: 'B', teamName: 'Midrand',
+    assignedVehicleId: 'v1', active: true },
+  // Two teams share v3, so it has no single team to fill in.
+  { id: 'c2', name: 'John', surname: 'S', teamName: 'Jozi',
+    assignedVehicleId: 'v3', active: true },
+  { id: 'c3', name: 'Lerato', surname: 'M', teamName: 'Bloem',
+    assignedVehicleId: 'v3', active: true }
+];
+portal.data.insuranceClaims = [
+  { id: 'k1', vehicleId: 'v1', registrationNumber: 'bc45dfgp', vehicleName: 'Magnite',
+    teamName: 'Midrand', incidentDate: '2026-06-01', claimDate: '2026-06-03',
+    claimStatus: 'Settled', vehicleStatus: 'Repaired', repairerName: 'Panel Pros',
+    dateRepairStarted: '2026-06-15', dateReceivedBack: '2026-07-13',
+    amountPaidRands: 0, createdAt: 1 },
+  { id: 'k2', vehicleId: 'v2', registrationNumber: 'XY-67-ZW-GP', vehicleName: 'Bakkie 2',
+    teamName: 'Cape Town', incidentDate: '2026-08-20', claimDate: '2026-08-21',
+    claimStatus: 'Settled', vehicleStatus: 'Written off', repairerName: '',
+    dateReceivedBack: '', amountPaidRands: 185000, createdAt: 2 },
+  { id: 'k3', vehicleId: 'v1', registrationNumber: 'bc45dfgp', vehicleName: 'Magnite',
+    teamName: 'Midrand', incidentDate: '2026-09-02', claimDate: '2026-09-02',
+    claimStatus: 'Open', vehicleStatus: 'Being repaired', repairerName: 'Panel Pros',
+    dateRepairStarted: '2026-09-05', dateReceivedBack: '',
+    amountPaidRands: 0, createdAt: 3 }
+];
+portal.claimFilters.query = '';
+portal.renderInsurance();
+const claims = writes()['clmRows'] ?? '';
+
+// The grid, checked the way the other tables are: a row that disagrees with its header
+// by one cell shifts every figure after it and still renders perfectly happily.
+const clmTab = tabMarkup('insurance');
+const clmHead = clmTab.slice(clmTab.lastIndexOf('<thead>'), clmTab.lastIndexOf('</thead>'));
+const clmHeaders = (clmHead.match(/<th[\s>]/g) ?? []).length;
+const clmRowStart = claims.indexOf('<tr>');
+const clmCells = (claims.slice(clmRowStart, claims.indexOf('</tr>', clmRowStart)).match(/<td[\s>]/g) ?? []).length;
+check('the claims header and its rows agree on the column count', clmCells, clmHeaders);
+
+// Newest incident first: a claims list is read from the most recent thing that happened.
+check('claims are listed newest incident first',
+  portal.visibleClaims().map(c => c.id), ['k3', 'k2', 'k1']);
+check('the claim count is shown', writes()['clmCount'], 3);
+
+/* THREE INTERVALS, because a vehicle off the road for six weeks is a slow insurer or a
+   slow repairer and the total cannot say which. That is the whole reason the day the
+   repairer started is asked for. */
+const repaired = portal.data.insuranceClaims[0];
+const inTheShop = portal.data.insuranceClaims[2];
+const writtenOff = portal.data.insuranceClaims[1];
+
+check('the wait is the incident to the day the repairer took it',
+  portal.daysToRepairStart(repaired), 14);
+check('the repair is the repairer own clock, start to back',
+  portal.daysAtRepairer(repaired), 28);
+check('days off the road is the incident to the day it came back',
+  portal.daysOffRoad(repaired), 42);
+// The split must reconcile, or the two halves are measuring different things and the
+// breakdown under the total is quietly nonsense.
+check('and the two halves add up to the whole',
+  portal.daysToRepairStart(repaired) + portal.daysAtRepairer(repaired),
+  portal.daysOffRoad(repaired));
+
+/* A VEHICLE STILL IN THE SHOP HAS HALF AN ANSWER, and the half it has is worth showing:
+   how long it waited to be started on is already known and already finished. */
+check('a vehicle in the shop already knows what it waited',
+  portal.daysToRepairStart(inTheShop), 3);
+check('but not what the repair took, because it is still running',
+  portal.daysAtRepairer(inTheShop), null);
+check('the breakdown names only the part that is settled',
+  portal.turnaroundBreakdown(inTheShop), '3 to start');
+check('and names both once the vehicle is back',
+  portal.turnaroundBreakdown(repaired), '14 to start · 28 at repairer');
+// A written-off vehicle never went to a repairer, so it has none of these.
+check('a written-off vehicle has no repair timeline at all',
+  [portal.daysToRepairStart(writtenOff), portal.daysAtRepairer(writtenOff),
+   portal.turnaroundBreakdown(writtenOff)], [null, null, '']);
+// NULL, NOT ZERO, for a vehicle still in the shop. A nought would sort as the fastest
+// turnaround on record, which is exactly backwards for the one still costing money.
+check('a vehicle that has not come back has no turnaround yet',
+  portal.daysOffRoad(portal.data.insuranceClaims[2]), null);
+check('and neither has a written-off one',
+  portal.daysOffRoad(portal.data.insuranceClaims[1]), null);
+
+/* THE TEAM IS WHO GETS TO SEE IT, so the form fills it from whoever drives the vehicle —
+   but only where that is one team. A pool vehicle two teams share has no right answer,
+   and guessing one would decide who reads the claim by accident. */
+check('the team fills itself in from the vehicle driver',
+  portal.soleTeamForVehicle(portal.data.vehicles[0]), 'Midrand');
+check('but a vehicle two teams share is left for the admin to answer',
+  portal.soleTeamForVehicle(portal.data.vehicles[2]), '');
+check('and so is one nobody drives',
+  portal.soleTeamForVehicle(portal.data.vehicles[1]), '');
+
+/* ---------------- the claims export ---------------- */
+const clmExport = portal.claimExportRows();
+const clmExportHeader = clmExport[0];
+const rowFor = (id) => {
+  const c = portal.data.insuranceClaims.find(x => x.id === id);
+  return clmExport.slice(1).find(r => r[clmExportHeader.indexOf('Incident date')] === c.incidentDate);
+};
+check('the export has a header and a row per claim', clmExport.length, 4);
+check('every row has as many fields as the header',
+  clmExport.slice(1).every(r => r.length === clmExportHeader.length), true);
+check('the team is exported, since it is who the claim is visible to',
+  rowFor('k1')[clmExportHeader.indexOf('Team')], 'Midrand');
+check('the registration is spaced as it is shown everywhere else',
+  rowFor('k1')[clmExportHeader.indexOf('Registration')], 'BC 45 DF GP');
+
+// Bare numbers, so a spreadsheet can total them.
+check('the payout is a bare number on a written-off vehicle',
+  rowFor('k2')[clmExportHeader.indexOf('Amount paid R')], '185000.00');
+// A BLANK IS NOT A NOUGHT, on both of these columns.
+check('a repaired vehicle has no payout, not a payout of nothing',
+  rowFor('k1')[clmExportHeader.indexOf('Amount paid R')], '');
+check('and a vehicle still in the shop has no turnaround, not a turnaround of nothing',
+  rowFor('k3')[clmExportHeader.indexOf('Days off the road')], '');
+check('the turnaround is a bare number where there is one',
+  rowFor('k1')[clmExportHeader.indexOf('Days off the road')], 42);
+// Each interval its own column, so a spreadsheet can sort on whichever question is
+// being asked — a slow insurer or a slow repairer.
+check('the split is exported as its own two columns',
+  [rowFor('k1')[clmExportHeader.indexOf('Days to repair starting')],
+   rowFor('k1')[clmExportHeader.indexOf('Days at the repairer')]], [14, 28]);
+check('a vehicle still in the shop exports the wait and leaves the repair blank',
+  [rowFor('k3')[clmExportHeader.indexOf('Days to repair starting')],
+   rowFor('k3')[clmExportHeader.indexOf('Days at the repairer')]], [3, '']);
+check('and the date the repairer started travels with them',
+  rowFor('k1')[clmExportHeader.indexOf('Date repairer started')], '2026-06-15');
+
+// The export must cover exactly what the table shows.
+portal.claimFilters.query = 'midrand';
+const clmFiltered = portal.claimExportRows();
+check('the export follows the search', clmFiltered.length - 1, 2);
+check('and covers exactly what the table shows',
+  clmFiltered.length - 1, portal.visibleClaims().length);
+// Searching a plate ignores spacing, the same as the fleet search.
+portal.claimFilters.query = 'bc45';
+check('a run-together plate finds its claims', portal.visibleClaims().length, 2);
+portal.claimFilters.query = '';
+
+// An empty result must say why, or a search that matches nothing reads as no claims.
+portal.data.insuranceClaims = [];
+portal.renderInsurance();
+check('an empty claims list explains itself',
+  (writes()['clmRows'] ?? '').includes('No claims recorded'), true);
 
 /* ---------------- a day with nothing but an absence ---------------- */
 // Last, because it replaces the fixtures the checks above read from. An absence has no

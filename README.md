@@ -117,6 +117,13 @@ are due with the name of whoever is driving them.
   whoever drives it — the admin's assignment where there is one, otherwise the
   registration the employee typed. Where a vehicle really is shared, every team is named
   rather than one of them quietly chosen
+- **Insurance** — record a claim against a vehicle: incident date, claim date, claim
+  status, and what became of the vehicle — awaiting assessment, being repaired, repaired
+  or written off. A repairer, the day they started and the day it came back once it goes
+  in; an amount paid once it is written off; nothing asked for that does not apply yet.
+  **Three turnaround figures** are worked out from the dates — how long until the repair
+  started, how long the repairer had it, and how long it was off the road altogether.
+  Searchable, exports to CSV, and the tab averages each figure for whatever is on screen
 - **Logs** — work days and fuel logs over any date range
 
 The day view, reports and both log tables export to CSV.
@@ -215,6 +222,56 @@ rule and cannot share code.
 Cases are written as offsets from the curfew rather than as clock times, so **moving the
 curfew needs no change to the table** — only the two one-line constants. It has moved
 once already, from 18:00 to 18:30.
+
+## Insurance claims
+
+An admin records a claim on the portal; nobody else can. An employee **may read the
+claims for their own team** and no others.
+
+That is enforced in `firestore.rules`, not in the page: `create`, `update` and `delete`
+are admin-only, and `get`/`list` match the **teamName stored on the claim** against the
+team on the reader's own user record. Firestore only permits a query it can prove
+satisfies the rule, so an employee asking for every claim in the fleet is refused
+outright rather than filtered afterwards.
+
+**The team is stored on the claim, not resolved through the vehicle.** Moving a vehicle
+between teams next year must not quietly change who can read a claim from this one. The
+form fills the team in from whoever drives the vehicle — the same rule the fleet export
+uses — but only where that is a single team: a pool vehicle two teams share has no right
+answer, so it asks rather than guesses. A claim cannot be saved without one, because a
+claim with no team is one no employee will ever see and nobody will notice is missing.
+
+### Three turnaround figures, not one
+
+A vehicle off the road for six weeks is a slow insurer or a slow repairer, and a single
+total cannot say which. So the day the repairer *started* is recorded as well as the day
+the vehicle came back, and the time splits in two:
+
+| | |
+|---|---|
+| **To repair starting** | incident → the day the repairer took it. Assessment, authorisation, the queue — the part where nobody is working on the vehicle |
+| **At the repairer** | their own clock: the day they started → the day it came back |
+| **Off the road** | incident → back. The whole thing, which is what the fleet actually loses |
+
+The table shows the total with the split beneath it; the export gives all three as their
+own columns, so a spreadsheet can sort on whichever question is being asked.
+
+**A blank is not a nought**, and it matters on four columns now. A vehicle that was
+repaired has no payout. One still at the panel beater has no repair time yet — though it
+*does* already know what it waited, and that half is shown. A written-off vehicle has no
+repair timeline at all. A nought in any of those would be a confident-looking lie, and in
+a turnaround column it would sort as the fastest repair on record — putting the vehicle
+still costing money at the top of the list of the ones that came back quickest.
+
+The averages are taken over the claims that have the dates for each figure, which is not
+the same set for all three: a vehicle at the repairer right now has a wait to average and
+no repair time yet. Averaging each over its own claims is the only honest way to do it.
+
+### What is not built yet
+
+**The driver's side.** The rules already allow it and every claim already carries the
+team it belongs to, but nothing on the phone reads them — there is no screen. That is
+Kotlin, and it is the next piece.
 
 ## Birthdays and ages
 
