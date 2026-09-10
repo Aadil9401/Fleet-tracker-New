@@ -1173,7 +1173,9 @@
         <h2 class="section">Record a claim</h2>
         <div class="toolbar">
           <div><label for="clmVehicle">Vehicle</label><select id="clmVehicle"></select></div>
-          <div><label for="clmTeam">Team</label><select id="clmTeam"></select></div>
+          <div><label for="clmTeam">Team</label>
+            <input id="clmTeam" list="clmTeamList" placeholder="Team name" autocomplete="off">
+            <datalist id="clmTeamList"></datalist></div>
           <div><label for="clmIncidentDate">Incident date</label>
             <input id="clmIncidentDate" type="date"></div>
           <div><label for="clmClaimDate">Claim date</label>
@@ -1199,6 +1201,7 @@
             <input id="clmAmountPaid" type="number" min="0" step="0.01"></div>
           <button id="addClaimBtn">Add claim</button>
         </div>
+        <div class="count" id="clmTeamNote"></div>
         <p class="sub" style="font-size:.85rem;margin:var(--s3) 0 0">
           A claim opens on <b>Awaiting assessment</b> because on the day you log it the
           vehicle is usually neither being repaired nor written off yet — and a claim that
@@ -1211,6 +1214,14 @@
           for their own team and nobody else's. It fills itself in from whoever drives the
           vehicle you pick, and you can change it — a pool vehicle two teams share has no
           single answer, so it asks rather than guesses.
+          <br><br>
+          <b>You can type a team that is not on the list.</b> A claim for a team nobody has
+          signed up for yet is recorded now and read by them the day they do. The box says
+          so when you type one, because that is a real difference and not a mistake — but
+          a team already on the list is matched however you capitalise it, and stored the
+          way the staff records spell it. That is not tidiness: the security rule compares
+          the two as text, so "midrand" against a record saying "Midrand" would be a claim
+          the drivers never see and nobody knows to look for.
           <br><br>
           Three figures are worked out from the dates, and they answer different
           questions. <b>To repair starting</b> is the incident to the day the repairer took
@@ -7350,19 +7361,62 @@ function claimTeamOptions() {
 }
 
 /**
- * The team picker, kept on whatever was already chosen.
+ * The suggestions behind the team box.
+ *
+ * A datalist, not a select, so a team nobody has signed up for yet can still be typed —
+ * the claim is recorded now and read by them the day they do.
  *
  * THE TEAM IS WHO GETS TO SEE THE CLAIM, so it carries more weight than it looks: the
  * security rules let an employee read the claims for their own team and no others, and
- * this is the field they match on.
+ * this is the string they match on.
  */
 function renderClaimTeams() {
-  const select = $('clmTeam');
-  if (!select) return;
-  const chosen = select.value;
-  select.innerHTML = ['<option value="">Choose a team</option>',
-    ...claimTeamOptions().map(t => `<option>${esc(t)}</option>`)].join('');
-  if (chosen) select.value = chosen;
+  const list = $('clmTeamList');
+  if (!list) return;
+  list.innerHTML = claimTeamOptions().map(t => `<option value="${esc(t)}"></option>`).join('');
+}
+
+/**
+ * A typed team name as it should be STORED.
+ *
+ * A team already on the staff list is matched however it was capitalised and stored the
+ * way those records spell it. Not tidiness: firestore.rules compares the claim's team to
+ * the reader's as plain text, so "midrand" stored against records saying "Midrand" is a
+ * claim its own team can never read — and nothing on any screen would say why, because
+ * the claim looks perfectly correct sitting in the admin's list.
+ *
+ * Anything genuinely new is kept exactly as typed. The staff records are the authority on
+ * how an existing team is spelt; nothing is the authority on one that does not exist yet.
+ */
+function canonicalTeam(typed) {
+  const wanted = String(typed ?? '').trim();
+  if (!wanted) return '';
+  const known = claimTeamOptions()
+    .find(t => t.toLowerCase() === wanted.toLowerCase());
+  return known ?? wanted;
+}
+
+/** Whether anybody on the staff list is on this team yet. */
+function teamHasStaff(team) {
+  return claimTeamOptions().some(t => t.toLowerCase() === String(team ?? '').trim().toLowerCase());
+}
+
+/**
+ * Says when a typed team is one nobody is on yet.
+ *
+ * Not an error — recording a claim before the drivers exist is the whole point of being
+ * able to type one. But it is a difference worth seeing at the moment of typing, because
+ * the alternative is discovering months later that a team was misspelt and a claim has
+ * been invisible ever since.
+ */
+function syncTeamNote() {
+  const note = $('clmTeamNote');
+  if (!note) return;
+  const typed = String($('clmTeam').value ?? '').trim();
+  note.textContent = !typed || teamHasStaff(typed)
+    ? ''
+    : `No staff are on "${typed}" yet — the claim will be recorded, and read by that team `
+      + 'the day somebody signs up on it.';
 }
 
 /**
@@ -7415,6 +7469,7 @@ function renderInsurance() {
   renderClaimStatuses();
   renderClaimVehicles();
   renderClaimTeams();
+  syncTeamNote();
   syncClaimFields();
 
   const visible = visibleClaims();
@@ -7486,6 +7541,8 @@ function renderInsurance() {
   });
 }
 
+$('clmTeam').addEventListener('input', syncTeamNote);
+
 $('clmVehicleStatus').addEventListener('change', syncClaimFields);
 
 /*
@@ -7516,7 +7573,9 @@ $('addClaimBtn').addEventListener('click', async () => {
   const vehicleId = $('clmVehicle').value;
   const vehicle = data.vehicles.find(v => v.id === vehicleId);
   if (!vehicle) { showMsg('Choose which vehicle the claim is for.', 'err'); return; }
-  const teamName = $('clmTeam').value;
+  // Stored the way the staff records spell it where the team is a known one, so the
+  // security rule's text comparison actually matches. See canonicalTeam().
+  const teamName = canonicalTeam($('clmTeam').value);
   // Required, because it is what decides who may read the claim. A claim saved with no
   // team is one no employee will ever see and nobody will know is missing.
   if (!teamName) { showMsg('Choose the team this claim belongs to.', 'err'); return; }
@@ -7575,6 +7634,9 @@ $('addClaimBtn').addEventListener('click', async () => {
     ['clmIncidentDate', 'clmClaimDate', 'clmAmountPaid', 'clmRepairer',
       'clmRepairStarted', 'clmDateBack']
       .forEach(id => { $(id).value = ''; });
+    // The team is left as it was: claims arrive in runs for one team, and retyping it
+    // every time is how the wrong one eventually gets typed.
+    syncTeamNote();
     showMsg('Claim recorded.');
     await loadAll();
   } catch (err) { showMsg('Could not save: ' + err.message, 'err'); }

@@ -35,6 +35,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'renderInsurance', 'visibleClaims', 'claimExportRows', 'claimFilters',
   'daysOffRoad', 'daysToRepairStart', 'daysAtRepairer', 'turnaroundBreakdown',
   'daysBetween', 'soleTeamForVehicle', 'claimTeamOptions',
+  'canonicalTeam', 'teamHasStaff',
   'VEHICLE_STATUSES', 'CLAIM_STATUSES',
   'parseServiceDate',
   'birthdayBoardDoc', 'boardEntriesFor', 'renderBirthdaysToday',
@@ -487,6 +488,25 @@ check('but a vehicle two teams share is left for the admin to answer',
   portal.soleTeamForVehicle(portal.data.vehicles[2]), '');
 check('and so is one nobody drives',
   portal.soleTeamForVehicle(portal.data.vehicles[1]), '');
+
+/* A TEAM CAN BE TYPED, not only picked — a claim for a team nobody has signed up for
+   yet has to be recordable now and readable by them the day they do.
+
+   Which puts the whole weight of the feature on one string comparison. firestore.rules
+   matches the claim's team against the reader's as plain text, so a claim stored as
+   "midrand" against staff records saying "Midrand" is one its own team can never read,
+   and nothing on any screen would ever say why. So an existing team is stored the way
+   the staff records spell it, however it was typed. */
+check('a known team typed in any case is stored the way the staff records spell it',
+  ['midrand', 'MIDRAND', '  MiDrAnD  '].map(portal.canonicalTeam),
+  ['Midrand', 'Midrand', 'Midrand']);
+// Nothing is the authority on a team that does not exist yet, so it is kept as typed.
+check('a genuinely new team is kept exactly as it was typed',
+  portal.canonicalTeam('  Nelspruit North  '), 'Nelspruit North');
+check('and an empty box is still empty', portal.canonicalTeam('   '), '');
+check('a team nobody is on yet is known to be new',
+  [portal.teamHasStaff('Midrand'), portal.teamHasStaff('midrand'),
+   portal.teamHasStaff('Nelspruit North')], [true, true, false]);
 
 /* ---------------- the claims export ---------------- */
 const clmExport = portal.claimExportRows();

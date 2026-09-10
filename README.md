@@ -241,6 +241,19 @@ uses — but only where that is a single team: a pool vehicle two teams share ha
 answer, so it asks rather than guesses. A claim cannot be saved without one, because a
 claim with no team is one no employee will ever see and nobody will notice is missing.
 
+**A team can be typed, not only picked.** A claim for a team nobody has signed up for yet
+is recorded now and read by them the day somebody does, and the box says so as you type
+one — that is a real difference, not a mistake.
+
+Which puts the weight of the whole feature on one string comparison, because the rule
+matches the claim's team against the reader's as plain text. So **a team already on the
+staff list is matched however it is capitalised and stored the way those records spell
+it**: a claim saved as `midrand` against records saying `Midrand` is one its own team can
+never read, and nothing on any screen would say why — it looks perfectly correct sitting
+in the admin's list. A team that genuinely does not exist yet is kept exactly as typed,
+because the staff records are the authority on how an existing team is spelt and nothing
+is the authority on one that is not there.
+
 ### Three turnaround figures, not one
 
 A vehicle off the road for six weeks is a slow insurer or a slow repairer, and a single
