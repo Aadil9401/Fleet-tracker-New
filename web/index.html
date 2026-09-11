@@ -6036,7 +6036,7 @@ function renderPerformanceUploads(container = 'perfUploads') {
         esc(perfColumns(kind).join(', '))}</div>
       <input id="perfFile-${kind}" type="file" accept=".csv,text/csv,text/plain">
       <textarea id="perfText-${kind}" rows="3" style="margin-top:var(--s2)"
-        placeholder="${esc(spec.sample[0].join(', '))}"></textarea>
+        placeholder="${esc(perfTemplateRows(kind)[1].join(', '))}"></textarea>
       <div class="toolbar" style="margin-top:var(--s2)">
         <button id="perfSave-${kind}">Save ${esc(spec.label.toLowerCase())}</button>
         <button id="perfTemplate-${kind}" class="outline">Download template</button>

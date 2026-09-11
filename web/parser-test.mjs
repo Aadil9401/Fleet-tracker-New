@@ -892,6 +892,24 @@ check('and an unfamiliar heading is not refused',
   portal.parsePerformanceLines(
     'Team name,Month,Network,Widgets\nALEXANDRA,2026-09,MTN,60', 'connections').errors, []);
 
+/* EVERY UPLOAD CAN BE DRAWN. The box for each kind puts an example row in the paste
+   area's placeholder, and it used to read spec.sample[0] — which a monthly kind does not
+   have, because its rows are generated to fit however many month columns it carries.
+
+   That threw inside renderPerformanceUploads, and the whole function died with it: not
+   one upload box appeared on the Performance tab, for any figure. The portal looked
+   like its uploads had been deleted.
+
+   Nothing caught it. The smoke test evaluates the module and never calls this, and the
+   render tests set the "already built" flag to skip it — so the one harness run that
+   did hit it was dismissed as a stub artefact. This is the cheap check that would have
+   said otherwise: every kind must have a first data row to show. */
+Object.keys(portal.PERF_UPLOADS).forEach(kind => {
+  const rows = portal.perfTemplateRows(kind);
+  check('the ' + kind + ' box has an example row to show', Array.isArray(rows[1]), true);
+  check('and it is not empty: ' + kind, rows[1].length > 1, true);
+});
+
 /* ---------------- every template the portal hands out, uploaded back into it ---------------- */
 /* THIS IS THE TEST THAT SHOULD ALWAYS HAVE BEEN HERE.
 
