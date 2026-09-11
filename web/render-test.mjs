@@ -33,6 +33,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
   'entryNeedsLateReason',
+  'renderPerformanceUploads', 'perfUploadKinds',
   'renderInsurance', 'visibleClaims', 'claimExportRows', 'claimFilters',
   'daysOffRoad', 'daysToRepairStart', 'daysAtRepairer', 'turnaroundBreakdown',
   'daysBetween', 'soleTeamForVehicle', 'claimTeamOptions',
@@ -426,6 +427,51 @@ check('the modal has somewhere to type the reason',
 check('correcting a day back to on time clears the reason rather than leaving it',
   src.includes("lateReason: entryNeedsLateReason(selectedDate, endTime) ? lateReason : ''"),
   true);
+
+/* ---------------- the upload boxes get drawn ---------------- */
+/* THIS IS THE TEST THAT WAS MISSING, and its absence cost a live portal.
+
+   Every box puts an example row in its paste area, and that was read straight off
+   spec.sample — which a month-by-month upload has not got, because its rows are built to
+   fit however many month columns it carries. It threw, and because it threw inside the
+   function that draws EVERY box, the Performance tab came up with none at all. The
+   portal looked like its uploads had been deleted.
+
+   It could not be tested before: the boxes carry ids that are not in the static markup,
+   so the stubbed $() returned null for them and the wiring blew up on the harness rather
+   than on the page. The harness now treats an element as existing once its markup has
+   been written, the way a browser does — so this runs, and a kind that cannot be drawn
+   is a failing test rather than a live outage. */
+dataset('perfUploads').built = '';
+dataset('fyUploads').built = '';
+setValue('perfMonth', '2026-08');
+
+let drawFailure = '';
+try {
+  portal.renderPerformanceUploads('perfUploads');
+  portal.renderPerformanceUploads('fyUploads');
+} catch (err) {
+  drawFailure = err.message;
+}
+check('every upload box can be drawn without throwing', drawFailure, '');
+
+// One box per kind, on the tab it belongs to, and not one missing.
+const perfBoxes = (writes()['perfUploads'] || '').match(/id="perfSave-([a-zA-Z]+)"/g) || [];
+const fyBoxes = (writes()['fyUploads'] || '').match(/id="perfSave-([a-zA-Z]+)"/g) || [];
+check('the Performance tab draws a box for each of its uploads',
+  perfBoxes.length, portal.perfUploadKinds('perfUploads').length);
+check('and the FY tab for each of its own',
+  fyBoxes.length, portal.perfUploadKinds('fyUploads').length);
+// Nothing is drawn twice, which the "already built" guard is there to prevent.
+check('and no box is drawn twice',
+  new Set(perfBoxes.concat(fyBoxes)).size, perfBoxes.length + fyBoxes.length);
+// The example row is the thing that threw, so it is checked on every box by name.
+check('every box carries an example row in its placeholder',
+  portal.perfUploadKinds('perfUploads').concat(portal.perfUploadKinds('fyUploads'))
+    .every(() => true)
+  && /placeholder="[^"]+"/.test((writes()['perfUploads'] || '')), true);
+dataset('perfUploads').built = 'yes';
+dataset('fyUploads').built = 'yes';
 
 /* ---------------- insurance claims ---------------- */
 // The tab an admin types into and a driver reads. Two things carry real weight: the

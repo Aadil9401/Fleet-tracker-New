@@ -25,12 +25,26 @@ function browserStubs(html) {
   const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
   return `
 const __ids = ${JSON.stringify(ids)};
+/*
+ * Ids that did not exist in the static markup but have since been WRITTEN into the page.
+ *
+ * A browser makes an element real the moment its markup lands in the document, and code
+ * that builds a control and then wires it up depends on exactly that. Returning null for
+ * those made whole functions untestable — renderPerformanceUploads, which draws every
+ * upload box, could not be called at all — so the tests skipped it, and a crash in it
+ * reached the live portal and took every upload box with it.
+ */
+globalThis.__born = new Set();
 globalThis.__writes = {};
 globalThis.__values = {};
 globalThis.__datasets = {};
 const __stubEl = (id) => ({
   addEventListener() {}, querySelectorAll: () => [], classList: { toggle() {}, add() {}, remove() {} },
-  set innerHTML(v) { if (id) globalThis.__writes[id] = v; },
+  set innerHTML(v) {
+    if (id) globalThis.__writes[id] = v;
+    // Whatever was just drawn now exists, the same as in a browser.
+    String(v ?? '').replace(/id="([^"]+)"/g, (m, born) => (globalThis.__born.add(born), m));
+  },
   get innerHTML() { return (id && globalThis.__writes[id]) || ''; },
   set textContent(v) { if (id) globalThis.__writes[id] = v; },
   get textContent() { return (id && globalThis.__writes[id]) || ''; },
@@ -45,7 +59,8 @@ const __stubEl = (id) => ({
   style: {}, files: [], focus() {}, click() {}, appendChild() {}, removeChild() {}
 });
 globalThis.document = {
-  getElementById: (id) => __ids.includes(id) ? __stubEl(id) : null,
+  getElementById: (id) =>
+    (__ids.includes(id) || globalThis.__born.has(id)) ? __stubEl(id) : null,
   querySelectorAll: () => [],
   createElement: () => __stubEl(null),
   body: __stubEl(null)
