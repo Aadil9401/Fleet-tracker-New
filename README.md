@@ -96,16 +96,23 @@ are due with the name of whoever is driving them.
   basic pay are keyed on **employee number** because they are a person's own. Filter by
   province, team or name
 - **FY incentive** — its own tab and its own collection, keyed on employee number and
-  stored per network. Two uploads: the **full file**, one row per person per month
-  carrying each network's stock, connections and payable side by side; and **connections
-  only**, for when the connections arrive without the stock
+  stored per network. **Four uploads**: the **full file**, one row per person per month
+  carrying each network's stock, connections and payable side by side; and **stock**,
+  **connections** and **payable** each on their own, so a month of one figure can be
+  loaded without disturbing the other two
 
-  The second exists because the first cannot do its job. A blank **count** cell is read
-  as nought — correctly, since on a file carrying a stock column an empty cell means none
-  was issued — so blanking the stock columns to load connections would write nought over
-  every stock figure it did not mention, and the conversion percentages behind them would
-  follow it down. A file with no stock column cannot do that: it writes connections and
-  nothing else, merged onto the rows already there
+  The three single-figure files exist because the full one cannot do that job. A blank
+  **count** cell is read as nought — correctly, since on a file carrying a stock column an
+  empty cell means none was issued — so blanking the stock columns to load connections
+  would write nought over every stock figure it did not mention, and the conversion
+  percentages behind them would follow it down. A file with no stock column cannot do
+  that: it writes its own figure and nothing else, merged onto the rows already there.
+  Every one of them is pinned by a test that no other figure can reach
+
+  The tiles read **one network at a time** — stock, connections and the rate between them,
+  for each network on its own. Only the payable total is combined, because that one is
+  genuinely a total: somebody on both networks takes home the sum. Adding their MTN stock
+  to their Telkom stock describes nothing anybody was issued
 - **Leaderboard** — on the Logs tab, ranking **teams** on connections or activations for
   a month. Positions only, no figures, on screen or in the export. Teams on equal figures
   share a position and the next one skips, so a tie for first is followed by third; a team

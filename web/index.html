@@ -4174,6 +4174,21 @@ const PERF_UPLOADS = {
    * downstream. The only difference is how much of the row this particular file is
    * allowed to speak for.
    */
+  fyStock: {
+    label: 'FY stock only',
+    keyedOn: 'employee',
+    stores: 'perfFy',
+    layout: 'wide',
+    networks: FY_NETWORKS,
+    figures: [
+      { label: 'stock', field: 'fyStock', kind: 'count' }
+    ],
+    sample: [
+      ['T042', '2026-08', '1000', '600'],
+      ['T099', '2026-08', '500', '']
+    ]
+  },
+
   fyConnections: {
     label: 'FY connections only',
     keyedOn: 'employee',
@@ -4186,6 +4201,27 @@ const PERF_UPLOADS = {
     sample: [
       ['T042', '2026-08', '400', '210'],
       ['T099', '2026-08', '125', '']
+    ]
+  },
+
+  /*
+   * The money column on its own. Called FY payable everywhere on the tab and in the
+   * table, which is what Aadil means by FY commission — and NOT the Commission upload,
+   * which is a person's ordinary pay in a different collection entirely. Two boxes
+   * called commission is how the wrong file ends up in one of them.
+   */
+  fyPayable: {
+    label: 'FY payable only',
+    keyedOn: 'employee',
+    stores: 'perfFy',
+    layout: 'wide',
+    networks: FY_NETWORKS,
+    figures: [
+      { label: 'payable', field: 'fyAmountRands', kind: 'money' }
+    ],
+    sample: [
+      ['T042', '2026-08', '5600.00', '2940.00'],
+      ['T099', '2026-08', '1750.00', '']
     ]
   }
 };

@@ -535,10 +535,16 @@ check('and every figure on the row is written, not just the first',
    check at a glance. It is stored per network all the same, so ONE row here becomes TWO
    documents — and that expansion is the thing worth pinning, because nothing downstream
    knows it happened. */
-// Two of them now: the full FY file and the connections-only one, which is wide for the
-// same reason — a network per column rather than a row per network.
-check('the FY files are the wide ones and the others are not',
-  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfIsWide(k)), ['fy', 'fyConnections']);
+/* WIDE MEANS FY, both ways round. Asserted as the rule rather than as a list of names,
+   because the list grew from one to four in two days: the full file, then stock,
+   connections and payable each on their own so a month of one can be loaded without
+   disturbing the other two. A fifth would break a list and not this. */
+check('every wide file is an FY file',
+  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfIsWide(k) && !portal.perfOnFy(k)), []);
+check('and every FY file is wide',
+  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfOnFy(k) && !portal.perfIsWide(k)), []);
+check('there are four of them',
+  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfOnFy(k)).length, 4);
 check('its columns carry each network by name',
   portal.perfColumns('fy'),
   ['Employee number', 'Month',
@@ -800,6 +806,38 @@ check('it writes connections and nothing else, ever',
   [...new Set(fyConnParsed.rows.flatMap(r => Object.keys(r.values)))], ['fyConnections']);
 check('and never a stock or a payable field',
   fyConnParsed.rows.some(r => 'fyStock' in r.values || 'fyAmountRands' in r.values), false);
+
+/* THE SAME PIN ON ALL THREE. Aadil asked for stock, connections and payable as three
+   separate files so a month of one can be loaded "to rule out" — which only means
+   anything if each file is incapable of touching the other two figures. The writer
+   merges, so a field absent from a row is a field left alone in the database; these
+   check the parser never produces one it should not.
+
+   Driven from the table, so a fourth single-figure FY file is covered the day it is
+   added rather than the day somebody remembers to write a case for it. */
+const SINGLE_FY = { fyStock: 'fyStock', fyConnections: 'fyConnections', fyPayable: 'fyAmountRands' };
+Object.entries(SINGLE_FY).forEach(([kind, field]) => {
+  const spec = portal.PERF_UPLOADS[kind];
+  const text = [portal.perfColumns(kind).join(','),
+    ...spec.sample.map(r => r.join(','))].join('\n');
+  const parsed = portal.parsePerformanceLines(text, kind);
+  check(kind + ' loads in its own box', parsed.errors, []);
+  check(kind + ' writes only ' + field,
+    [...new Set(parsed.rows.flatMap(r => Object.keys(r.values)))], [field]);
+  // And never the other two figures, which is the whole reason it exists.
+  const others = Object.values(SINGLE_FY).filter(f => f !== field);
+  check(kind + ' never carries ' + others.join(' or '),
+    parsed.rows.some(r => others.some(f => f in r.values)), false);
+});
+
+/* AND NO TWO OF THEM ARE INTERCHANGEABLE. Every wrong pairing is refused by the
+   generated matrix further down; this pins the reason, which is that each file's
+   heading names the figure it carries. Getting that wrong is how a month of payables
+   lands in the stock column and reads as a perfectly plausible number. */
+check('each single-figure FY file has its own columns',
+  Object.keys(SINGLE_FY).map(k => portal.perfColumns(k).slice(2).join(',')),
+  ['MTN stock,Telkom stock', 'MTN connections,Telkom connections',
+   'MTN payable,Telkom payable']);
 // Which is only safe because the writer merges rather than replaces.
 check('and the writer merges, so an absent field is one left alone',
   source.includes('...r.values,') && source.includes('{ merge: true }'), true);
