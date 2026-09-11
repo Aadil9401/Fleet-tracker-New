@@ -118,6 +118,16 @@ are due with the name of whoever is driving them.
   for each network on its own. Only the payable total is combined, because that one is
   genuinely a total: somebody on both networks takes home the sum. Adding their MTN stock
   to their Telkom stock describes nothing anybody was issued
+- **Commission by month** — the same commission figures laid out the other way round:
+  one row per person, a column per month. Eight months of back pay is four hundred rows
+  tall and fifty-five wide, and only one of those is a sheet anybody fills in correctly.
+  **The months come off the file's own heading row**, so any range works in any order and
+  nothing here needs configuring; a file with no heading is refused rather than guessed
+  at. A blank cell is a month that person has no figure for and is skipped — where on the
+  tall file a blank amount refuses the row, because there the row exists to state a
+  figure, and here the cell exists because the month has a column. The template offers
+  the year ending at the month picker; delete the columns you do not want, or type in
+  months beyond them
 - **Leaderboard** — on the Logs tab, ranking **teams** on connections or activations for
   a month. Positions only, no figures, on screen or in the export. Teams on equal figures
   share a position and the next one skips, so a tie for first is followed by third; a team

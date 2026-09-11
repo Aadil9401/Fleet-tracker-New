@@ -4190,6 +4190,33 @@ const PERF_UPLOADS = {
    * downstream. The only difference is how much of the row this particular file is
    * allowed to speak for.
    */
+  /*
+   * COMMISSION, ONE ROW PER PERSON AND A COLUMN PER MONTH.
+   *
+   * Aadil is loading eight months of back pay at once. Tall, that is one row per person
+   * per month — four hundred and forty rows to type by hand, which is not a sheet
+   * anybody fills in correctly. Wide, it is fifty-five rows and eight columns, which is
+   * how the figures already sit in his spreadsheet.
+   *
+   * THE MONTHS COME OFF THE FILE'S OWN HEADING ROW, not from a setting here. Any range
+   * works, in any order, and the file says which months it is carrying — so loading
+   * December to July needs no configuring, and neither will next year's.
+   *
+   * A BLANK CELL IS A MONTH WITH NO FIGURE, and is skipped rather than refused. That is
+   * the opposite of the tall file, where a blank amount refuses the row, and the
+   * difference is the shape: on a tall file the row exists because somebody meant to
+   * state a figure and left it out, and on a wide one the cell exists because the month
+   * has a column, whether or not that person has anything in it.
+   */
+  commissionMonthly: {
+    label: 'Commission by month',
+    keyedOn: 'employee',
+    layout: 'months',
+    figures: [
+      { label: 'commission', field: 'commissionRands', kind: 'money' }
+    ]
+  },
+
   fyStock: {
     label: 'FY stock only',
     keyedOn: 'employee',
@@ -4313,6 +4340,28 @@ const perfFigures = (kind) => {
  */
 const perfIsWide = (kind) => PERF_UPLOADS[kind].layout === 'wide';
 
+/** Laid out with a column per month, and one row per person. */
+const perfIsMonthly = (kind) => PERF_UPLOADS[kind].layout === 'months';
+
+/**
+ * The months a downloaded template offers: a year ending at whatever month is picked.
+ *
+ * Off the PICKER rather than off the clock, so the template somebody downloads in
+ * September to load last December is about the months they are looking at. Columns they
+ * do not want are deleted; months they do want beyond the twelve are typed in, because
+ * the parser reads the months off the file rather than out of here.
+ */
+function templateMonths(count = 12) {
+  const end = ($('perfMonth') && $('perfMonth').value) || todayString().slice(0, 7);
+  const [y, m] = end.split('-').map(Number);
+  const out = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(y, m - 1 - i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+
 /**
  * Whether this upload names a network in a COLUMN of its own.
  *
@@ -4329,6 +4378,9 @@ const perfNetworks = (kind) => PERF_UPLOADS[kind].networks ?? NETWORKS;
 
 /** The columns one upload has, and therefore where each figure sits. */
 const perfColumns = (kind) => {
+  // The key, then a column per month. The months here are only what the TEMPLATE
+  // offers; a file may carry any months at all, because the parser reads its heading.
+  if (perfIsMonthly(kind)) return [perfKeyLabel(kind), ...templateMonths()];
   if (perfIsWide(kind)) {
     return [
       perfKeyLabel(kind),
@@ -4348,7 +4400,18 @@ const perfColumns = (kind) => {
 };
 
 /** The template for one upload, header first — what the Download template button gives. */
-const perfTemplateRows = (kind) => [perfColumns(kind), ...PERF_UPLOADS[kind].sample];
+const perfTemplateRows = (kind) => {
+  const header = perfColumns(kind);
+  if (!perfIsMonthly(kind)) return [header, ...PERF_UPLOADS[kind].sample];
+  // Two rows: one with every month filled, one with gaps, because a gap is allowed and
+  // a template that never shows one teaches that it is not.
+  const months = header.length - 1;
+  return [
+    header,
+    ['T042', ...Array.from({ length: months }, (_, i) => (8000 + i * 250).toFixed(2))],
+    ['T099', ...Array.from({ length: months }, (_, i) => i % 3 === 1 ? '' : '6200.00')]
+  ];
+};
 
 /**
  * A team name reduced to something comparable: uppercased, punctuation dropped, runs of
@@ -4599,6 +4662,34 @@ function parsePerformanceLines(text, kind) {
     if (complaint) return { rows: [], errors: [{ line: lines[0], why: complaint }] };
   }
 
+  /*
+   * A MONTHLY FILE DECLARES ITS OWN MONTHS in the heading row, so they are read once
+   * here and every row below is measured against them.
+   *
+   * Without a heading there is nothing to read: a pasted block of figures could be any
+   * eight months in the calendar, and guessing would file a year of commission under
+   * the wrong ones silently. Every other upload tolerates a headless file because the
+   * month is on each row; this one cannot.
+   */
+  let monthColumns = null;
+  if (perfIsMonthly(kind)) {
+    if (!looksLikeHeader) {
+      return { rows: [], errors: [{ line: lines[0] ?? '', why:
+        'this file needs a heading row naming the months, e.g. "Employee number,2025-12,2026-01"' }] };
+    }
+    const headings = firstCells.slice(1).filter(c => String(c).trim() !== '');
+    if (headings.length === 0) {
+      return { rows: [], errors: [{ line: lines[0], why: 'the heading row names no months' }] };
+    }
+    const bad = headings.find(c => !normaliseMonth(c));
+    if (bad) {
+      return { rows: [], errors: [{ line: lines[0], why:
+        `"${bad}" is not a month. Every column after the employee number must be one, `
+        + 'like 2025-12 or Dec-25' }] };
+    }
+    monthColumns = headings.map(normaliseMonth);
+  }
+
   lines.forEach(line => {
     const parts = splitCells(line, delimiter);
     // A row with nothing in it at all is skipped in silence rather than reported. Excel
@@ -4624,6 +4715,47 @@ function parsePerformanceLines(text, kind) {
 
     const figures = perfFigures(kind);
     const hasNetwork = perfHasNetwork(kind);
+
+    /*
+     * A MONTHLY ROW becomes one row per month that has a figure in it. A blank cell is a
+     * month this person has nothing for, which on a sheet with a column per month is
+     * ordinary rather than a mistake — the column exists because the month does, not
+     * because somebody meant to state an amount and forgot.
+     *
+     * A typed 0 is kept. Somebody who earned nothing in April is a fact about April.
+     */
+    if (perfIsMonthly(kind)) {
+      const field = figures[0];
+      let bad = null;
+      const made = [];
+      monthColumns.forEach((month, i) => {
+        if (bad) return;
+        const cell = String(parts[i + 1] ?? '').trim();
+        if (cell === '') return;
+        const parsed = field.kind === 'money' ? perfMoney(cell) : perfCount(cell);
+        if (parsed === null) {
+          bad = `${month} must be ${field.kind === 'money' ? 'an amount' : 'a whole number'}`;
+          return;
+        }
+        made.push({
+          keyAsTyped: key,
+          key: numberKey(key),
+          keyedOn: spec.keyedOn,
+          month,
+          network: '',
+          field: field.field,
+          value: parsed,
+          values: { [field.field]: parsed }
+        });
+      });
+      if (bad) return errors.push({ line, why: bad });
+      // A person with nothing in any month is not an error and not a row.
+      if (made.length === 0) {
+        return errors.push({ line, why: 'no figures on this row for any month' });
+      }
+      made.forEach(r => rows.push(r));
+      return;
+    }
     const width = perfColumns(kind).length;
     // Where the figures start: after the key, the month, and the network if there is one.
     const firstFigure = hasNetwork ? 3 : 2;

@@ -33,7 +33,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
-  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'perfOnFy', 'normaliseMonth',
+  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'perfIsMonthly', 'perfOnFy', 'templateMonths', 'normaliseMonth',
   'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore',
   'staffTemplateRows', 'ROSTER_COLUMNS', 'splitCells', 'parseDebtLines',
   'DEBT_COLUMNS', 'DEBT_SAMPLE', 'ageOn', 'ageLabel'
@@ -400,13 +400,21 @@ Object.keys(portal.PERF_UPLOADS).forEach(kind => {
   const csv = portal.perfTemplateRows(kind).map(r => r.join(',')).join('\n');
   const back = portal.parsePerformanceLines(csv, kind);
   check(`the ${kind} template parses cleanly through its own parser`, back.errors.length, 0);
-  // A WIDE file's row becomes one row per network, so the parsed count is not the
-  // template's row count — it is the number of networks actually filled in.
-  const expected = portal.perfIsWide(kind)
-    ? portal.PERF_UPLOADS[kind].sample.reduce((n, row) =>
-        n + portal.perfNetworks(kind).filter((_, i) =>
-          String(row[2 + i * portal.perfFigures(kind).length] ?? '').trim() !== '').length, 0)
-    : portal.PERF_UPLOADS[kind].sample.length;
+  /*
+   * A row of the template is not always a row out of the parser. A WIDE file's row
+   * becomes one per network filled in; a MONTHLY file's becomes one per month filled in.
+   * Counted off the template's own rows, so a kind with no sample in the table — which a
+   * monthly one has, since its rows are generated to fit the columns — is covered too.
+   */
+  const body = portal.perfTemplateRows(kind).slice(1);
+  const expected = portal.perfIsMonthly(kind)
+    ? body.reduce((n, row) =>
+        n + row.slice(1).filter(c => String(c ?? '').trim() !== '').length, 0)
+    : portal.perfIsWide(kind)
+      ? body.reduce((n, row) =>
+          n + portal.perfNetworks(kind).filter((_, i) =>
+            String(row[2 + i * portal.perfFigures(kind).length] ?? '').trim() !== '').length, 0)
+      : body.length;
   check(`and yields its sample rows`, back.rows.length, expected);
 });
 
@@ -770,8 +778,7 @@ check('with the boxes the other way round',
 // no guard, so this is driven from the upload table: a seventh figure cannot be added
 // without being covered.
 Object.keys(portal.PERF_UPLOADS).forEach(kind => {
-  const own = [portal.perfColumns(kind).join(','), ...portal.PERF_UPLOADS[kind].sample
-    .map(r => r.join(','))].join('\n');
+  const own = portal.perfTemplateRows(kind).map(r => r.join(',')).join('\n');
   const parsed = portal.parsePerformanceLines(own, kind);
   check('the ' + kind + ' file still loads in its own box', parsed.errors, []);
   check('and still produces rows: ' + kind, parsed.rows.length > 0, true);
@@ -784,8 +791,7 @@ Object.keys(portal.PERF_UPLOADS).forEach(mine => {
   Object.keys(portal.PERF_UPLOADS).forEach(theirs => {
     if (mine === theirs) return;
     if (portal.PERF_UPLOADS[mine].keyedOn !== portal.PERF_UPLOADS[theirs].keyedOn) return;
-    const file = [portal.perfColumns(theirs).join(','),
-      ...portal.PERF_UPLOADS[theirs].sample.map(r => r.join(','))].join('\n');
+    const file = portal.perfTemplateRows(theirs).map(r => r.join(',')).join('\n');
     const parsed = portal.parsePerformanceLines(file, mine);
     check(`the ${theirs} file is refused by the ${mine} box`, parsed.rows.length, 0);
   });
