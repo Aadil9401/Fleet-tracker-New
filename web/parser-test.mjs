@@ -543,8 +543,19 @@ check('every wide file is an FY file',
   Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfIsWide(k) && !portal.perfOnFy(k)), []);
 check('and every FY file is wide',
   Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfOnFy(k) && !portal.perfIsWide(k)), []);
-check('there are four of them',
-  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfOnFy(k)).length, 4);
+// Three are OFFERED: stock, connections and payable, each on their own. The combined
+// file is still specified — it is the only one that reaches the wide parser's
+// multi-figure rules, which the cases above depend on — but it is no longer on the tab.
+check('the combined FY file is not offered any more',
+  portal.PERF_UPLOADS.fy.hidden, true);
+check('and the three single-figure ones are',
+  Object.keys(portal.PERF_UPLOADS)
+    .filter(k => portal.perfOnFy(k) && !portal.PERF_UPLOADS[k].hidden),
+  ['fyStock', 'fyConnections', 'fyPayable']);
+// Nothing on the Performance tab is hidden, so the guard cannot quietly swallow one.
+check('no ordinary upload is hidden',
+  Object.keys(portal.PERF_UPLOADS)
+    .filter(k => !portal.perfOnFy(k) && portal.PERF_UPLOADS[k].hidden), []);
 check('its columns carry each network by name',
   portal.perfColumns('fy'),
   ['Employee number', 'Month',

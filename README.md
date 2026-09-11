@@ -96,12 +96,17 @@ are due with the name of whoever is driving them.
   basic pay are keyed on **employee number** because they are a person's own. Filter by
   province, team or name
 - **FY incentive** — its own tab and its own collection, keyed on employee number and
-  stored per network. **Four uploads**: the **full file**, one row per person per month
-  carrying each network's stock, connections and payable side by side; and **stock**,
-  **connections** and **payable** each on their own, so a month of one figure can be
-  loaded without disturbing the other two
+  stored per network. **Three uploads** — **stock**, **connections** and **payable**,
+  each on their own — so a month of one figure can be loaded without disturbing the
+  other two
 
-  The three single-figure files exist because the full one cannot do that job. A blank
+  There used to be a fourth: one combined file carrying all three figures per network.
+  It is no longer offered. Its specification is kept, because it is the only upload with
+  more than one figure per network and so the only one that reaches the wide parser's
+  multi-figure rules — delete it and that logic goes unreachable and untested on the same
+  afternoon. Turning it back on is removing one line.
+
+  The three single-figure files exist because a combined one cannot do that job. A blank
   **count** cell is read as nought — correctly, since on a file carrying a stock column an
   empty cell means none was issued — so blanking the stock columns to load connections
   would write nought over every stock figure it did not mention, and the conversion

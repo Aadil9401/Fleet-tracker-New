@@ -4126,6 +4126,22 @@ const PERF_UPLOADS = {
    */
   fy: {
     label: 'FY incentive',
+    /*
+     * NOT OFFERED ANY MORE. Aadil: "take out the fy incentive as i dont need it
+     * anymore" — stock, connections and payable each have their own file now, and one
+     * figure at a time is how he actually loads them.
+     *
+     * The spec stays rather than being deleted, and that is a deliberate choice worth
+     * defending. It is the only upload carrying more than one figure per network, so it
+     * is the only one that can reach the wide parser's multi-figure rules: a blank
+     * payable refusing the row while a blank count reads as nought, and ",,0" being a
+     * stray formula where "0,0,0" is a real month of nothing. Delete the spec and that
+     * logic becomes unreachable and untested on the same afternoon, still sitting there
+     * to be broken by the next change.
+     *
+     * Turning it back on is removing this one line.
+     */
+    hidden: true,
     keyedOn: 'employee',
     // Which collection these land in. Named rather than inferred from the key, because
     // there are now two FY uploads and "is this one of them" is asked in five places.
@@ -5821,6 +5837,7 @@ function renderPerformance() {
  * you upload in is on the same screen as the figures it produces.
  */
 const perfUploadKinds = (container) => Object.keys(PERF_UPLOADS)
+  .filter(kind => !PERF_UPLOADS[kind].hidden)
   .filter(kind => perfOnFy(kind) === (container === 'fyUploads'));
 
 /** The upload cards, built from the same table the parser reads. */
