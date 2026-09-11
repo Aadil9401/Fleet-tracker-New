@@ -561,10 +561,19 @@ check('and the three single-figure ones are',
   Object.keys(portal.PERF_UPLOADS)
     .filter(k => portal.perfOnFy(k) && !portal.PERF_UPLOADS[k].hidden),
   ['fyStock', 'fyConnections', 'fyPayable']);
-// Nothing on the Performance tab is hidden, so the guard cannot quietly swallow one.
-check('no ordinary upload is hidden',
-  Object.keys(portal.PERF_UPLOADS)
-    .filter(k => !portal.perfOnFy(k) && portal.PERF_UPLOADS[k].hidden), []);
+/* EVERY FIGURE KEEPS A BOX. Hiding is how an upload is retired, and the risk it carries
+   is retiring the last way to load something — which nothing on screen would announce,
+   because a missing box looks exactly like a box you have not scrolled to.
+
+   So the guard is not "nothing is hidden" any more, it is that every field some upload
+   can write is still writable through a box that is actually on a tab. */
+const visibleFields = new Set(Object.keys(portal.PERF_UPLOADS)
+  .filter(k => !portal.PERF_UPLOADS[k].hidden)
+  .flatMap(k => portal.perfFigures(k).map(f => f.field)));
+const everyField = new Set(Object.keys(portal.PERF_UPLOADS)
+  .flatMap(k => portal.perfFigures(k).map(f => f.field)));
+check('every figure is still loadable from some visible box',
+  [...everyField].filter(f => !visibleFields.has(f)), []);
 check('its columns carry each network by name',
   portal.perfColumns('fy'),
   ['Employee number', 'Month',

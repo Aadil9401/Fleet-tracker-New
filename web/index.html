@@ -4210,6 +4210,17 @@ const PERF_UPLOADS = {
    */
   commissionMonthly: {
     label: 'Commission by month',
+    /*
+     * NOT OFFERED. Aadil: "hide all the by month upload, as im done uploading old
+     * information going forward will be new info only". These exist for loading a back
+     * history in one go; month by month, the ordinary box is the one to use.
+     *
+     * Kept rather than deleted, for the same reason as the combined FY file: the months
+     * layout is only reachable through these, so deleting them takes the layout, its
+     * parser branch and its tests with it — and the next back-history load starts from
+     * nothing. Turning one back on is removing its hidden line.
+     */
+    hidden: true,
     keyedOn: 'employee',
     layout: 'months',
     figures: [
@@ -4227,15 +4238,18 @@ const PERF_UPLOADS = {
    * network, then a column per month.
    */
   stockMonthly: {
-    label: 'Stock by month', keyedOn: 'team', layout: 'months', networkColumn: true,
+    label: 'Stock by month', hidden: true,
+    keyedOn: 'team', layout: 'months', networkColumn: true,
     figures: [{ label: 'stock', field: 'stock', kind: 'count' }]
   },
   connectionsMonthly: {
-    label: 'Connections by month', keyedOn: 'team', layout: 'months', networkColumn: true,
+    label: 'Connections by month', hidden: true,
+    keyedOn: 'team', layout: 'months', networkColumn: true,
     figures: [{ label: 'connections', field: 'connections', kind: 'count' }]
   },
   activationsMonthly: {
-    label: 'Activations by month', keyedOn: 'team', layout: 'months', networkColumn: true,
+    label: 'Activations by month', hidden: true,
+    keyedOn: 'team', layout: 'months', networkColumn: true,
     figures: [{ label: 'activations', field: 'activations', kind: 'count' }]
   },
 
@@ -4245,6 +4259,7 @@ const PERF_UPLOADS = {
    */
   basicMonthly: {
     label: 'Basic salary by month',
+    hidden: true,
     keyedOn: 'employee',
     layout: 'months',
     figures: [
