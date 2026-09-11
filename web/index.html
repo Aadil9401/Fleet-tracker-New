@@ -4218,6 +4218,28 @@ const PERF_UPLOADS = {
   },
 
   /*
+   * THE TEAM FIGURES, A COLUMN PER MONTH. Same reasoning as commission, and more of it:
+   * these are keyed on a team AND a network, so nine months of them tall is teams times
+   * months times networks — thousands of rows nobody fills in by hand. Wide it is one
+   * row per team per network.
+   *
+   * So these carry a NETWORK COLUMN as well as the key: the figure name, the team, the
+   * network, then a column per month.
+   */
+  stockMonthly: {
+    label: 'Stock by month', keyedOn: 'team', layout: 'months', networkColumn: true,
+    figures: [{ label: 'stock', field: 'stock', kind: 'count' }]
+  },
+  connectionsMonthly: {
+    label: 'Connections by month', keyedOn: 'team', layout: 'months', networkColumn: true,
+    figures: [{ label: 'connections', field: 'connections', kind: 'count' }]
+  },
+  activationsMonthly: {
+    label: 'Activations by month', keyedOn: 'team', layout: 'months', networkColumn: true,
+    figures: [{ label: 'activations', field: 'activations', kind: 'count' }]
+  },
+
+  /*
    * The same shape for basic pay. Both arrive from the same sheet, a column per month,
    * and both are loaded the same way.
    */
@@ -4357,6 +4379,19 @@ const perfIsWide = (kind) => PERF_UPLOADS[kind].layout === 'wide';
 const perfIsMonthly = (kind) => PERF_UPLOADS[kind].layout === 'months';
 
 /**
+ * Whether a monthly file names a network in its second column.
+ *
+ * A team's figures are filed per network as well as per month, so the network has to
+ * come from somewhere. On the tall files it is a column on every row; here it is a
+ * column on every row too, just once per row rather than once per month.
+ */
+const perfHasNetworkColumn = (kind) => perfIsMonthly(kind)
+  && PERF_UPLOADS[kind].networkColumn === true;
+
+/** How many columns come before the months: the key, and sometimes the network. */
+const perfMonthOffset = (kind) => perfHasNetworkColumn(kind) ? 2 : 1;
+
+/**
  * The months a downloaded template offers: a year ending at whatever month is picked.
  *
  * Off the PICKER rather than off the clock, so the template somebody downloads in
@@ -4406,7 +4441,11 @@ const perfColumns = (kind) => {
    */
   if (perfIsMonthly(kind)) {
     const figure = perfFigures(kind)[0].label;
-    return [figure.charAt(0).toUpperCase() + figure.slice(1), ...templateMonths()];
+    return [
+      figure.charAt(0).toUpperCase() + figure.slice(1),
+      ...(perfHasNetworkColumn(kind) ? ['Network'] : []),
+      ...templateMonths()
+    ];
   }
   if (perfIsWide(kind)) {
     return [
@@ -4432,11 +4471,22 @@ const perfTemplateRows = (kind) => {
   if (!perfIsMonthly(kind)) return [header, ...PERF_UPLOADS[kind].sample];
   // Two rows: one with every month filled, one with gaps, because a gap is allowed and
   // a template that never shows one teaches that it is not.
-  const months = header.length - 1;
+  const offset = perfMonthOffset(kind);
+  const months = header.length - offset;
+  const money = PERF_UPLOADS[kind].figures[0].kind === 'money';
+  const cell = (i) => money ? (8000 + i * 250).toFixed(2) : String(300 + i * 25);
+  const gap = (i) => i % 3 === 1 ? '' : (money ? '6200.00' : '260');
+  if (perfHasNetworkColumn(kind)) {
+    return [
+      header,
+      ['SOWETO', 'MTN', ...Array.from({ length: months }, (_, i) => cell(i))],
+      ['SOWETO', 'Telkom', ...Array.from({ length: months }, (_, i) => gap(i))]
+    ];
+  }
   return [
     header,
-    ['T042', ...Array.from({ length: months }, (_, i) => (8000 + i * 250).toFixed(2))],
-    ['T099', ...Array.from({ length: months }, (_, i) => i % 3 === 1 ? '' : '6200.00')]
+    ['T042', ...Array.from({ length: months }, (_, i) => cell(i))],
+    ['T099', ...Array.from({ length: months }, (_, i) => gap(i))]
   ];
 };
 
@@ -4720,7 +4770,8 @@ function parsePerformanceLines(text, kind) {
         + `carries — it says "${firstCells[0] ?? ''}". Two month-by-month files are `
         + 'identical otherwise, and loading one as the other cannot be undone' }] };
     }
-    const headings = firstCells.slice(1).filter(c => String(c).trim() !== '');
+    const headings = firstCells.slice(perfMonthOffset(kind))
+      .filter(c => String(c).trim() !== '');
     if (headings.length === 0) {
       return { rows: [], errors: [{ line: lines[0], why: 'the heading row names no months' }] };
     }
@@ -4776,11 +4827,27 @@ function parsePerformanceLines(text, kind) {
      */
     if (perfIsMonthly(kind)) {
       const field = figures[0];
+      const offset = perfMonthOffset(kind);
+      /*
+       * A team's figures are filed per network, so a row that names none — or names one
+       * this portal does not know — is refused rather than filed under a blank. An
+       * unrecognised network is a data-quality problem in the file, and hiding it puts a
+       * month of somebody's figures somewhere nobody will look for them.
+       */
+      let network = '';
+      if (perfHasNetworkColumn(kind)) {
+        network = networkKey(parts[1]);
+        if (!network) {
+          return errors.push({ line, why: String(parts[1] ?? '').trim()
+            ? `"${String(parts[1]).trim()}" is not a network — use ${networkList()}`
+            : 'no network on this row' });
+        }
+      }
       let bad = null;
       const made = [];
       monthColumns.forEach((month, i) => {
         if (bad) return;
-        const cell = String(parts[i + 1] ?? '').trim();
+        const cell = String(parts[i + offset] ?? '').trim();
         if (cell === '') return;
         const parsed = field.kind === 'money' ? perfMoney(cell) : perfCount(cell);
         if (parsed === null) {
@@ -4789,10 +4856,10 @@ function parsePerformanceLines(text, kind) {
         }
         made.push({
           keyAsTyped: key,
-          key: numberKey(key),
+          key: spec.keyedOn === 'team' ? teamKey(key) : numberKey(key),
           keyedOn: spec.keyedOn,
           month,
-          network: '',
+          network,
           field: field.field,
           value: parsed,
           values: { [field.field]: parsed }

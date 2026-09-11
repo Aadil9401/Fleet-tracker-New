@@ -33,7 +33,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
   'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
-  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'perfIsMonthly', 'perfOnFy', 'templateMonths', 'normaliseMonth',
+  'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'perfIsMonthly', 'perfOnFy', 'templateMonths', 'perfMonthOffset', 'normaliseMonth',
   'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore',
   'staffTemplateRows', 'ROSTER_COLUMNS', 'splitCells', 'parseDebtLines',
   'DEBT_COLUMNS', 'DEBT_SAMPLE', 'ageOn', 'ageLabel'
@@ -409,7 +409,8 @@ Object.keys(portal.PERF_UPLOADS).forEach(kind => {
   const body = portal.perfTemplateRows(kind).slice(1);
   const expected = portal.perfIsMonthly(kind)
     ? body.reduce((n, row) =>
-        n + row.slice(1).filter(c => String(c ?? '').trim() !== '').length, 0)
+        n + row.slice(portal.perfMonthOffset(kind))
+          .filter(c => String(c ?? '').trim() !== '').length, 0)
     : portal.perfIsWide(kind)
       ? body.reduce((n, row) =>
           n + portal.perfNetworks(kind).filter((_, i) =>
@@ -764,7 +765,10 @@ const connInWrongBox = [portal.perfColumns('connections').join(','),
 const asStock = portal.parsePerformanceLines(stockInWrongBox, 'connections');
 check('the stock file is refused by the connections box', asStock.rows.length, 0);
 check('and the complaint names the box it belongs in',
-  asStock.errors[0].why.includes('Stock box'), true);
+  asStock.errors[0].why.includes('Stock'), true);
+// Both boxes that heading could mean, since there are two stock files now.
+check('and names every box it could be, not one picked at random',
+  asStock.errors[0].why.includes('Stock by month'), true);
 check('and names the box it was given to, so both are on screen',
   asStock.errors[0].why.includes('Connections'), true);
 
@@ -772,7 +776,7 @@ check('and names the box it was given to, so both are on screen',
 const asConn = portal.parsePerformanceLines(connInWrongBox, 'stock');
 check('and the connections file is refused by the stock box', asConn.rows.length, 0);
 check('with the boxes the other way round',
-  asConn.errors[0].why.includes('Connections box'), true);
+  asConn.errors[0].why.includes('Connections'), true);
 
 // EVERY FILE STILL LOADS IN ITS OWN BOX. A guard that refuses good files is worse than
 // no guard, so this is driven from the upload table: a seventh figure cannot be added
