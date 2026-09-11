@@ -5403,26 +5403,41 @@ function fyTotals(rows) {
   };
 
   /*
-   * What is payable on EACH network as well as altogether.
+   * EVERY FIGURE PER NETWORK, not only the payable.
    *
-   * The combined figure is what gets paid, but it is not what gets queried — an argument
-   * about FY is always about one network, so the two amounts have to be readable on
-   * their own rather than worked back out of a total.
+   * The tiles used to add MTN's stock and connections to Telkom's and show one number
+   * for each. Nobody has ever asked that question: an argument about FY is always about
+   * one network, and a combined connections figure matches nothing on any file or any
+   * statement — it is a number the reader has to take apart before it means anything,
+   * and Aadil quite reasonably asked where it had come from.
+   *
+   * Worse than useless in the conversion: MTN's connections over the two networks' stock
+   * combined is not a rate that describes anything at all.
    *
    * Built from FY_NETWORKS so a third network needs no new tile, and null where that
-   * network has nothing, which shows as a dash rather than R0,00.
+   * network has nothing, which shows as a dash rather than a nought.
    */
-  const amountByNetwork = {};
+  const byNetwork = {};
   FY_NETWORKS.forEach(network => {
-    amountByNetwork[network] =
-      sumOf(r => r.amount, rows.filter(r => networkKey(r.network) === network));
+    const mine = rows.filter(r => networkKey(r.network) === network);
+    byNetwork[network] = {
+      stock: sumOf(r => r.stock, mine),
+      connections: sumOf(r => r.connections, mine),
+      amount: sumOf(r => r.amount, mine)
+    };
   });
 
   return {
+    // Kept for the ONE figure that is genuinely a total: what a person is actually paid
+    // is both networks added up. The stock and connections totals stay so an export or a
+    // caller that wants them still has them, but no tile shows them any more.
     stock: sumOf(r => r.stock),
     connections: sumOf(r => r.connections),
     amount: sumOf(r => r.amount),
-    amountByNetwork
+    byNetwork,
+    // The old shape, so nothing that reads amountByNetwork breaks.
+    amountByNetwork: Object.fromEntries(
+      FY_NETWORKS.map(n => [n, byNetwork[n].amount]))
   };
 }
 
@@ -5466,14 +5481,25 @@ function renderFy() {
   const count = (v) => v === null ? '—' : num(v);
   const money = (v) => v === null ? '—' : rand(v);
 
+  /*
+   * ONE NETWORK AT A TIME, stock and connections and the rate between them, then the
+   * payables. Generated from FY_NETWORKS so the tiles cannot fall out of step with the
+   * networks FY actually runs on.
+   *
+   * The only combined tile left is the payable total, because that one IS a total —
+   * somebody on both networks is paid both amounts and takes home the sum. Adding their
+   * MTN stock to their Telkom stock describes nothing anybody is owed or issued.
+   */
   $('fyTiles').innerHTML = [
-    ['FY stock', count(totals.stock)],
-    ['FY connections', count(totals.connections)],
-    ['Stock → conn', percentLabel(ratioPercent(totals.connections, totals.stock))],
-    // Each network's payable, then the combined figure. Generated from FY_NETWORKS so
-    // the tiles cannot fall out of step with the networks FY actually runs on.
+    ...FY_NETWORKS.flatMap(network => [
+      [NETWORK_LABELS[network] + ' stock', count(totals.byNetwork[network].stock)],
+      [NETWORK_LABELS[network] + ' connections', count(totals.byNetwork[network].connections)],
+      [NETWORK_LABELS[network] + ' stock → conn',
+        percentLabel(ratioPercent(totals.byNetwork[network].connections,
+          totals.byNetwork[network].stock))]
+    ]),
     ...FY_NETWORKS.map(network =>
-      [NETWORK_LABELS[network] + ' payable', money(totals.amountByNetwork[network])]),
+      [NETWORK_LABELS[network] + ' payable', money(totals.byNetwork[network].amount)]),
     ['FY payable total', money(totals.amount)]
   ].map(([cap, big]) =>
     `<div class="tile"><div class="big${tileFigureClass(big)}">${esc(big)}</div><div class="cap">${

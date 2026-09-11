@@ -1440,6 +1440,62 @@ check('with nothing uploaded at all, every payable is a dash',
 check('a payable is worked out for every network FY runs on',
   Object.keys(portal.fyTotals(fyAug).amountByNetwork), portal.FY_NETWORKS);
 
+/* STOCK AND CONNECTIONS PER NETWORK, the same as the payables and for the same reason.
+   The tiles used to add MTN's to Telkom's and show one figure for each, and that number
+   answers no question anybody asks: an argument about FY is always about one network,
+   and the combined connections matched nothing on any file Aadil had in front of him.
+   He asked where 10 526 connections had come from, which is exactly the right question
+   to ask of a number nothing produces. */
+check('stock is split by network',
+  [fyT.byNetwork.MTN.stock, fyT.byNetwork.TELKOM.stock], [1800, 600]);
+check('and so are connections',
+  [fyT.byNetwork.MTN.connections, fyT.byNetwork.TELKOM.connections], [615, 210]);
+// The split has to reconcile, or the tiles and the table are describing different months.
+check('and each adds back up to the whole',
+  [fyT.byNetwork.MTN.stock + fyT.byNetwork.TELKOM.stock,
+   fyT.byNetwork.MTN.connections + fyT.byNetwork.TELKOM.connections],
+  [fyT.stock, fyT.connections]);
+// A network with nothing is a dash here too, never a nought.
+check('a network with no stock shows nothing rather than none',
+  [mtnOnly.byNetwork.MTN.connections, mtnOnly.byNetwork.TELKOM.connections],
+  [mtnOnly.connections, null]);
+
+/* AND NO TILE ADDS THE TWO TOGETHER any more, except the payable — which is the one
+   figure that genuinely is a total, because somebody on both networks takes home the
+   sum. Checked on the rendered markup, since the whole complaint was about what is on
+   the screen rather than what the function returns. */
+const fyFixture = portal.data.perfFy;
+portal.data.perfFy = [
+  { numberKey: 'T042', employeeNumber: 'T042', month: '2026-08', network: 'MTN',
+    fyStock: 1000, fyConnections: 400, fyAmountRands: 5600 },
+  { numberKey: 'T042', employeeNumber: 'T042', month: '2026-08', network: 'TELKOM',
+    fyStock: 600, fyConnections: 210, fyAmountRands: 2940 }
+];
+portal.fyFilters.province = ''; portal.fyFilters.network = '';
+portal.fyFilters.person = ''; portal.fyFilters.query = '';
+setValue('fyMonth', '2026-08');
+dataset('fyUploads').built = 'yes';
+portal.renderFy();
+const fyTileCaps = [...(writes()['fyTiles'] || '')
+  .matchAll(/<div class="cap">([^<]*)</g)].map(m => m[1]);
+check('every tile names the network it is about',
+  fyTileCaps.filter(c => c === 'FY stock' || c === 'FY connections' || c === 'Stock → conn'),
+  []);
+check('and each network has its three',
+  ['MTN stock', 'MTN connections', 'MTN stock → conn',
+   'Telkom stock', 'Telkom connections', 'Telkom stock → conn']
+    .every(c => fyTileCaps.includes(c)), true);
+// The one total that survives, because it is the one that is really paid.
+check('the payable total is still combined', fyTileCaps.includes('FY payable total'), true);
+const fyTileBigs = [...(writes()['fyTiles'] || '')
+  .matchAll(/<div class="big[^"]*">([^<]*)<\/div><div class="cap">([^<]*)</g)]
+  .reduce((acc, m) => ({ ...acc, [m[2]]: m[1] }), {});
+check('and the figures on them are that network\'s own',
+  [fyTileBigs['MTN connections'], fyTileBigs['Telkom connections']], ['400', '210']);
+
+// Back to the section's own fixture: everything below reads it.
+portal.data.perfFy = fyFixture;
+
 check('a network narrows it', portal.fyRows('2026-08', 'MTN').length, 3);
 check('to that network only',
   portal.fyRows('2026-08', 'TELKOM').map(r => r.numberKey), ['T042']);
