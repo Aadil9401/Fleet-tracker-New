@@ -4217,6 +4217,19 @@ const PERF_UPLOADS = {
     ]
   },
 
+  /*
+   * The same shape for basic pay. Both arrive from the same sheet, a column per month,
+   * and both are loaded the same way.
+   */
+  basicMonthly: {
+    label: 'Basic salary by month',
+    keyedOn: 'employee',
+    layout: 'months',
+    figures: [
+      { label: 'basic salary', field: 'basicSalaryRands', kind: 'money' }
+    ]
+  },
+
   fyStock: {
     label: 'FY stock only',
     keyedOn: 'employee',
@@ -4378,9 +4391,23 @@ const perfNetworks = (kind) => PERF_UPLOADS[kind].networks ?? NETWORKS;
 
 /** The columns one upload has, and therefore where each figure sits. */
 const perfColumns = (kind) => {
-  // The key, then a column per month. The months here are only what the TEMPLATE
-  // offers; a file may carry any months at all, because the parser reads its heading.
-  if (perfIsMonthly(kind)) return [perfKeyLabel(kind), ...templateMonths()];
+  /*
+   * THE FIGURE, then a column per month — and the figure is in that first cell rather
+   * than "Employee number" on purpose.
+   *
+   * Two monthly files are otherwise identical: same key column, same month headings,
+   * nothing to tell commission from basic pay. The wrong-box guard reads headings, so
+   * with no figure named it has nothing to read, and a year of salaries loads into the
+   * commission column in silence. That is the September stock-into-connections fault
+   * exactly, which is the one this portal already learned the hard way.
+   *
+   * The months here are only what the TEMPLATE offers; a file may carry any months at
+   * all, because the parser reads them off its heading.
+   */
+  if (perfIsMonthly(kind)) {
+    const figure = perfFigures(kind)[0].label;
+    return [figure.charAt(0).toUpperCase() + figure.slice(1), ...templateMonths()];
+  }
   if (perfIsWide(kind)) {
     return [
       perfKeyLabel(kind),
@@ -4655,7 +4682,10 @@ function parsePerformanceLines(text, kind) {
    */
   const firstCells = lines.length ? splitCells(lines[0], delimiter) : [];
   const firstKey = String(firstCells[0] ?? '').toLowerCase();
-  const looksLikeHeader = firstKey.startsWith('employee') || firstKey.startsWith('emp no')
+  // A monthly file must have a heading row — it is the only place its months are stated
+  // — so its first line is always the header, whatever it says.
+  const looksLikeHeader = perfIsMonthly(kind)
+    || firstKey.startsWith('employee') || firstKey.startsWith('emp no')
     || firstKey === 'no.' || firstKey.startsWith('team');
   if (looksLikeHeader) {
     const complaint = wrongBox(firstCells, kind);
@@ -4673,9 +4703,22 @@ function parsePerformanceLines(text, kind) {
    */
   let monthColumns = null;
   if (perfIsMonthly(kind)) {
-    if (!looksLikeHeader) {
-      return { rows: [], errors: [{ line: lines[0] ?? '', why:
-        'this file needs a heading row naming the months, e.g. "Employee number,2025-12,2026-01"' }] };
+    if (lines.length === 0) {
+      return { rows: [], errors: [{ line: '', why: 'the file is empty' }] };
+    }
+    /*
+     * THE FIRST CELL SAYS WHICH FIGURE THIS IS. Two monthly files look the same in every
+     * other respect, so without it there is nothing standing between a year of basic
+     * salary and the commission column.
+     */
+    const declared = String(firstCells[0] ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const wanted = perfFigureHeadingKeys(kind);
+    if (!wanted.includes(declared)) {
+      const mine = PERF_UPLOADS[kind].figures[0].label;
+      return { rows: [], errors: [{ line: lines[0], why:
+        `the first heading cell must say "${mine}" so the file says which figure it `
+        + `carries — it says "${firstCells[0] ?? ''}". Two month-by-month files are `
+        + 'identical otherwise, and loading one as the other cannot be undone' }] };
     }
     const headings = firstCells.slice(1).filter(c => String(c).trim() !== '');
     if (headings.length === 0) {
@@ -4690,7 +4733,14 @@ function parsePerformanceLines(text, kind) {
     monthColumns = headings.map(normaliseMonth);
   }
 
-  lines.forEach(line => {
+  lines.forEach((line, lineIndex) => {
+    /*
+     * A MONTHLY FILE'S FIRST LINE IS ITS HEADING, always — it has been read already, for
+     * the months and for the figure it declares. Skipped by POSITION rather than by what
+     * it says, because what it says is a figure name now ("Commission"), and the
+     * name-based skip below is looking for "Employee number".
+     */
+    if (perfIsMonthly(kind) && lineIndex === 0) return;
     const parts = splitCells(line, delimiter);
     // A row with nothing in it at all is skipped in silence rather than reported. Excel
     // writes a tail of them after the last real row, and a file ending in eighteen
