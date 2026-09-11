@@ -4267,6 +4267,31 @@ const PERF_UPLOADS = {
     ]
   },
 
+  /*
+   * FY CONNECTIONS, A COLUMN PER MONTH. Aadil: "i need to bulk upload fy connections",
+   * then "can u make it wide, mtn first then telkom there after".
+   *
+   * The other FY connections file is one row per person per month with a column per
+   * network. That is the right shape for one month and the wrong one for nine: it is
+   * four hundred and ninety-five rows before a figure is typed. This is the same figures
+   * turned ninety degrees — one row per person per network, a column per month — so a
+   * year is two rows a person, MTN first and Telkom after.
+   *
+   * Reuses the months layout the back-history uploads use, with the network column the
+   * team figures use. Nothing new in the parser; a different set of flags on the table.
+   */
+  fyConnectionsMonthly: {
+    label: 'FY connections by month',
+    keyedOn: 'employee',
+    stores: 'perfFy',
+    layout: 'months',
+    networkColumn: true,
+    networks: FY_NETWORKS,
+    figures: [
+      { label: 'connections', field: 'fyConnections', kind: 'count' }
+    ]
+  },
+
   fyStock: {
     label: 'FY stock only',
     keyedOn: 'employee',

@@ -550,17 +550,23 @@ check('and every figure on the row is written, not just the first',
    disturbing the other two. A fifth would break a list and not this. */
 check('every wide file is an FY file',
   Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfIsWide(k) && !portal.perfOnFy(k)), []);
-check('and every FY file is wide',
-  Object.keys(portal.PERF_UPLOADS).filter(k => portal.perfOnFy(k) && !portal.perfIsWide(k)), []);
+check('and no FY file is narrow, since a narrow one could not carry a network',
+  Object.keys(portal.PERF_UPLOADS).filter(k =>
+    portal.perfOnFy(k) && !portal.perfIsWide(k) && !portal.perfIsMonthly(k)), []);
+// The by-month one carries its network in a column instead of in the headings.
+check('and the FY file that is not wide carries a network column',
+  Object.keys(portal.PERF_UPLOADS)
+    .filter(k => portal.perfOnFy(k) && portal.perfIsMonthly(k))
+    .every(k => portal.PERF_UPLOADS[k].networkColumn === true), true);
 // Three are OFFERED: stock, connections and payable, each on their own. The combined
 // file is still specified — it is the only one that reaches the wide parser's
 // multi-figure rules, which the cases above depend on — but it is no longer on the tab.
 check('the combined FY file is not offered any more',
   portal.PERF_UPLOADS.fy.hidden, true);
-check('and the three single-figure ones are',
+check('and the single-figure ones are, plus the by-month connections file',
   Object.keys(portal.PERF_UPLOADS)
     .filter(k => portal.perfOnFy(k) && !portal.PERF_UPLOADS[k].hidden),
-  ['fyStock', 'fyConnections', 'fyPayable']);
+  ['fyConnectionsMonthly', 'fyStock', 'fyConnections', 'fyPayable']);
 /* EVERY FIGURE KEEPS A BOX. Hiding is how an upload is retired, and the risk it carries
    is retiring the last way to load something — which nothing on screen would announce,
    because a missing box looks exactly like a box you have not scrolled to.
