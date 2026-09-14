@@ -79,8 +79,10 @@ are due with the name of whoever is driving them.
   working. Follows whatever filter is on screen, and the row count is in the filename so
   a partial export cannot later be mistaken for the whole list. No passwords — none are
   stored
-- **Fleet search** — find a vehicle by registration or name. Spacing is ignored, so
-  `bc45` and `BC 45` both find `BC 45 DF GP`, and the count follows the filter
+- **Fleet search** — find a vehicle by registration, name, **team or province**. Spacing
+  is ignored, so `bc45` and `BC 45` both find `BC 45 DF GP`, and the count follows the
+  filter. A vehicle carries no team or province of its own — both are read off whoever
+  drives it, live, so neither goes stale the day it changes hands
 - **Reports** — any date range (or today / last 7 / last 30), filtered by
   employee, province or team, with totals that follow the filter
 - **Cost per kilometre** — fuel spent over distance driven, per person and for the

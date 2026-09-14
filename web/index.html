@@ -594,7 +594,7 @@
         <div class="toolbar">
           <div class="grow">
             <label for="empSearch">Search</label>
-            <input id="empSearch" type="search" placeholder="Name, employee no, team or registration">
+            <input id="empSearch" type="search" placeholder="Name, employee no, team, province or registration">
           </div>
           <div>
             <label for="provinceFilter">Province</label>
@@ -941,7 +941,7 @@
           <h2 class="section" style="margin:0">Fleet (<span id="vehCount">0</span>)</h2>
           <div class="grow">
             <label for="vehSearch">Search</label>
-            <input id="vehSearch" type="search" placeholder="Registration or vehicle name">
+            <input id="vehSearch" type="search" placeholder="Registration, name, team or province">
           </div>
           <button id="exportVehicles" class="outline">Export CSV</button>
           <button id="deleteAllBtn" class="danger">Delete all</button>
@@ -2777,7 +2777,8 @@ function filteredEmployees() {
   const q = filters.query.trim().toLowerCase();
   return data.employees.filter(e => {
     const okProvince = filters.province === ALL_PROVINCES || e.province === filters.province;
-    const haystack = [fullName(e), e.employeeNumber, e.teamName, e.vehicleRegistration]
+    const haystack = [fullName(e), e.employeeNumber, e.teamName, e.province,
+      e.vehicleRegistration]
       .map(v => String(v ?? '').toLowerCase());
     return okProvince && (!q || haystack.some(h => h.includes(q)));
   });
@@ -3682,9 +3683,17 @@ function vehicleCostCell(vehicle) {
 function visibleVehicles() {
   const q = vehFilters.query;
   if (!q) return data.vehicles;
+  const needle = q.toLowerCase();
+  /*
+   * A VEHICLE CARRIES NO TEAM OR PROVINCE OF ITS OWN — both belong to whoever drives it,
+   * and are read off them the same way the export reads the team. So "midrand" finds the
+   * vehicles that team drives, and "gauteng" finds the ones posted there, without either
+   * ever being stored on the vehicle and going stale when it changes hands.
+   */
   return data.vehicles.filter(v =>
     plateMatches(v.registrationNumber, q) ||
-    String(v.name || '').toLowerCase().includes(q.toLowerCase()));
+    [v.name, teamsForVehicle(v), provincesForVehicle(v)]
+      .some(field => String(field || '').toLowerCase().includes(needle)));
 }
 
 /**
@@ -3702,14 +3711,26 @@ function visibleVehicles() {
  * named rather than one of them quietly chosen: a pool vehicle two teams drive is a
  * fact about the fleet, not a tie to be broken.
  */
-function teamsForVehicle(vehicle) {
-  const reg = normReg(vehicle.registrationNumber);
+function driversForVehicle(vehicle) {
+  const reg = normReg(vehicle?.registrationNumber);
   const drivers = data.employees.filter(e => e.assignedVehicleId
-    ? e.assignedVehicleId === vehicle.id
+    ? e.assignedVehicleId === vehicle?.id
     : reg && normReg(e.vehicleRegistration) === reg);
   const active = drivers.filter(e => e.active !== false);
-  return [...new Set((active.length ? active : drivers)
+  return active.length ? active : drivers;
+}
+
+/** Their teams, deduplicated. Every one, where a vehicle is genuinely shared. */
+function teamsForVehicle(vehicle) {
+  return [...new Set(driversForVehicle(vehicle)
     .map(e => String(e.teamName || '').trim())
+    .filter(Boolean))].join('; ');
+}
+
+/** And where they are posted, on the same rule, so the two cannot describe two people. */
+function provincesForVehicle(vehicle) {
+  return [...new Set(driversForVehicle(vehicle)
+    .map(e => String(e.province || '').trim())
     .filter(Boolean))].join('; ');
 }
 

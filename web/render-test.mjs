@@ -34,7 +34,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'licenceStatus', 'licenceLabel', 'licenceBadge', 'parseLicenceLines',
   'LICENCE_WARN_DAYS',
   'odometerCorrection',
-  'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
+  'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'provincesForVehicle',
+  'driversForVehicle', 'vehFilters',
   'entryNeedsLateReason',
   'renderPerformanceUploads', 'perfUploadKinds',
   'renderInsurance', 'visibleClaims', 'claimExportRows', 'claimFilters',
@@ -299,6 +300,48 @@ portal.data.vehicles = [];
 portal.renderVehicles();
 check('an empty fleet explains itself',
   (writes()['vehRows'] ?? '').includes('No vehicles yet'), true);
+
+/* ---------------- finding a vehicle by its people ---------------- */
+/* A VEHICLE CARRIES NO TEAM OR PROVINCE OF ITS OWN. Both belong to whoever drives it,
+   and neither is stored on the vehicle on purpose — a team written onto a bakkie goes
+   stale the day it changes hands, and Aadil made exactly that point about putting a
+   driver's name beside a licence disc. So the search reads them off the driver, live. */
+portal.data.vehicles = [
+  { id: 'v1', registrationNumber: 'BC45DFGP', name: 'Magnite' },
+  { id: 'v2', registrationNumber: 'XY67ZWGP', name: 'Bakkie 2' },
+  { id: 'v3', registrationNumber: 'AA11BBGP', name: 'Spare' }
+];
+portal.data.employees = [
+  { id: 'e1', name: 'Zanele', surname: 'B', teamName: 'Midrand', province: 'Gauteng',
+    assignedVehicleId: 'v1', active: true },
+  // Linked by the registration they typed rather than an assignment, spelt differently.
+  { id: 'e2', name: 'Andile', surname: 'A', teamName: 'Cape Town', province: 'Western Cape',
+    vehicleRegistration: 'xy 67 zw gp', active: true }
+];
+const foundBy = (q) => { portal.vehFilters.query = q; return portal.visibleVehicles().map(v => v.id); };
+
+check('a team name finds the vehicles that team drives', foundBy('midrand'), ['v1']);
+check('however it is capitalised', foundBy('MIDRAND'), ['v1']);
+check('a province finds the ones posted there', foundBy('gauteng'), ['v1']);
+// Part of a province is enough, the same as every other search box here.
+check('and part of one is enough', foundBy('western'), ['v2']);
+// The link can be an assignment or the registration the employee typed — both count.
+check('a vehicle linked only by a typed registration is found too', foundBy('cape town'), ['v2']);
+check('what nobody drives is found by nothing but itself', foundBy('spare'), ['v3']);
+check('and the plate and name still work', [foundBy('bc45'), foundBy('bakkie')], [['v1'], ['v2']]);
+check('a search matching nothing returns nothing', foundBy('nowhere'), []);
+portal.vehFilters.query = '';
+
+/* AND THE EXPORT STILL COVERS EXACTLY WHAT THE TABLE SHOWS, which is the thing that
+   would quietly stop being true if the search and the export read the driver
+   differently — so both go through the same lookup. */
+portal.vehFilters.query = 'gauteng';
+check('the export follows a team-or-province search too',
+  portal.vehicleExportRows().length - 1, portal.visibleVehicles().length);
+portal.vehFilters.query = '';
+check('and the province comes off the same driver as the team',
+  [portal.teamsForVehicle(portal.data.vehicles[0]),
+   portal.provincesForVehicle(portal.data.vehicles[0])], ['Midrand', 'Gauteng']);
 
 /* ---------------- licence discs ---------------- */
 /* A DISC IS RENEWED IN A QUEUE, in person, at a licensing centre — not on the afternoon
