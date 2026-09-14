@@ -32,7 +32,6 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
   'licenceStatus', 'licenceLabel', 'licenceBadge', 'parseLicenceLines',
-  'LICENCE_WARN_DAYS',
   'odometerCorrection',
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'provincesForVehicle',
   'driversForVehicle', 'vehFilters',
@@ -356,11 +355,21 @@ check('a disc expiring today is due, not expired', disc('2026-09-14').state, 'du
 check('and reads as such', portal.licenceLabel(disc('2026-09-14')), 'expires today');
 check('yesterday is expired', [disc('2026-09-13').state, disc('2026-09-13').days], ['expired', -1]);
 check('and says how long ago', portal.licenceLabel(disc('2026-09-13')), 'expired 1 day ago');
-// The boundary is inclusive: sixty days out still warns, sixty-one does not.
-check('the warning window is inclusive at its edge',
-  [disc('2026-11-13').state, disc('2026-11-14').state], ['due', 'ok']);
-check('and the window is the one named in the code',
-  portal.LICENCE_WARN_DAYS, 60);
+
+/* THE WINDOW IS THE CALENDAR MONTH, not a count of days. A disc is renewed in the month
+   it expires, so warning in August about a September disc is noise — and noise on a badge
+   teaches somebody to stop reading it. */
+check('anything later this month is due, however far off',
+  [disc('2026-09-15').state, disc('2026-09-30').state], ['due', 'due']);
+check('and the very start of next month is not',
+  disc('2026-10-01').state, 'ok');
+// Which is the point: a sixty-day window would have warned about this one all August.
+check('nor is one two months out', disc('2026-11-13').state, 'ok');
+// The first of the month is when a disc dated that month starts asking.
+check('a disc dated this month is due from the first of it',
+  portal.licenceStatus({ licenceExpiry: '2026-09-03' }, '2026-09-01').state, 'due');
+check('and was silent the day before',
+  portal.licenceStatus({ licenceExpiry: '2026-09-03' }, '2026-08-31').state, 'ok');
 /* Nothing recorded is its own state. A date that is not a date is the same thing: it
    tells nobody anything, so it is chased rather than trusted. */
 check('no date, a blank and a rubbish date are all "none"',
@@ -379,7 +388,9 @@ const inDays = (n) => portal.shiftDate(portal.todayString(), n);
 portal.data.vehicles = [
   { id: 'ok', registrationNumber: 'DD44EEGP', licenceExpiry: inDays(400) },
   { id: 'none', registrationNumber: 'AA11BBGP' },
-  { id: 'soon', registrationNumber: 'XY67ZWGP', licenceExpiry: inDays(21) },
+  // TODAY, not "in three weeks": three weeks from the 14th is next month, which under
+  // the month rule is correctly not due. Today is always this month and always ahead.
+  { id: 'soon', registrationNumber: 'XY67ZWGP', licenceExpiry: portal.todayString() },
   { id: 'gone', registrationNumber: 'BC45DFGP', licenceExpiry: inDays(-105) }
 ];
 

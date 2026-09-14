@@ -163,13 +163,16 @@ are due with the name of whoever is driving them.
   registration the employee typed. Where a vehicle really is shared, every team is named
   rather than one of them quietly chosen
 - **Licence discs** — an expiry date per vehicle, read **on the vehicle itself**: the
-  fleet row carries a badge beside SERVICE DUE — **DISC EXPIRED**, **DISC RENEWAL** within
-  60 days, or **NO DISC DATE** — with the date and a countdown in its own column, and both
-  in the CSV export. A disc with months left says nothing at all, because a badge on every
-  row is a badge nobody reads. Dates are set on the row or by uploading
-  `registration, expiry date`; that upload sets dates on vehicles that exist and never
-  creates one, since a mistyped plate would otherwise put a disc date on a vehicle nobody
-  owns
+  fleet row carries a badge beside SERVICE DUE — **DISC EXPIRED**, **DISC RENEWAL**, or
+  **NO DISC DATE** — with the date and a countdown in its own column, and both in the CSV
+  export. A disc with months left says nothing at all, because a badge on every row is a
+  badge nobody reads. Dates are set on the row
+
+  **The renewal is flagged during the month the disc expires, and not before** — the
+  calendar month, not a count of days, because that is when the thing is actually done. A
+  disc dated 3 March asks from 1 March; one dated 30 March asks all month. A window
+  counted in days would start asking about a March disc in February, which is not a month
+  anybody would renew it in
 
   **A vehicle with no date is its own state, not a passing one.** It is the one most
   likely to have lapsed, so it is flagged rather than assumed fine. And the reminder is on

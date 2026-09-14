@@ -667,7 +667,8 @@
         </div>
         <div id="licError"></div>
         <p class="sub" style="font-size:.8rem;margin:var(--s3) 0 0">
-          The date printed on the disc. Clearing it leaves the vehicle on the list as one
+          The date printed on the disc. The vehicle is flagged for renewal during the
+          month it expires, and not before. Clearing the date leaves it flagged as one
           with no date recorded, which is chased rather than assumed fine.
         </p>
         <div class="row-actions" style="justify-content:flex-end">
@@ -871,10 +872,17 @@
         </details>
       </div>
 
-      <div class="card">
+      <!--
+        HIDDEN, not deleted. Aadil: "hide the buld upload license disk" — he sets these
+        on the row, and a bulk card for a job done once is a card read past every day.
+        The parser and its handlers stay wired and tested behind it, so the day sixty
+        dates need loading at once this is one class attribute away from being back.
+      -->
+      <div class="card hidden">
         <h2 class="section">Licence disc dates</h2>
         <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-          One vehicle per line: <code>registration, expiry date</code>. Dates accept
+          One vehicle per line: <code>registration, expiry date</code>. A vehicle is
+          flagged for renewal during the month its disc expires. Dates accept
           <code>yyyy-mm-dd</code> or <code>dd/mm/yyyy</code>. A registration not on the
           fleet is reported rather than added — this only sets dates.
         </p>
@@ -3807,23 +3815,27 @@ function odometerCorrection(vehicle, typed) {
 /**
  * How long a licence disc has left, or how long it has been expired.
  *
- * SIXTY DAYS OF WARNING. A disc is renewed at a post office or a licensing centre, in
- * person, in a queue — it is not a thing anybody does on the afternoon it expires. Two
- * months is enough notice to fit it into a week somewhere; a fortnight is not.
+ * WARNED IN THE MONTH IT EXPIRES, and not before. Aadil: "i only want to be reminded to
+ * renew a disk in the month of its expiry". That is how the thing is actually done — a
+ * disc is renewed in its expiry month, and a reminder two months early is noise that
+ * teaches him to stop reading the badge.
+ *
+ * THE CALENDAR MONTH, not thirty days. A disc expiring on the 3rd warns from the 1st,
+ * one expiring on the 30th warns all month. A window counted in days would start warning
+ * about a March disc in February, which is not a month anybody would renew it in.
  *
  * Four states rather than a boolean, because they want different things done about them
  * and a vehicle with no date recorded is not a vehicle whose disc is fine:
  *
  *   none      nothing recorded — invisible rather than safe, so it is chased too
  *   expired   past its date. Driving on it is an offence, not an inconvenience
- *   due       inside the warning window
+ *   due       expires this month, and has not yet
  *   ok        nothing to do
  *
  * Whole days, counted from midnight to midnight, so "expires today" is 0 and yesterday
- * is -1 rather than depending on what time the page happened to be opened.
+ * is -1 rather than depending on what time the page happened to be opened. The day count
+ * is still carried on every state: it is what the table says out loud.
  */
-const LICENCE_WARN_DAYS = 60;
-
 function licenceStatus(vehicle, today = todayString()) {
   const expiry = String(vehicle?.licenceExpiry ?? '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry) || !isRealDate(expiry)) {
@@ -3832,7 +3844,8 @@ function licenceStatus(vehicle, today = todayString()) {
   const days = daysBetween(today, expiry);
   if (days === null) return { state: 'none', days: null, expiry: '' };
   if (days < 0) return { state: 'expired', days, expiry };
-  if (days <= LICENCE_WARN_DAYS) return { state: 'due', days, expiry };
+  // Same yyyy-MM, so it is this month's job whether that is tomorrow or in three weeks.
+  if (expiry.slice(0, 7) === String(today).slice(0, 7)) return { state: 'due', days, expiry };
   return { state: 'ok', days, expiry };
 }
 
