@@ -850,15 +850,6 @@
         <button id="badIntervalFix">Set these to 15 000 km</button>
       </div>
 
-      <div class="card hidden" id="licenceCard">
-        <h2 class="section">Licence discs</h2>
-        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-          Expired, running out within 60 days, or never recorded. Whoever drives it is
-          named, because somebody has to stand in the queue.
-        </p>
-        <div id="licenceList"></div>
-      </div>
-
       <div class="card">
         <h2 class="section">Bulk upload</h2>
         <div class="field">
@@ -3824,17 +3815,6 @@ function licenceStatus(vehicle, today = todayString()) {
   return { state: 'ok', days, expiry };
 }
 
-/** The vehicles wanting attention, worst first: expired, then soonest, then unrecorded. */
-function licencesNeedingAttention(today = todayString()) {
-  const order = { expired: 0, due: 1, none: 2 };
-  return data.vehicles
-    .map(v => ({ vehicle: v, ...licenceStatus(v, today) }))
-    .filter(r => r.state !== 'ok')
-    .sort((a, b) => (order[a.state] - order[b.state])
-      || ((a.days ?? 0) - (b.days ?? 0))
-      || plate(a.vehicle.registrationNumber).localeCompare(plate(b.vehicle.registrationNumber)));
-}
-
 /** "expires in 34 days", "expired 8 days ago", "expires today". */
 function licenceLabel(status) {
   if (status.state === 'none') return 'no date recorded';
@@ -3844,6 +3824,23 @@ function licenceLabel(status) {
     return `expired ${n} ${n === 1 ? 'day' : 'days'} ago`;
   }
   return `expires in ${status.days} ${status.days === 1 ? 'day' : 'days'}`;
+}
+
+/**
+ * The badge for a vehicle whose disc wants attention, or nothing at all.
+ *
+ * Sits beside SERVICE DUE on the vehicle itself rather than in a list of its own: a disc
+ * is a fact about a vehicle, and the place somebody looks when asking about a vehicle is
+ * the vehicle. Red for expired — an offence to drive on — amber for running out, which is
+ * a job to book, and grey for one nobody has recorded, which is the one most likely to
+ * have lapsed precisely because nobody is looking at it.
+ */
+function licenceBadge(vehicle) {
+  const state = licenceStatus(vehicle).state;
+  if (state === 'expired') return '<span class="badge due">DISC EXPIRED</span>';
+  if (state === 'due') return '<span class="badge soon">DISC RENEWAL</span>';
+  if (state === 'none') return '<span class="badge unknown">NO DISC DATE</span>';
+  return '';
 }
 
 /** One vehicle's licence disc, as it reads in the fleet table. */
@@ -3859,54 +3856,8 @@ function licenceCell(vehicle) {
     esc(prettyDate(status.expiry))}</div><div class="meta">${esc(licenceLabel(status))}</div>`;
 }
 
-/**
- * The card above the fleet: everything expired, running out, or never recorded.
- *
- * Hidden entirely when there is nothing to say. A card reading "all discs are fine" is
- * one more thing to read past on a tab that is mostly about something else.
- */
-function renderLicenceWarnings() {
-  const rows = licencesNeedingAttention();
-  $('licenceCard').classList.toggle('hidden', rows.length === 0);
-  if (rows.length === 0) { $('licenceList').innerHTML = ''; return; }
-
-  // Who drives it, by the registration they typed — the same link the service list uses.
-  const holderByReg = {};
-  data.employees.forEach(e => {
-    const reg = normReg(e.vehicleRegistration);
-    if (reg) holderByReg[reg] = e;
-  });
-
-  const counts = { expired: 0, due: 0, none: 0 };
-  rows.forEach(r => { counts[r.state] += 1; });
-  const headline = [
-    counts.expired ? `${counts.expired} expired` : null,
-    counts.due ? `${counts.due} running out` : null,
-    counts.none ? `${counts.none} with no date recorded` : null
-  ].filter(Boolean).join(' · ');
-
-  $('licenceList').innerHTML = `<div class="count" style="margin-bottom:var(--s3)">${
-    esc(headline)}</div>` + rows.map(r => {
-    const v = r.vehicle;
-    const holder = holderByReg[normReg(v.registrationNumber)];
-    const badge = r.state === 'expired' ? '<span class="badge due">EXPIRED</span>'
-      : r.state === 'due' ? '<span class="badge soon">RENEW</span>'
-      : '<span class="badge unknown">NO DATE</span>';
-    return `<div class="row-actions" style="justify-content:flex-start;gap:10px;padding:7px 0;
-         border-top:1px solid var(--surface-variant)">
-      ${badge}
-      <div style="min-width:150px"><b>${esc(plate(v.registrationNumber))}</b>${
-        v.name ? `<div class="meta">${esc(v.name)}</div>` : ''}</div>
-      <div class="meta" style="min-width:170px">${esc(licenceLabel(r))}${
-        r.expiry ? ` · ${esc(prettyDate(r.expiry))}` : ''}</div>
-      <div class="meta">${holder ? esc(fullName(holder)) : 'nobody assigned'}</div>
-    </div>`;
-  }).join('');
-}
-
 function renderVehicles() {
   renderIntervalWarning();
-  renderLicenceWarnings();
   const visible = visibleVehicles();
 
   // The count follows the filter, so it always describes what is on screen.
@@ -3932,7 +3883,7 @@ function renderVehicles() {
         return `<tr>
           <td><div class="nm">${esc(v.name || plate(v.registrationNumber))}</div>
               <div class="meta">${esc(plate(v.registrationNumber))}</div>
-              ${due ? '<span class="badge due">SERVICE DUE</span>' : ''}
+              ${due ? '<span class="badge due">SERVICE DUE</span>' : ''}${licenceBadge(v)}
               ${lastServiced ? `<div class="meta">Last: ${esc(lastServiced)}</div>` : ''}</td>
           <td>${km(v.currentOdometerKm || 0)}</td>
           <td>${vehicleCostCell(v)}</td>

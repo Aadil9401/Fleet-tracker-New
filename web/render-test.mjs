@@ -31,8 +31,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
-  'licenceStatus', 'licenceLabel', 'licencesNeedingAttention', 'parseLicenceLines',
-  'LICENCE_WARN_DAYS', 'renderLicenceWarnings',
+  'licenceStatus', 'licenceLabel', 'licenceBadge', 'parseLicenceLines',
+  'LICENCE_WARN_DAYS',
   'odometerCorrection',
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
   'entryNeedsLateReason',
@@ -325,24 +325,20 @@ check('no date, a blank and a rubbish date are all "none"',
   ['none', 'none', 'none', 'none']);
 check('and a real date far out is simply fine', disc('2027-08-01').state, 'ok');
 
-/* WORST FIRST, because the list is a work queue. Expired before running out, soonest
-   first within each, and the ones nobody has recorded last — they need chasing, but a
-   disc that has actually expired is an offence to drive on. */
-/* BUILT OFF TODAY, not off dates typed in. The list below is asked about the real clock
-   through renderVehicles(), so a fixture pinned to September passes in September and
-   fails in October — which is exactly what the date sweep caught when these were first
-   written. */
+/* ON THE VEHICLE, NOT IN A LIST OF ITS OWN. Aadil: "instead of creating a whole new
+   list, add it to my vehicle information". A disc is a fact about a vehicle, so it is
+   read where somebody already looks when asking about one — beside SERVICE DUE.
+
+   Built off today rather than off dates typed in: the row is drawn against the real
+   clock, so a fixture pinned to September passes in September and fails in October,
+   which is what the date sweep caught when these were first written. */
 const inDays = (n) => portal.shiftDate(portal.todayString(), n);
 portal.data.vehicles = [
   { id: 'ok', registrationNumber: 'DD44EEGP', licenceExpiry: inDays(400) },
   { id: 'none', registrationNumber: 'AA11BBGP' },
   { id: 'soon', registrationNumber: 'XY67ZWGP', licenceExpiry: inDays(21) },
-  { id: 'gone', registrationNumber: 'BC45DFGP', licenceExpiry: inDays(-105) },
-  { id: 'sooner', registrationNumber: 'EE55FFGP', licenceExpiry: inDays(6) }
+  { id: 'gone', registrationNumber: 'BC45DFGP', licenceExpiry: inDays(-105) }
 ];
-check('the list is worst first and leaves out what is fine',
-  portal.licencesNeedingAttention().map(r => r.vehicle.id),
-  ['gone', 'sooner', 'soon', 'none']);
 
 /* THE UPLOAD SETS DATES ON VEHICLES THAT EXIST. It never creates one: a typo'd plate
    would otherwise put a disc date on a vehicle nobody owns, and it would look real. */
@@ -366,17 +362,17 @@ check('a registration not on the fleet is refused, never created',
 check('and the same vehicle twice is refused rather than last-one-wins',
   licFile.errors.some(e => e.why === 'this registration is listed twice'), true);
 
-/* AND IT IS ON THE SCREEN. The card is hidden when there is nothing to say — a card
-   reading "all discs are fine" is one more thing to read past. */
 portal.renderVehicles();
-const discCard = writes()['licenceList'] || '';
-check('the card names each state', ['EXPIRED', 'RENEW', 'NO DATE'].every(b => discCard.includes(b)), true);
-check('and counts them in a headline', discCard.includes('1 expired'), true);
-check('every fleet row offers the disc', (writes()['vehRows'] || '').includes('data-lic="gone"'), true);
-portal.data.vehicles = [{ id: 'ok', registrationNumber: 'DD44EEGP', licenceExpiry: inDays(400) }];
-portal.renderVehicles();
-check('and the card disappears when nothing needs doing',
-  (writes()['licenceList'] || '') === '' || !(writes()['licenceList'] || '').includes('EXPIRED'), true);
+const fleetHtml = writes()['vehRows'] || '';
+check('each state badges the vehicle itself',
+  ['DISC EXPIRED', 'DISC RENEWAL', 'NO DISC DATE'].every(b => fleetHtml.includes(b)), true);
+// A disc with months left says nothing at all. A badge on every row is a badge nobody reads.
+check('and a disc with months left is not badged',
+  portal.licenceBadge({ licenceExpiry: inDays(400) }), '');
+check('every fleet row offers the disc', fleetHtml.includes('data-lic="gone"'), true);
+// The date and the countdown stay in the column; the badge is only what catches an eye.
+check('the column still carries the date and the countdown',
+  [fleetHtml.includes('expires in'), fleetHtml.includes('expired')], [true, true]);
 
 /* ---------------- correcting an odometer ---------------- */
 /* THE ONE READING NOTHING COULD LOWER. Every other path clamps upward: the phone writes
