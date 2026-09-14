@@ -419,6 +419,53 @@ Object.keys(portal.PERF_UPLOADS).forEach(kind => {
   check(`and yields its sample rows`, back.rows.length, expected);
 });
 
+/* ---------------- two lines for one figure ---------------- */
+/* THE WORST FAULT THIS UPLOAD COULD HAVE, and it was there until today.
+
+   Every row is stored at an address of key + month + network. Two rows sharing that
+   address do not add up and do not both survive — the writer applies them in order and
+   the last wins. So a file listing a team twice reported "saved 2 rows" and kept one of
+   them, and nothing on any screen afterwards showed which figures had gone.
+
+   Measured before the fix: a stock file with SOWETO listed twice said it saved two rows
+   and stored 50 of 650 units. A per-product export pasted without being summed is
+   exactly that shape, which is how Aadil came to ask about it before anybody hit it.
+
+   Refused whole, not partly loaded: a month half replaced by itself is worse than a
+   month not loaded, and the admin cannot tell which half they got. The file has to sum
+   its own duplicates, because a repeated line can be two real invoices or one row
+   pasted twice, and those want opposite answers. */
+const dupes = (kind, text) => portal.parsePerformanceLines(text, kind);
+
+const dupStock = dupes('stock',
+  'Team name,Month,Network,Stock\nSOWETO,2026-01,MTN,600\nSOWETO,2026-01,MTN,50');
+check('a team listed twice for one month and network is refused', dupStock.rows.length, 0);
+check('and the complaint names which one', dupStock.errors[0].why.includes('SOWETO 2026-01 MTN'), true);
+check('and says nothing was saved', dupStock.errors[0].why.includes('nothing has been saved'), true);
+// The fix belongs in the file, not in a guess by the portal.
+check('and says to add them up in the file',
+  dupStock.errors[0].why.includes('Add the duplicates together'), true);
+
+check('the same on a commission file', dupes('commission',
+  'Employee number,Month,Commission\nT042,2026-01,5000\nT042,2026-01,900').rows.length, 0);
+check('and on a wide FY file', dupes('fyConnections',
+  'Employee number,Month,MTN connections,Telkom connections\nT042,2026-01,400,\nT042,2026-01,100,').rows.length, 0);
+check('and on a by-month file', dupes('fyConnectionsMonthly',
+  'Connections,Network,2026-01\nT042,MTN,400\nT042,MTN,100').rows.length, 0);
+
+/* AND WHAT IS NOT A DUPLICATE STILL LOADS. The address is key AND month AND network,
+   so the same person on two networks, the same team in two months and two different
+   teams are all ordinary files — refusing those would be worse than the fault. */
+check('the same person on two networks is fine', dupes('fyConnectionsMonthly',
+  'Connections,Network,2026-01\nT042,MTN,400\nT042,Telkom,100').rows.length, 2);
+check('the same team in two months is fine', dupes('stock',
+  'Team name,Month,Network,Stock\nSOWETO,2026-01,MTN,600\nSOWETO,2026-02,MTN,50').rows.length, 2);
+check('two teams in one month is fine', dupes('stock',
+  'Team name,Month,Network,Stock\nSOWETO,2026-01,MTN,600\nALEX,2026-01,MTN,50').rows.length, 2);
+// And a team whose name differs only by spacing or case is the SAME team, so it clashes.
+check('a team spelt two ways is still one team, and still refused', dupes('stock',
+  'Team name,Month,Network,Stock\nSOWETO,2026-01,MTN,600\nsoweto ,2026-01,mtn,50').rows.length, 0);
+
 /* ---------------- what a real spreadsheet actually writes ---------------- */
 /* Every case below came out of the FY file Aadil tried to upload. All of it was refused,
    and none of it was his fault: a spreadsheet writes months, blanks and trailing rows

@@ -5121,6 +5121,45 @@ function parsePerformanceLines(text, kind) {
     });
   });
 
+  /*
+   * TWO LINES FOR THE SAME FIGURE IS REFUSED.
+   *
+   * Every row is stored at an address made of its key, its month and its network. Two
+   * rows sharing that address do not add up and do not both survive: the writer applies
+   * them in order and the last one wins, so a file with a team listed twice reports
+   * "saved 2 rows" and quietly keeps one of them. Aadil predicted this before it was
+   * found — a per-product export pasted without being summed first is exactly the shape
+   * that does it, and the loss is invisible on every screen afterwards.
+   *
+   * Refused whole rather than partially loaded, for the same reason a file in the wrong
+   * box is: a month half replaced by itself is worse than a month not loaded at all, and
+   * the admin cannot see which half they got.
+   *
+   * The fix in the file is to SUM the duplicates before uploading, which is what the
+   * message says — never to let the portal guess, because a repeated line can mean two
+   * real invoices or one row pasted twice, and those want opposite answers.
+   */
+  const seenAt = new Map();
+  const clashes = [];
+  rows.forEach(r => {
+    const at = `${r.key}|${r.month}|${r.network || ''}`;
+    if (seenAt.has(at)) {
+      if (!clashes.some(c => c.at === at)) clashes.push({ at, r });
+    } else seenAt.set(at, r);
+  });
+  if (clashes.length) {
+    const named = clashes.slice(0, 5).map(c => {
+      const bits = [c.r.keyAsTyped, c.r.month];
+      if (c.r.network) bits.push(NETWORK_LABELS[c.r.network] || c.r.network);
+      return bits.join(' ');
+    });
+    return { rows: [], errors: [{ line: '', why:
+      `this file lists the same figure twice — ${named.join('; ')}`
+      + (clashes.length > 5 ? `, and ${clashes.length - 5} more` : '')
+      + '. Only one of each would be kept and the rest silently dropped, so nothing has '
+      + 'been saved. Add the duplicates together in the file and upload it again' }] };
+  }
+
   return { rows, errors };
 }
 
