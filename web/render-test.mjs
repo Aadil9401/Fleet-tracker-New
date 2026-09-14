@@ -32,6 +32,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
   'licenceStatus', 'licenceLabel', 'licenceBadge', 'parseLicenceLines',
+  'visibleFiguresMonth', 'REFRESH_AFTER_MS',
   'odometerCorrection',
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'provincesForVehicle',
   'driversForVehicle', 'vehFilters',
@@ -300,6 +301,35 @@ portal.data.vehicles = [];
 portal.renderVehicles();
 check('an empty fleet explains itself',
   (writes()['vehRows'] ?? '').includes('No vehicles yet'), true);
+
+/* ---------------- figures uploaded somewhere else ---------------- */
+/* THE FILE IS ALREADY HERE; THE PAGE JUST STOPPED LOOKING. Aadil asked how to get
+   connection figures uploaded from another machine to turn up without uploading them
+   again — and they never needed uploading again. The figures are in one shared
+   database. What was missing is that a portal left open never re-read: a month was
+   fetched once and kept for the life of the page, so somebody else's upload was
+   invisible until a reload, with nothing on screen to suggest one. */
+check('coming back to a tab that is not about figures does nothing',
+  portal.visibleFiguresMonth(), null);
+
+// Showing the Performance tab the way the page does, and asking again.
+document.getElementById('tab-performance').classList.remove('hidden');
+setValue('perfMonth', '2026-08');
+check('the tab being looked at is the one re-read',
+  portal.visibleFiguresMonth().month, '2026-08');
+// FY has its own month picker, and re-reading the wrong one would refresh a month
+// nobody is looking at while leaving the one they are looking at stale.
+document.getElementById('tab-performance').classList.add('hidden');
+document.getElementById('tab-fy').classList.remove('hidden');
+setValue('fyMonth', '2026-03');
+check('and FY is read off its own picker, not the other tab',
+  portal.visibleFiguresMonth().month, '2026-03');
+document.getElementById('tab-fy').classList.add('hidden');
+
+/* THROTTLED, because a tab regains focus every time somebody alt-tabs. Re-reading
+   three collections on each of those would spend the day's free quota on somebody
+   switching between windows. */
+check('the throttle is minutes, not seconds', portal.REFRESH_AFTER_MS >= 60000, true);
 
 /* ---------------- the discs tile on the day view ---------------- */
 /* THE SCREEN HE OPENS EVERY MORNING. A disc on the Vehicles tab is found by somebody

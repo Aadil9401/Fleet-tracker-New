@@ -23,6 +23,21 @@ import { join } from 'path';
  */
 function browserStubs(html) {
   const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
+  /*
+   * The classes each element starts with, read off the markup.
+   *
+   * classList used to be three functions that did nothing, which is fine for code that
+   * only ever SETS a class and wrong for code that asks. A page that decides what to do
+   * by reading which tab is hidden got a stub that said every tab was showing — and the
+   * tabs are hidden in the markup, so the stub was not merely empty, it was inverted.
+   */
+  const classes = {};
+  for (const tag of html.match(/<[a-zA-Z][^>]*>/g) ?? []) {
+    const id = (tag.match(/\bid="([^"]+)"/) ?? [])[1];
+    if (!id) continue;
+    const cls = (tag.match(/\bclass="([^"]*)"/) ?? [])[1] ?? '';
+    classes[id] = cls.split(/\s+/).filter(Boolean);
+  }
   return `
 const __ids = ${JSON.stringify(ids)};
 /*
@@ -38,8 +53,30 @@ globalThis.__born = new Set();
 globalThis.__writes = {};
 globalThis.__values = {};
 globalThis.__datasets = {};
+globalThis.__classes = ${JSON.stringify(classes)};
+const __classesOf = (id) => {
+  if (!id) return new Set();
+  globalThis.__classSets = globalThis.__classSets || {};
+  if (!globalThis.__classSets[id]) {
+    globalThis.__classSets[id] = new Set(globalThis.__classes[id] || []);
+  }
+  return globalThis.__classSets[id];
+};
 const __stubEl = (id) => ({
-  addEventListener() {}, querySelectorAll: () => [], classList: { toggle() {}, add() {}, remove() {} },
+  addEventListener() {}, querySelectorAll: () => [],
+  // A real classList remembers. Held per id, so a class added by one render is still
+  // there for the next thing that asks.
+  classList: {
+    add: (c) => __classesOf(id).add(c),
+    remove: (c) => __classesOf(id).delete(c),
+    contains: (c) => __classesOf(id).has(c),
+    toggle: (c, on) => {
+      const set = __classesOf(id);
+      const want = on === undefined ? !set.has(c) : !!on;
+      if (want) set.add(c); else set.delete(c);
+      return want;
+    }
+  },
   set innerHTML(v) {
     if (id) globalThis.__writes[id] = v;
     // Whatever was just drawn now exists, the same as in a browser.
@@ -59,6 +96,11 @@ const __stubEl = (id) => ({
   style: {}, files: [], focus() {}, click() {}, appendChild() {}, removeChild() {}
 });
 globalThis.document = {
+  // A real document has these. Without them a page that listens for anything at the
+  // document level — a tab coming back to the front, a key pressed — cannot be loaded
+  // under test at all, and the module dies on the harness rather than in a browser.
+  addEventListener() {}, removeEventListener() {},
+  visibilityState: "visible",
   getElementById: (id) =>
     (__ids.includes(id) || globalThis.__born.has(id)) ? __stubEl(id) : null,
   querySelectorAll: () => [],
@@ -127,6 +169,18 @@ export function dataset(id) {
 /** What the page last rendered into each element, by id. See browserStubs(). */
 export function writes() {
   return globalThis.__writes ?? {};
+}
+
+/**
+ * One element's classes, as they stand now.
+ *
+ * Seeded from the markup and kept up to date by add/remove/toggle, so a test can ask
+ * whether something is hidden the same way the page does.
+ */
+export function classesOf(id) {
+  const seeded = (globalThis.__classes ?? {})[id] ?? [];
+  const live = (globalThis.__classSets ?? {})[id];
+  return [...(live ?? new Set(seeded))];
 }
 
 export async function loadPortal(htmlPath, expose = []) {

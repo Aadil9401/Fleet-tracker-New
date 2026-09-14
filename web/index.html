@@ -2015,6 +2015,60 @@ async function loadAll() {
  */
 const perfMonthsLoaded = new Set();
 
+/*
+ * WHEN FIGURES UPLOADED SOMEWHERE ELSE TURN UP HERE.
+ *
+ * The figures live in one shared database, so a file loaded from another machine is
+ * already here the moment it is saved — but a portal left open never looked again. A
+ * month was fetched once and kept for the life of the page, so the only way to see
+ * somebody else's upload was to reload, and nothing on screen suggested that.
+ *
+ * So the month being looked at is re-read whenever this tab comes back to the front:
+ * that is exactly the moment somebody wants it current, and it costs nothing while the
+ * tab sits in the background.
+ *
+ * THROTTLED, because a tab regains focus every time somebody alt-tabs. Re-reading three
+ * collections on each of those would burn the day's free quota on somebody switching
+ * between windows — which is the same read amplification that makes loadAll() expensive.
+ * Two minutes is far below how often figures actually change and far above how often a
+ * window changes.
+ */
+const REFRESH_AFTER_MS = 2 * 60 * 1000;
+let lastFiguresRead = 0;
+
+/** The month on the tab being looked at, or nothing if it is not a figures tab. */
+function visibleFiguresMonth() {
+  if (!$('tab-performance').classList.contains('hidden')) {
+    return { month: $('perfMonth').value || todayString().slice(0, 7), draw: renderPerformance };
+  }
+  if (!$('tab-fy').classList.contains('hidden')) {
+    return { month: $('fyMonth').value || todayString().slice(0, 7), draw: renderFy };
+  }
+  return null;
+}
+
+async function refreshFiguresIfStale() {
+  const showing = visibleFiguresMonth();
+  if (!showing) return;
+  if (Date.now() - lastFiguresRead < REFRESH_AFTER_MS) return;
+  // Dropped from the cache so loadPerfMonth actually goes and looks, rather than seeing
+  // the month already in the set and returning.
+  perfMonthsLoaded.delete(showing.month);
+  try {
+    await loadPerfMonth(showing.month);
+    lastFiguresRead = Date.now();
+    showing.draw();
+  } catch (err) {
+    // Quiet on purpose: this was nobody's explicit request, and a banner about a failed
+    // background read on a tab somebody just came back to is noise. The figures on
+    // screen are the ones that were there a moment ago, which is not wrong, just old.
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshFiguresIfStale();
+});
+
 /** Fetches one month's figures unless they are already in hand. */
 async function loadPerfMonth(month) {
   if (!month || perfMonthsLoaded.has(month)) return;
@@ -2030,6 +2084,7 @@ async function loadPerfMonth(month) {
   data.perfMonthly = data.perfMonthly.filter(r => r.month !== month).concat(rows(monthly));
   data.perfFy = data.perfFy.filter(r => r.month !== month).concat(rows(fy));
   perfMonthsLoaded.add(month);
+  lastFiguresRead = Date.now();
 }
 
 /** Fetch then draw, for each of the two tabs that read figures. */
