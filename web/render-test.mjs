@@ -162,9 +162,10 @@ check('the no-entry card offers the same action', /data-entry="u3"/.test(card), 
 // Each tile is a button carrying the key its detail is looked up by. A tile whose key
 // has no case in tileDetail() opens nothing at all, silently, so the set is pinned here.
 const tileKeys = [...tiles.matchAll(/data-tile="([^"]+)"/g)].map(m => m[1]);
-check('all eight figures are buttons', (tiles.match(/<button class="tile/g) ?? []).length, 8);
+check('all nine figures are buttons', (tiles.match(/<button class="tile/g) ?? []).length, 9);
 check('and each carries its lookup key', tileKeys,
-  ['started', 'notstarted', 'knockedoff', 'hours', 'distance', 'fuel', 'late', 'service']);
+  ['started', 'notstarted', 'knockedoff', 'hours', 'distance', 'fuel', 'late', 'service',
+   'discs']);
 
 /** Open a tile and hand back what it rendered. */
 function opened(key) {
@@ -299,6 +300,54 @@ portal.data.vehicles = [];
 portal.renderVehicles();
 check('an empty fleet explains itself',
   (writes()['vehRows'] ?? '').includes('No vehicles yet'), true);
+
+/* ---------------- the discs tile on the day view ---------------- */
+/* THE SCREEN HE OPENS EVERY MORNING. A disc on the Vehicles tab is found by somebody
+   who went looking; a disc on the day view is found by somebody who did not.
+
+   Counted: expiring this month, AND anything already expired. An expired disc is a
+   renewal too and the most urgent one there is — dropping it because its month has
+   passed would take the worst cases off the one screen he actually reads.
+
+   NOT counted: a vehicle with no date recorded. That is a record to fix rather than a
+   queue to stand in, and it is chased on the Vehicles tab where it can be fixed in the
+   same breath. Counting it here would put a data-entry job in a list of errands. */
+const discDays = (n) => portal.shiftDate(portal.todayString(), n);
+portal.data.vehicles = [
+  { id: 'gone', registrationNumber: 'BC45DFGP', name: 'Magnite', licenceExpiry: discDays(-40) },
+  { id: 'now', registrationNumber: 'XY67ZWGP', name: 'Bakkie 2', licenceExpiry: portal.todayString() },
+  { id: 'blank', registrationNumber: 'AA11BBGP', name: 'Spare' },
+  { id: 'fine', registrationNumber: 'CC22DDGP', name: 'Fine', licenceExpiry: discDays(400) }
+];
+portal.data.employees = [{ id: 'd1', name: 'Zanele', surname: 'Buthelezi',
+  vehicleRegistration: 'bc45dfgp', teamName: 'Midrand', province: 'Gauteng' }];
+portal.data.todaysLogs = [];
+portal.data.dayFuelLogs = [];
+setValue('dayDate', portal.todayString());
+portal.renderToday();
+
+const discTile = (writes()['todayTiles'] || '')
+  .match(/data-tile="discs"[^>]*><div class="big">([^<]*)</);
+check('the tile counts the expired and this month, and nothing else', discTile && discTile[1], '2');
+
+portal.openTileModal('discs');
+const discBody = writes()['tileBody'] || '';
+check('the list tells the two apart',
+  [discBody.includes('EXPIRED'), discBody.includes('THIS MONTH')], [true, true]);
+// Worst first: somebody has to stand in a queue, so the order is the order to do them in.
+check('and puts the expired one first',
+  discBody.indexOf('EXPIRED') < discBody.indexOf('THIS MONTH'), true);
+// Who drives it matters more than the vehicle alone — somebody has to be told to go.
+check('and names who drives it', discBody.includes('Zanele'), true);
+check('a vehicle with no date is not in the queue', discBody.includes('Spare'), false);
+check('and neither is one with months left', discBody.includes('Fine'), false);
+
+// Nothing due says so in a sentence rather than drawing an empty table.
+portal.data.vehicles = [{ id: 'fine', registrationNumber: 'CC22DDGP', licenceExpiry: discDays(400) }];
+portal.renderToday();
+portal.openTileModal('discs');
+check('with nothing due it says so plainly',
+  (writes()['tileBody'] || '').includes('No disc is due this month'), true);
 
 /* ---------------- finding a vehicle by its people ---------------- */
 /* A VEHICLE CARRIES NO TEAM OR PROVINCE OF ITS OWN. Both belong to whoever drives it,

@@ -59,7 +59,7 @@ whatever is on `main` — worth checking first if the portal seems to be missing
 
 ### Admins, on the phone
 
-The dashboard's Today tab carries the same eight figures as the portal's day view —
+The dashboard's Today tab carries the same nine figures as the portal's day view —
 started, no entry, knocked off, hours, distance, fuel, parked late, service due — and
 **tapping any of them lists what it counted**: who hasn't started, who parked past the
 curfew and by how long, who drove furthest, who spent what on fuel, and which vehicles
@@ -71,9 +71,11 @@ are due with the name of whoever is driving them.
   curfew, or has no entry at all, for any date; searchable, filterable by status,
   groupable, with fuel spent per person and per province. Entries can be corrected
   or recorded after the fact.
-- **Every headline figure opens** — tap any of the eight tiles on the day view and
+- **Every headline figure opens** — tap any of the nine tiles on the day view and
   it lists the people behind that number: who hasn't started, who parked late and
-  by how long, who drove furthest, which vehicles are due and who's driving them.
+  by how long, who drove furthest, which vehicles are due and who's driving them, and
+  which licence discs want renewing — expired first, then this month's, each with its
+  driver.
 - **Export the staff list** — the Employees tab exports to CSV: who they are, how to
   reach them, where they are posted, what they drive, and when they were last seen
   working. Follows whatever filter is on screen, and the row count is in the filename so

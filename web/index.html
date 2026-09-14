@@ -2114,6 +2114,19 @@ function renderToday() {
   const totalKm = data.todaysLogs.reduce((sum, l) => sum + kmOf(l), 0);
   const totalFuel = data.dayFuelLogs.reduce((sum, f) => sum + Number(f.amountSpentRands || 0), 0);
   const servicesDue = data.vehicles.filter(isServiceDue).length;
+  /*
+   * DISCS TO RENEW: expiring this month, plus anything already expired.
+   *
+   * An expired disc is a renewal too, and the most urgent one there is — leaving it out
+   * because its month has passed would take the worst cases off the screen he actually
+   * looks at every morning. A vehicle with no date recorded is NOT counted: it is a
+   * record to fix rather than a queue to stand in, and it is chased on the Vehicles tab
+   * where it can be fixed in the same breath.
+   */
+  const discsToRenew = data.vehicles.filter(v => {
+    const state = licenceStatus(v).state;
+    return state === 'due' || state === 'expired';
+  }).length;
   const parkedLate = data.todaysLogs.filter(isParkedLate).length;
 
   // "Not started" gets its own tile because it is the number that needs acting on,
@@ -2126,7 +2139,8 @@ function renderToday() {
     ['Distance', km(totalKm), '', 'distance'],
     ['Fuel', rand(totalFuel), '', 'fuel'],
     ['Parked late', parkedLate, parkedLate ? 'warn' : 'calm', 'late'],
-    ['Service due', servicesDue, servicesDue ? 'bad' : 'calm', 'service']
+    ['Service due', servicesDue, servicesDue ? 'bad' : 'calm', 'service'],
+    ['Discs to renew', discsToRenew, discsToRenew ? 'warn' : 'calm', 'discs']
   ].map(([cap, big, tone, key]) =>
     `<button class="tile ${tone}" data-tile="${key}" title="See who is behind this figure"`
     + `><div class="big">${esc(big)}</div><div class="cap">${esc(cap)}</div></button>`
@@ -2394,6 +2408,40 @@ function tileDetail(key) {
           // A dash for a day closed before this was asked for, rather than inventing
           // "none given" for somebody who was never asked.
           esc(String(l.lateReason ?? '').trim() || '—')]) };
+    }
+    case 'discs': {
+      /*
+       * Worst first: expired before expiring, and the longest expired at the top. This
+       * is a queue somebody stands in, so the order is the order to do them in.
+       */
+      const holderByReg = {};
+      data.employees.forEach(e => {
+        const reg = normReg(e.vehicleRegistration);
+        if (reg) holderByReg[reg] = e;
+      });
+      const rows = data.vehicles
+        .map(v => ({ v, status: licenceStatus(v) }))
+        .filter(r => r.status.state === 'due' || r.status.state === 'expired')
+        .sort((a, b) => a.status.days - b.status.days);
+      return { title: 'Licence discs to renew',
+        columns: ['Vehicle', 'Disc', 'Assigned to'],
+        empty: 'No disc is due this month.',
+        rows: rows.map(({ v, status }) => {
+          const holder = holderByReg[normReg(v.registrationNumber)];
+          const badge = status.state === 'expired'
+            ? '<span class="badge due">EXPIRED</span>'
+            : '<span class="badge soon">THIS MONTH</span>';
+          return [
+            `<div class="nm">${esc(v.name || plate(v.registrationNumber))}</div>`
+              + `<div class="meta">${esc(plate(v.registrationNumber))}</div>`,
+            `${badge}<div class="meta">${esc(prettyDate(status.expiry))}</div>`
+              + `<div class="meta">${esc(licenceLabel(status))}</div>`,
+            holder
+              ? esc(fullName(holder))
+                + esc(personTail('', holder.teamName, holder.dateOfBirth))
+              : '<span class="meta">nobody</span>'
+          ];
+        }) };
     }
     case 'service': {
       // Who is driving it matters more than the vehicle on its own — somebody has to
