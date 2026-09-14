@@ -144,7 +144,16 @@ are due with the name of whoever is driving them.
   their birthday
 - **Vehicles** — add individually or in bulk, set service intervals per vehicle or
   by name match across the fleet, mark a vehicle serviced and record the
-  dealership
+  dealership, and **correct an odometer**
+
+  That last one is the only way a reading can go DOWN. Everything else clamps upward on
+  purpose — the phone writes a reading only when it is higher than the one held, and
+  recording a service takes the higher of the two, so a driver clocking in can never drag
+  a reading backwards. Between them a mistyped extra digit was permanent: a vehicle stuck
+  on 850 000 instead of 85 000 reads as wildly overdue for ever and sends a service
+  reminder about it every day. The correction writes exactly what is typed, shows the
+  current reading first, asks before lowering one, and refuses a reading below the
+  vehicle own last service, which would make its progress read as less than nothing
 - **Export the fleet** — the Vehicles tab exports to CSV: registration, team and
   current odometer. Follows the fleet search, and the row count is in the filename, the
   same as the staff list. A vehicle carries no team of its own, so the team is read off

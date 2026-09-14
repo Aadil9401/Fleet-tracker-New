@@ -31,6 +31,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
+  'odometerCorrection',
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
   'entryNeedsLateReason',
   'renderPerformanceUploads', 'perfUploadKinds',
@@ -296,6 +297,60 @@ portal.data.vehicles = [];
 portal.renderVehicles();
 check('an empty fleet explains itself',
   (writes()['vehRows'] ?? '').includes('No vehicles yet'), true);
+
+/* ---------------- correcting an odometer ---------------- */
+/* THE ONE READING NOTHING COULD LOWER. Every other path clamps upward: the phone writes
+   a reading only when it is higher than the one held, and recording a service takes the
+   higher of the two. Both are right for what they do — a driver clocking in must never
+   drag a reading backwards — but between them a mistyped extra digit was permanent.
+   A vehicle stuck on 850 000 instead of 85 000 reads as wildly overdue for ever and
+   sends a service reminder about it every day. Aadil asked how to fix one; the honest
+   answer was that he could not. */
+const stuck = { currentOdometerKm: 850000, lastServiceOdometerKm: 75000,
+  registrationNumber: 'BC45DFGP', name: 'Magnite' };
+
+check('the true reading is written exactly as typed, not clamped',
+  portal.odometerCorrection(stuck, '85000').value, 85000);
+// The drop is reported so the modal can ask about it — this is the only control that
+// can lower a reading, and a typo here is as easy as the one it exists to undo.
+check('and the size of the drop comes back with it',
+  portal.odometerCorrection(stuck, '85000').drop, 765000);
+check('a rise needs no fuss, since every other path already does that',
+  [portal.odometerCorrection(stuck, '900000').ok, portal.odometerCorrection(stuck, '900000').drop],
+  [true, 0]);
+
+/* BELOW ITS OWN LAST SERVICE IS REFUSED. Progress is measured from the last service
+   reading, so a current reading under it gives a percentage of less than nothing and a
+   countdown to a milestone already passed. */
+const tooLow = portal.odometerCorrection(stuck, '74000');
+check('a reading below the last service is refused', tooLow.ok, false);
+check('and the refusal names the service reading', tooLow.why.includes('75'), true);
+check('and says what to do instead', tooLow.why.includes('Record the service again'), true);
+// The boundary belongs to the admin: exactly at the last service is a real reading.
+check('exactly at the last service is allowed',
+  portal.odometerCorrection(stuck, '75000').ok, true);
+// A vehicle never serviced has no floor to be under.
+check('a vehicle with no service on record can go to any reading',
+  portal.odometerCorrection({ currentOdometerKm: 120000, lastServiceOdometerKm: 0 }, '12000').ok,
+  true);
+
+// A reading is a whole number of kilometres or it is a typo.
+check('anything that is not a whole number of kilometres is refused',
+  ['', 'abc', '-5', '85000.5', '  '].map(v => portal.odometerCorrection(stuck, v).ok),
+  [false, false, false, false, false]);
+
+/* AND THE CONTROL IS ACTUALLY THERE. The rule is no use if nothing calls it, and the
+   modal lives outside the tab sections so the whole file is searched. */
+portal.data.vehicles = [{ id: 'v1', registrationNumber: 'bc45dfgp', name: 'Magnite',
+  currentOdometerKm: 850000, lastServiceOdometerKm: 75000, serviceIntervalKm: 15000 }];
+portal.renderVehicles();
+check('every fleet row offers the correction',
+  (writes()['vehRows'] || '').includes('data-odo="v1"'), true);
+check('and the modal it opens exists',
+  [src.includes('id="odoOverlay"'), src.includes('id="odoNew"')], [true, true]);
+// It must write the typed figure. A Math.max here would quietly restore the old fault.
+check('and the save writes the reading without clamping it',
+  src.includes('currentOdometerKm: verdict.value'), true);
 
 /* ---------------- the fleet CSV export ---------------- */
 // Three columns were asked for and three is what this carries: which vehicle it is,

@@ -648,6 +648,30 @@
       <div class="card" id="adminsCard"></div>
     </section>
 
+    <!-- CORRECT ODOMETER MODAL -->
+    <div id="odoOverlay" class="overlay hidden">
+      <div class="modal">
+        <h2 class="section">Correct the odometer</h2>
+        <p class="sub caps" style="font-size:.82rem;margin:0 0 var(--s3)" id="odoSub"></p>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)" id="odoNow"></p>
+        <div class="field">
+          <label for="odoNew">True odometer reading</label>
+          <input id="odoNew" type="number" min="0" step="1">
+        </div>
+        <div id="odoError"></div>
+        <p class="sub" style="font-size:.8rem;margin:var(--s3) 0 0">
+          Written exactly as typed. Every other way of setting this reading can only raise
+          it — the phone ignores anything lower than it already holds, and recording a
+          service takes the higher of the two — so a mistyped extra digit could not be
+          taken back before this existed.
+        </p>
+        <div class="row-actions" style="justify-content:flex-end">
+          <button id="odoCancel" class="outline">Cancel</button>
+          <button id="odoSave">Save reading</button>
+        </div>
+      </div>
+    </div>
+
     <!-- MARK SERVICED MODAL -->
     <div id="svcOverlay" class="overlay hidden">
       <div class="modal">
@@ -3666,6 +3690,42 @@ function vehicleExportRows() {
   return [header, ...rows];
 }
 
+/**
+ * What a typed odometer correction should do.
+ *
+ * Its own function, and returning a reason rather than writing anything, so the rule can
+ * be tested without a browser — the modal only reads the answer.
+ *
+ * WRITTEN EXACTLY AS TYPED, which is the whole point. Every other path clamps upward:
+ * the phone writes a reading only when it is higher than the one held, and recording a
+ * service takes Math.max of the two. Those are right for what they do — a driver's
+ * clock-in must never drag a reading backwards — but between them they made a mistyped
+ * extra digit permanent. A vehicle stuck at 850 000 instead of 85 000 reads as wildly
+ * overdue for ever and sends a service reminder every day about it.
+ *
+ * REFUSED BELOW THE LAST SERVICE, because the service maths cannot survive it: progress
+ * is measured from the last service reading, so a current reading below it gives a
+ * percentage of less than nothing and a countdown to a milestone already passed. The
+ * message names the figure and what to do, rather than quietly clamping and leaving the
+ * admin to wonder why the number they typed is not the number on screen.
+ */
+function odometerCorrection(vehicle, typed) {
+  const text = String(typed ?? '').trim();
+  const value = Number(text);
+  if (text === '' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    return { ok: false, why: 'Enter the reading as a whole number of kilometres.' };
+  }
+  const lastService = Number(vehicle?.lastServiceOdometerKm || 0);
+  if (lastService > 0 && value < lastService) {
+    return { ok: false, why: `This vehicle's last service was recorded at ${km(lastService)}, `
+      + `so a current reading of ${km(value)} would put it before its own last service — `
+      + 'its progress would read as less than nothing. Record the service again at the '
+      + 'right reading first, or enter ' + km(lastService) + ' or more.' };
+  }
+  const current = Number(vehicle?.currentOdometerKm || 0);
+  return { ok: true, value, drop: Math.max(0, current - value) };
+}
+
 function renderVehicles() {
   renderIntervalWarning();
   const visible = visibleVehicles();
@@ -3717,6 +3777,7 @@ function renderVehicles() {
                      encodeURIComponent(dealershipQuery(v))}"
                    target="_blank" rel="noopener">Find dealership</a>`
               : ''}
+            <button class="ghost" data-odo="${esc(v.id)}">Correct odometer</button>
             <button class="ghost" data-serviced="${esc(v.id)}">Record service</button>
             <button class="ghost danger" data-del="${esc(v.id)}">Delete</button>
           </td>
@@ -3732,6 +3793,9 @@ function renderVehicles() {
         await loadAll();
       } catch (err) { showMsg('Could not delete: ' + err.message, 'err'); }
     });
+  });
+  $('vehRows').querySelectorAll('[data-odo]').forEach(btn => {
+    btn.addEventListener('click', () => openOdometerModal(btn.dataset.odo));
   });
   $('vehRows').querySelectorAll('[data-serviced]').forEach(btn => {
     btn.addEventListener('click', () => openServiceModal(btn.dataset.serviced));
@@ -3802,6 +3866,64 @@ $('svcOdo').addEventListener('input', updateServicePreview);
 $('svcCancel').addEventListener('click', () => {
   $('svcOverlay').classList.add('hidden');
   servicingVehicleId = null;
+});
+
+let correctingVehicleId = null;
+
+function openOdometerModal(id) {
+  const v = data.vehicles.find(x => x.id === id);
+  if (!v) return;
+  correctingVehicleId = id;
+  $('odoSub').textContent = `${v.name || plate(v.registrationNumber)} · ${plate(v.registrationNumber)}`;
+  // What it holds NOW, said plainly, so nobody overrides a figure they have not seen.
+  $('odoNow').innerHTML = `It currently reads <b>${km(v.currentOdometerKm || 0)}</b>`
+    + (Number(v.lastServiceOdometerKm || 0) > 0
+      ? `, and was last serviced at ${km(v.lastServiceOdometerKm)}.` : '.');
+  $('odoNew').value = v.currentOdometerKm || '';
+  $('odoError').innerHTML = '';
+  $('odoOverlay').classList.remove('hidden');
+}
+
+$('odoCancel').addEventListener('click', () => {
+  $('odoOverlay').classList.add('hidden');
+  correctingVehicleId = null;
+});
+
+$('odoSave').addEventListener('click', async () => {
+  if (!correctingVehicleId) return;
+  const v = data.vehicles.find(x => x.id === correctingVehicleId);
+  const verdict = odometerCorrection(v, $('odoNew').value);
+  if (!verdict.ok) {
+    $('odoError').innerHTML = `<div class="msg err">${esc(verdict.why)}</div>`;
+    return;
+  }
+  /*
+   * A DROP IS CONFIRMED, because this is the one control that can lower a reading and a
+   * typo here is as easy as the typo it exists to undo. A rise needs no confirming: that
+   * is what every other path already does.
+   */
+  if (verdict.drop > 0 && !confirm(
+    `Lower ${v.name || plate(v.registrationNumber)} from ${km(v.currentOdometerKm || 0)} `
+    + `to ${km(verdict.value)}? That is ${km(verdict.drop)} less than it reads now.`)) return;
+
+  $('odoSave').disabled = true;
+  try {
+    // Exactly what was typed. No Math.max — see odometerCorrection().
+    await updateDoc(doc(db, 'vehicles', correctingVehicleId), {
+      currentOdometerKm: verdict.value,
+      // The vehicle may no longer be due once the reading is right, so let the reminder
+      // speak again rather than staying quiet because it once fired.
+      lastReminderNotifiedDate: ''
+    });
+    $('odoOverlay').classList.add('hidden');
+    correctingVehicleId = null;
+    showMsg('Odometer corrected.');
+    await loadAll();
+  } catch (err) {
+    $('odoError').innerHTML = `<div class="msg err">${esc('Could not save: ' + err.message)}</div>`;
+  } finally {
+    $('odoSave').disabled = false;
+  }
 });
 
 $('svcSave').addEventListener('click', async () => {
