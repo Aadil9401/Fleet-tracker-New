@@ -8,27 +8,39 @@
   /* Pastel sage/blush palette, matching the phone app. Pastels sit in the
      container and surface roles; --primary stays deeper because buttons carry
      white text on it. */
+  /*
+   * COLOUR MEANS SOMETHING HERE, so the chrome does not get any.
+   *
+   * The background, the surfaces, the borders and the muted text are NEUTRAL greys. The
+   * green is left to mean "you can act on this" and the red and amber to mean "something
+   * is wrong" — and on a screen of forty rows those three are the only colour, which is
+   * what makes them carry. They were competing with a green-tinted background, a green
+   * surface-variant and green borders, all of which said nothing.
+   *
+   * The green itself went one step deeper for contrast on white, and the shadows lost
+   * their green cast: a tinted shadow reads as a colour wash rather than as depth.
+   */
   :root {
-    --primary: #44786B;
+    --primary: #2F6B5C;
     --on-primary: #ffffff;
     --primary-container: #CFE8DF;
     --on-primary-container: #14342C;
     --secondary: #B06E4E;
     --secondary-container: #F9E0CE;
     --on-secondary-container: #44230F;
-    --bg: #F7FAF8;
+    --bg: #F6F7F8;
     --surface: #ffffff;
-    --on-surface: #1E2A26;
-    --muted: #54605B;
-    --surface-variant: #E8EFEB;
-    --outline: #B7C5BF;
+    --on-surface: #14181A;
+    --muted: #5B6469;
+    --surface-variant: #EEF0F1;
+    --outline: #D3D7DA;
     --error: #B0564B;
     --error-container: #FADED9;
     --on-error-container: #44150F;
     --radius: 16px;
-    --shadow: 0 1px 2px rgba(30,42,38,.05), 0 6px 20px rgba(30,42,38,.06);
-    --shadow-lift: 0 2px 4px rgba(30,42,38,.06), 0 12px 32px rgba(30,42,38,.10);
-    --ring: rgba(68,120,107,.28);
+    --shadow: 0 1px 2px rgba(16,20,22,.05), 0 6px 20px rgba(16,20,22,.06);
+    --shadow-lift: 0 2px 4px rgba(16,20,22,.06), 0 12px 32px rgba(16,20,22,.10);
+    --ring: rgba(47,107,92,.28);
     /* One spacing rhythm, so nothing is 13px because it looked about right. */
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
     --ease: cubic-bezier(.4, 0, .2, 1);
@@ -42,12 +54,14 @@
       --secondary: #F0BC9A;
       --secondary-container: #6A4429;
       --on-secondary-container: #FBDDC7;
-      --bg: #141A18;
-      --surface: #1C2321;
-      --on-surface: #E3E9E6;
-      --muted: #BAC7C1;
-      --surface-variant: #2F3936;
-      --outline: #3F4946;
+      /* Neutral greys here too, for the same reason: after dark a tinted surface reads
+         as a colour cast over everything rather than as a surface. */
+      --bg: #131618;
+      --surface: #1B1F21;
+      --on-surface: #E6E9EB;
+      --muted: #A9B2B7;
+      --surface-variant: #2C3134;
+      --outline: #3C4246;
       --error: #F0B3AA;
       --error-container: #78332B;
       --on-error-container: #FADED9;
@@ -395,7 +409,7 @@
   #appView.busy main { opacity: .45; transition: opacity .15s var(--ease); }
 
   .overlay {
-    position: fixed; inset: 0; background: rgba(30,42,38,.45);
+    position: fixed; inset: 0; background: rgba(16,20,22,.48);
     display: grid; place-items: center; padding: 20px; z-index: 50;
   }
   .modal {
