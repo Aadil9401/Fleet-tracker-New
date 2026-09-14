@@ -31,6 +31,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'personOptions', 'listedInvoices', 'visibleFyRows', 'numberKey',
   'clearButtonLabel', 'renderLeaderboard',
   'vehiclesMatchingInterval', 'canonicalProvince', 'minutesWorked',
+  'licenceStatus', 'licenceLabel', 'licencesNeedingAttention', 'parseLicenceLines',
+  'LICENCE_WARN_DAYS', 'renderLicenceWarnings',
   'odometerCorrection',
   'vehicleExportRows', 'visibleVehicles', 'teamsForVehicle', 'vehFilters',
   'entryNeedsLateReason',
@@ -298,6 +300,84 @@ portal.renderVehicles();
 check('an empty fleet explains itself',
   (writes()['vehRows'] ?? '').includes('No vehicles yet'), true);
 
+/* ---------------- licence discs ---------------- */
+/* A DISC IS RENEWED IN A QUEUE, in person, at a licensing centre — not on the afternoon
+   it expires. Sixty days is enough notice to fit that into a week somewhere; a fortnight
+   is not. And four states rather than a boolean, because a vehicle with NO date recorded
+   is not a vehicle whose disc is fine — it is the one most likely to have lapsed, and it
+   is chased rather than assumed. */
+const discDay = '2026-09-14';
+const disc = (d) => portal.licenceStatus({ licenceExpiry: d }, discDay);
+
+check('a disc expiring today is due, not expired', disc('2026-09-14').state, 'due');
+check('and reads as such', portal.licenceLabel(disc('2026-09-14')), 'expires today');
+check('yesterday is expired', [disc('2026-09-13').state, disc('2026-09-13').days], ['expired', -1]);
+check('and says how long ago', portal.licenceLabel(disc('2026-09-13')), 'expired 1 day ago');
+// The boundary is inclusive: sixty days out still warns, sixty-one does not.
+check('the warning window is inclusive at its edge',
+  [disc('2026-11-13').state, disc('2026-11-14').state], ['due', 'ok']);
+check('and the window is the one named in the code',
+  portal.LICENCE_WARN_DAYS, 60);
+/* Nothing recorded is its own state. A date that is not a date is the same thing: it
+   tells nobody anything, so it is chased rather than trusted. */
+check('no date, a blank and a rubbish date are all "none"',
+  ['', '   ', 'not a date', '2026-02-30'].map(d => disc(d).state),
+  ['none', 'none', 'none', 'none']);
+check('and a real date far out is simply fine', disc('2027-08-01').state, 'ok');
+
+/* WORST FIRST, because the list is a work queue. Expired before running out, soonest
+   first within each, and the ones nobody has recorded last — they need chasing, but a
+   disc that has actually expired is an offence to drive on. */
+/* BUILT OFF TODAY, not off dates typed in. The list below is asked about the real clock
+   through renderVehicles(), so a fixture pinned to September passes in September and
+   fails in October — which is exactly what the date sweep caught when these were first
+   written. */
+const inDays = (n) => portal.shiftDate(portal.todayString(), n);
+portal.data.vehicles = [
+  { id: 'ok', registrationNumber: 'DD44EEGP', licenceExpiry: inDays(400) },
+  { id: 'none', registrationNumber: 'AA11BBGP' },
+  { id: 'soon', registrationNumber: 'XY67ZWGP', licenceExpiry: inDays(21) },
+  { id: 'gone', registrationNumber: 'BC45DFGP', licenceExpiry: inDays(-105) },
+  { id: 'sooner', registrationNumber: 'EE55FFGP', licenceExpiry: inDays(6) }
+];
+check('the list is worst first and leaves out what is fine',
+  portal.licencesNeedingAttention().map(r => r.vehicle.id),
+  ['gone', 'sooner', 'soon', 'none']);
+
+/* THE UPLOAD SETS DATES ON VEHICLES THAT EXIST. It never creates one: a typo'd plate
+   would otherwise put a disc date on a vehicle nobody owns, and it would look real. */
+const licFile = portal.parseLicenceLines([
+  'Registration,Expires on',
+  'BC 45 DF GP, 2027-03-31',
+  'xy67zwgp, 15/08/2027',
+  'AA11BBGP, not a date',
+  'ZZ99ZZGP, 2027-01-01',
+  'BC45DFGP, 2028-01-01'
+].join('\n'));
+check('spacing and case do not matter to a plate',
+  licFile.rows.map(r => r.reg), ['BC45DFGP', 'XY67ZWGP']);
+check('and both date shapes are read',
+  licFile.rows.map(r => r.expiry), ['2027-03-31', '2027-08-15']);
+check('a date that is not a date is refused',
+  licFile.errors.some(e => e.why === 'the date is not a date'), true);
+check('a registration not on the fleet is refused, never created',
+  licFile.errors.some(e => e.why === 'no vehicle with that registration'), true);
+// The same fault the figures uploads have: one of two lines would silently win.
+check('and the same vehicle twice is refused rather than last-one-wins',
+  licFile.errors.some(e => e.why === 'this registration is listed twice'), true);
+
+/* AND IT IS ON THE SCREEN. The card is hidden when there is nothing to say — a card
+   reading "all discs are fine" is one more thing to read past. */
+portal.renderVehicles();
+const discCard = writes()['licenceList'] || '';
+check('the card names each state', ['EXPIRED', 'RENEW', 'NO DATE'].every(b => discCard.includes(b)), true);
+check('and counts them in a headline', discCard.includes('1 expired'), true);
+check('every fleet row offers the disc', (writes()['vehRows'] || '').includes('data-lic="gone"'), true);
+portal.data.vehicles = [{ id: 'ok', registrationNumber: 'DD44EEGP', licenceExpiry: inDays(400) }];
+portal.renderVehicles();
+check('and the card disappears when nothing needs doing',
+  (writes()['licenceList'] || '') === '' || !(writes()['licenceList'] || '').includes('EXPIRED'), true);
+
 /* ---------------- correcting an odometer ---------------- */
 /* THE ONE READING NOTHING COULD LOWER. Every other path clamps upward: the phone writes
    a reading only when it is higher than the one held, and recording a service takes the
@@ -395,8 +475,11 @@ const odoOf = (reg) => (fleetExport.slice(1).find(r => r[0] === reg) ?? [])[
   fleetExportHeader.indexOf('Current odometer km')];
 
 check('the fleet export has a header and a row per vehicle', fleetExport.length, 7);
-check('and the three columns that were asked for', fleetExportHeader,
-  ['Registration', 'Team', 'Current odometer km']);
+check('the three columns that were asked for are still the first three',
+  fleetExportHeader.slice(0, 3), ['Registration', 'Team', 'Current odometer km']);
+// And the disc rides along behind them rather than in among them.
+check('with the licence disc after them, not between them',
+  fleetExportHeader.slice(3), ['Licence expires', 'Days to licence expiry']);
 check('every row has as many fields as the header',
   fleetExport.slice(1).every(r => r.length === fleetExportHeader.length), true);
 

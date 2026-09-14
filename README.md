@@ -160,6 +160,17 @@ are due with the name of whoever is driving them.
   whoever drives it — the admin's assignment where there is one, otherwise the
   registration the employee typed. Where a vehicle really is shared, every team is named
   rather than one of them quietly chosen
+- **Licence discs** — an expiry date per vehicle, with a card above the fleet listing
+  everything **expired**, **running out within 60 days**, or **never recorded** — worst
+  first, each named with whoever drives it, because somebody has to stand in the queue.
+  The fleet table carries the date and a countdown, and both reach the CSV export. Dates
+  are set one at a time or by uploading `registration, expiry date`; that upload sets
+  dates on vehicles that exist and never creates one, since a mistyped plate would
+  otherwise put a disc date on a vehicle nobody owns
+
+  **A vehicle with no date is its own state, not a passing one.** It is the one most
+  likely to have lapsed, so it is chased rather than assumed fine. And the reminder is on
+  screen only: nothing in `functions/` is deployed, so the portal cannot email about it
 - **Insurance** — record a claim against a vehicle: incident date, claim date, claim
   status, and what became of the vehicle — awaiting assessment, being repaired, repaired
   or written off. A repairer, the day they started and the day it came back once it goes

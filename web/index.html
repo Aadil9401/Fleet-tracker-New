@@ -350,6 +350,13 @@
   .badge.due { background: var(--error); color: #fff; }
   /* Amber, not red: parking late is a breach of the curfew, not missing data. */
   .badge.late { background: var(--secondary-container); color: var(--on-secondary-container); }
+  /* Amber again, and for the same reason: a disc running out is a job to book, not a
+     fault. Red is kept for one that has actually expired, which is an offence to drive
+     on rather than a date in the diary. */
+  .badge.soon { background: var(--secondary-container); color: var(--on-secondary-container); }
+  /* Nothing recorded at all. Grey, because it is not known to be bad — it is unknown,
+     and a vehicle whose disc nobody has entered is the one most likely to lapse. */
+  .badge.unknown { background: var(--surface-variant); color: var(--muted); }
 
   .chip {
     display: inline-block; padding: 3px 9px; border-radius: 8px;
@@ -648,6 +655,29 @@
       <div class="card" id="adminsCard"></div>
     </section>
 
+    <!-- LICENCE DISC MODAL -->
+    <div id="licOverlay" class="overlay hidden">
+      <div class="modal">
+        <h2 class="section">Licence disc</h2>
+        <p class="sub caps" style="font-size:.82rem;margin:0 0 var(--s3)" id="licSub"></p>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)" id="licNow"></p>
+        <div class="field">
+          <label for="licDate">Expires on</label>
+          <input id="licDate" type="date">
+        </div>
+        <div id="licError"></div>
+        <p class="sub" style="font-size:.8rem;margin:var(--s3) 0 0">
+          The date printed on the disc. Clearing it leaves the vehicle on the list as one
+          with no date recorded, which is chased rather than assumed fine.
+        </p>
+        <div class="row-actions" style="justify-content:flex-end">
+          <button id="licClear" class="outline danger">Clear the date</button>
+          <button id="licCancel" class="outline">Cancel</button>
+          <button id="licSave">Save</button>
+        </div>
+      </div>
+    </div>
+
     <!-- CORRECT ODOMETER MODAL -->
     <div id="odoOverlay" class="overlay hidden">
       <div class="modal">
@@ -820,6 +850,15 @@
         <button id="badIntervalFix">Set these to 15 000 km</button>
       </div>
 
+      <div class="card hidden" id="licenceCard">
+        <h2 class="section">Licence discs</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          Expired, running out within 60 days, or never recorded. Whoever drives it is
+          named, because somebody has to stand in the queue.
+        </p>
+        <div id="licenceList"></div>
+      </div>
+
       <div class="card">
         <h2 class="section">Bulk upload</h2>
         <div class="field">
@@ -839,6 +878,28 @@
           15 000 km, or set it per vehicle (e.g. <code>10000</code> for a Magnite).
           A heading row is ignored, and duplicates already on the list are skipped.
         </details>
+      </div>
+
+      <div class="card">
+        <h2 class="section">Licence disc dates</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          One vehicle per line: <code>registration, expiry date</code>. Dates accept
+          <code>yyyy-mm-dd</code> or <code>dd/mm/yyyy</code>. A registration not on the
+          fleet is reported rather than added — this only sets dates.
+        </p>
+        <div class="field">
+          <label for="licFile">Choose a CSV file</label>
+          <input id="licFile" type="file" accept=".csv,text/csv,text/plain">
+        </div>
+        <div class="field">
+          <label for="licText">…or paste the list</label>
+          <textarea id="licText" rows="5" placeholder="BC45DFGP, 2027-03-31"></textarea>
+        </div>
+        <div class="row-actions" style="justify-content:flex-start">
+          <button id="licBulk">Save dates</button>
+          <button id="licTemplate" class="outline">Download template</button>
+        </div>
+        <div id="licBulkStatus" class="count"></div>
       </div>
 
       <div class="card">
@@ -895,7 +956,7 @@
           <button id="deleteAllBtn" class="danger">Delete all</button>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Vehicle</th><th>Odometer</th><th>Cost/km</th><th>Next service</th><th>Progress</th><th></th></tr></thead>
+          <thead><tr><th>Vehicle</th><th>Odometer</th><th>Cost/km</th><th>Licence disc</th><th>Next service</th><th>Progress</th><th></th></tr></thead>
           <tbody id="vehRows"></tbody>
         </table></div>
       </div>
@@ -3675,7 +3736,8 @@ function teamsForVehicle(vehicle) {
  * arriving in whatever order Firestore handed them over.
  */
 function vehicleExportRows() {
-  const header = ['Registration', 'Team', 'Current odometer km'];
+  const header = ['Registration', 'Team', 'Current odometer km',
+    'Licence expires', 'Days to licence expiry'];
   const rows = visibleVehicles()
     .slice()
     .sort((a, b) => plate(a.registrationNumber).localeCompare(plate(b.registrationNumber)))
@@ -3685,7 +3747,11 @@ function vehicleExportRows() {
       // The reading the whole portal shows for this vehicle, kept current by the
       // driver's own clock-in and knock-off. 0 where none was ever recorded, which is
       // what the fleet table above it shows too.
-      Number(v.currentOdometerKm || 0)
+      Number(v.currentOdometerKm || 0),
+      // BLANK, NOT NOUGHT, where no disc date is recorded — and the day count is
+      // negative once it has expired, so a sort brings the worst to the top.
+      licenceStatus(v).expiry,
+      licenceStatus(v).days ?? ''
     ]);
   return [header, ...rows];
 }
@@ -3726,8 +3792,121 @@ function odometerCorrection(vehicle, typed) {
   return { ok: true, value, drop: Math.max(0, current - value) };
 }
 
+/**
+ * How long a licence disc has left, or how long it has been expired.
+ *
+ * SIXTY DAYS OF WARNING. A disc is renewed at a post office or a licensing centre, in
+ * person, in a queue — it is not a thing anybody does on the afternoon it expires. Two
+ * months is enough notice to fit it into a week somewhere; a fortnight is not.
+ *
+ * Four states rather than a boolean, because they want different things done about them
+ * and a vehicle with no date recorded is not a vehicle whose disc is fine:
+ *
+ *   none      nothing recorded — invisible rather than safe, so it is chased too
+ *   expired   past its date. Driving on it is an offence, not an inconvenience
+ *   due       inside the warning window
+ *   ok        nothing to do
+ *
+ * Whole days, counted from midnight to midnight, so "expires today" is 0 and yesterday
+ * is -1 rather than depending on what time the page happened to be opened.
+ */
+const LICENCE_WARN_DAYS = 60;
+
+function licenceStatus(vehicle, today = todayString()) {
+  const expiry = String(vehicle?.licenceExpiry ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry) || !isRealDate(expiry)) {
+    return { state: 'none', days: null, expiry: '' };
+  }
+  const days = daysBetween(today, expiry);
+  if (days === null) return { state: 'none', days: null, expiry: '' };
+  if (days < 0) return { state: 'expired', days, expiry };
+  if (days <= LICENCE_WARN_DAYS) return { state: 'due', days, expiry };
+  return { state: 'ok', days, expiry };
+}
+
+/** The vehicles wanting attention, worst first: expired, then soonest, then unrecorded. */
+function licencesNeedingAttention(today = todayString()) {
+  const order = { expired: 0, due: 1, none: 2 };
+  return data.vehicles
+    .map(v => ({ vehicle: v, ...licenceStatus(v, today) }))
+    .filter(r => r.state !== 'ok')
+    .sort((a, b) => (order[a.state] - order[b.state])
+      || ((a.days ?? 0) - (b.days ?? 0))
+      || plate(a.vehicle.registrationNumber).localeCompare(plate(b.vehicle.registrationNumber)));
+}
+
+/** "expires in 34 days", "expired 8 days ago", "expires today". */
+function licenceLabel(status) {
+  if (status.state === 'none') return 'no date recorded';
+  if (status.days === 0) return 'expires today';
+  if (status.days < 0) {
+    const n = Math.abs(status.days);
+    return `expired ${n} ${n === 1 ? 'day' : 'days'} ago`;
+  }
+  return `expires in ${status.days} ${status.days === 1 ? 'day' : 'days'}`;
+}
+
+/** One vehicle's licence disc, as it reads in the fleet table. */
+function licenceCell(vehicle) {
+  const status = licenceStatus(vehicle);
+  if (status.state === 'none') {
+    return '<span class="badge unknown">NO DATE</span>';
+  }
+  const badge = status.state === 'expired' ? '<span class="badge due">EXPIRED</span>'
+    : status.state === 'due' ? '<span class="badge soon">RENEW</span>'
+    : '';
+  return `${badge ? badge + '<div class="meta" style="margin-top:4px">' : '<div class="meta">'}${
+    esc(prettyDate(status.expiry))}</div><div class="meta">${esc(licenceLabel(status))}</div>`;
+}
+
+/**
+ * The card above the fleet: everything expired, running out, or never recorded.
+ *
+ * Hidden entirely when there is nothing to say. A card reading "all discs are fine" is
+ * one more thing to read past on a tab that is mostly about something else.
+ */
+function renderLicenceWarnings() {
+  const rows = licencesNeedingAttention();
+  $('licenceCard').classList.toggle('hidden', rows.length === 0);
+  if (rows.length === 0) { $('licenceList').innerHTML = ''; return; }
+
+  // Who drives it, by the registration they typed — the same link the service list uses.
+  const holderByReg = {};
+  data.employees.forEach(e => {
+    const reg = normReg(e.vehicleRegistration);
+    if (reg) holderByReg[reg] = e;
+  });
+
+  const counts = { expired: 0, due: 0, none: 0 };
+  rows.forEach(r => { counts[r.state] += 1; });
+  const headline = [
+    counts.expired ? `${counts.expired} expired` : null,
+    counts.due ? `${counts.due} running out` : null,
+    counts.none ? `${counts.none} with no date recorded` : null
+  ].filter(Boolean).join(' · ');
+
+  $('licenceList').innerHTML = `<div class="count" style="margin-bottom:var(--s3)">${
+    esc(headline)}</div>` + rows.map(r => {
+    const v = r.vehicle;
+    const holder = holderByReg[normReg(v.registrationNumber)];
+    const badge = r.state === 'expired' ? '<span class="badge due">EXPIRED</span>'
+      : r.state === 'due' ? '<span class="badge soon">RENEW</span>'
+      : '<span class="badge unknown">NO DATE</span>';
+    return `<div class="row-actions" style="justify-content:flex-start;gap:10px;padding:7px 0;
+         border-top:1px solid var(--surface-variant)">
+      ${badge}
+      <div style="min-width:150px"><b>${esc(plate(v.registrationNumber))}</b>${
+        v.name ? `<div class="meta">${esc(v.name)}</div>` : ''}</div>
+      <div class="meta" style="min-width:170px">${esc(licenceLabel(r))}${
+        r.expiry ? ` · ${esc(prettyDate(r.expiry))}` : ''}</div>
+      <div class="meta">${holder ? esc(fullName(holder)) : 'nobody assigned'}</div>
+    </div>`;
+  }).join('');
+}
+
 function renderVehicles() {
   renderIntervalWarning();
+  renderLicenceWarnings();
   const visible = visibleVehicles();
 
   // The count follows the filter, so it always describes what is on screen.
@@ -3736,7 +3915,7 @@ function renderVehicles() {
     : data.vehicles.length;
 
   $('vehRows').innerHTML = visible.length === 0
-    ? `<tr><td colspan="6" class="empty">${data.vehicles.length === 0
+    ? `<tr><td colspan="7" class="empty">${data.vehicles.length === 0
         ? 'No vehicles yet. Upload your list above.'
         : 'No vehicle matches that search.'}</td></tr>`
     : visible.map(v => {
@@ -3757,6 +3936,7 @@ function renderVehicles() {
               ${lastServiced ? `<div class="meta">Last: ${esc(lastServiced)}</div>` : ''}</td>
           <td>${km(v.currentOdometerKm || 0)}</td>
           <td>${vehicleCostCell(v)}</td>
+          <td>${licenceCell(v)}</td>
           <td>Next at ${km(nextServiceAtKm(v))}<div class="meta">${
             pct === null ? '<span style="color:var(--secondary)">no service recorded</span>'
               : remaining >= 0 ? km(remaining) + ' to go'
@@ -3777,6 +3957,7 @@ function renderVehicles() {
                      encodeURIComponent(dealershipQuery(v))}"
                    target="_blank" rel="noopener">Find dealership</a>`
               : ''}
+            <button class="ghost" data-lic="${esc(v.id)}">Licence disc</button>
             <button class="ghost" data-odo="${esc(v.id)}">Correct odometer</button>
             <button class="ghost" data-serviced="${esc(v.id)}">Record service</button>
             <button class="ghost danger" data-del="${esc(v.id)}">Delete</button>
@@ -3793,6 +3974,9 @@ function renderVehicles() {
         await loadAll();
       } catch (err) { showMsg('Could not delete: ' + err.message, 'err'); }
     });
+  });
+  $('vehRows').querySelectorAll('[data-lic]').forEach(btn => {
+    btn.addEventListener('click', () => openLicenceModal(btn.dataset.lic));
   });
   $('vehRows').querySelectorAll('[data-odo]').forEach(btn => {
     btn.addEventListener('click', () => openOdometerModal(btn.dataset.odo));
@@ -3866,6 +4050,128 @@ $('svcOdo').addEventListener('input', updateServicePreview);
 $('svcCancel').addEventListener('click', () => {
   $('svcOverlay').classList.add('hidden');
   servicingVehicleId = null;
+});
+
+/**
+ * One line of a licence-disc upload: a registration and a date.
+ *
+ * Returns what it understood rather than writing anything, so the rule is testable and
+ * the caller decides what to do with a line it cannot use. A registration not on the
+ * fleet is NOT created: this file sets dates on vehicles that exist, and inventing one
+ * from a typo'd plate would put a disc date on a vehicle nobody owns.
+ */
+function parseLicenceLines(text) {
+  const byReg = {};
+  data.vehicles.forEach(v => { byReg[normReg(v.registrationNumber)] = v; });
+
+  const rows = [], errors = [];
+  const seen = new Set();
+  String(text ?? '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach(line => {
+    const parts = line.split(/[,;\t]/).map(c => c.trim());
+    const reg = normReg(parts[0]);
+    // The heading row, however they wrote it.
+    if (/^reg/i.test(String(parts[0] ?? '').trim())) return;
+    if (!reg) return errors.push({ line, why: 'no registration' });
+    const vehicle = byReg[reg];
+    if (!vehicle) return errors.push({ line, why: 'no vehicle with that registration' });
+    if (seen.has(reg)) return errors.push({ line, why: 'this registration is listed twice' });
+    const millis = parseServiceDate(parts[1]);
+    if (!millis) return errors.push({ line, why: 'the date is not a date' });
+    seen.add(reg);
+    const d = new Date(millis);
+    const expiry = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${
+      String(d.getDate()).padStart(2, '0')}`;
+    rows.push({ id: vehicle.id, reg, expiry });
+  });
+  return { rows, errors };
+}
+
+let licensingVehicleId = null;
+
+function openLicenceModal(id) {
+  const v = data.vehicles.find(x => x.id === id);
+  if (!v) return;
+  licensingVehicleId = id;
+  const status = licenceStatus(v);
+  $('licSub').textContent = `${v.name || plate(v.registrationNumber)} · ${plate(v.registrationNumber)}`;
+  $('licNow').innerHTML = status.state === 'none'
+    ? 'No expiry date recorded for this vehicle yet.'
+    : `It expires <b>${esc(prettyDate(status.expiry))}</b> — ${esc(licenceLabel(status))}.`;
+  $('licDate').value = status.expiry || '';
+  $('licError').innerHTML = '';
+  $('licOverlay').classList.remove('hidden');
+}
+
+$('licCancel').addEventListener('click', () => {
+  $('licOverlay').classList.add('hidden');
+  licensingVehicleId = null;
+});
+
+async function writeLicence(expiry) {
+  if (!licensingVehicleId) return;
+  $('licSave').disabled = true;
+  try {
+    await updateDoc(doc(db, 'vehicles', licensingVehicleId), { licenceExpiry: expiry });
+    $('licOverlay').classList.add('hidden');
+    licensingVehicleId = null;
+    showMsg(expiry ? 'Licence disc date saved.' : 'Licence disc date cleared.');
+    await loadAll();
+  } catch (err) {
+    $('licError').innerHTML = `<div class="msg err">${esc('Could not save: ' + err.message)}</div>`;
+  } finally {
+    $('licSave').disabled = false;
+  }
+}
+
+$('licSave').addEventListener('click', () => {
+  const typed = $('licDate').value;
+  if (!typed || !isRealDate(typed)) {
+    $('licError').innerHTML = '<div class="msg err">Enter the date printed on the disc.</div>';
+    return;
+  }
+  writeLicence(typed);
+});
+
+// Clearing is deliberate and offered, because a date entered against the wrong vehicle
+// has to be removable — and a blank reads as "nobody has recorded this", which is chased.
+$('licClear').addEventListener('click', () => writeLicence(''));
+
+$('licTemplate').addEventListener('click', () => {
+  // Every registration on the fleet, with whatever date it already carries, so the file
+  // is a starting point rather than a blank sheet to retype.
+  downloadCsv(`licence-discs-${todayString()}.csv`,
+    [['Registration', 'Expires on'],
+      ...data.vehicles.slice()
+        .sort((a, b) => plate(a.registrationNumber).localeCompare(plate(b.registrationNumber)))
+        .map(v => [plate(v.registrationNumber), licenceStatus(v).expiry])]);
+});
+
+$('licFile').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (file) $('licText').value = await file.text();
+});
+
+$('licBulk').addEventListener('click', async () => {
+  const { rows, errors } = parseLicenceLines($('licText').value);
+  if (rows.length === 0) {
+    $('licBulkStatus').innerHTML = `<span style="color:var(--error)">Nothing to save. ${
+      errors.length} line(s) could not be read.</span>`
+      + errors.slice(0, 8).map(e => `<div class="meta">${esc(e.why)} — ${esc(e.line)}</div>`).join('');
+    return;
+  }
+  try {
+    for (let i = 0; i < rows.length; i += 400) {
+      const batch = writeBatch(db);
+      rows.slice(i, i + 400).forEach(r =>
+        batch.update(doc(db, 'vehicles', r.id), { licenceExpiry: r.expiry }));
+      await batch.commit();
+    }
+    $('licBulkStatus').innerHTML = `<span style="color:var(--primary)">Saved ${rows.length} disc date(s).</span>`
+      + (errors.length ? `<div class="meta">${errors.length} line(s) could not be read:</div>`
+        + errors.slice(0, 8).map(e => `<div class="meta">${esc(e.why)} — ${esc(e.line)}</div>`).join('') : '');
+    $('licText').value = '';
+    await loadAll();
+  } catch (err) { showMsg('Could not save: ' + err.message, 'err'); }
 });
 
 let correctingVehicleId = null;
