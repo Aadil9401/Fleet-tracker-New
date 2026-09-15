@@ -22,7 +22,7 @@
  * service-schedule-cases.csv, which all three implementations are tested against.
  */
 import { readFileSync } from 'fs';
-import { loadPortal } from './portal-harness.mjs';
+import { loadPortal, setValue } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'parseVehicleLines', 'MIN_SERVICE_INTERVAL_KM', 'SERVICE_INTERVAL_KM',
@@ -31,7 +31,8 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'PARK_BY', 'minutesParkedLate', 'isParkedLate',
   'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort',
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
-  'parsePerformanceLines', 'perfTemplateRows', 'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
+  'parsePerformanceLines', 'perfTemplateRows', 'perfTemplateRoster',
+  'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
   'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'perfIsMonthly', 'perfOnFy', 'templateMonths', 'perfMonthOffset', 'normaliseMonth',
   'parseRosterLines', 'normaliseDate', 'normaliseBirthDate', 'rosterRowToStore',
@@ -412,9 +413,12 @@ Object.keys(portal.PERF_UPLOADS).forEach(kind => {
         n + row.slice(portal.perfMonthOffset(kind))
           .filter(c => String(c ?? '').trim() !== '').length, 0)
     : portal.perfIsWide(kind)
-      ? body.reduce((n, row) =>
-          n + portal.perfNetworks(kind).filter((_, i) =>
-            String(row[2 + i * portal.perfFigures(kind).length] ?? '').trim() !== '').length, 0)
+      ? body.reduce((n, row) => {
+          const at = portal.perfColumns(kind)
+            .findIndex(h => String(h).toLowerCase() === 'month') + 1;
+          return n + portal.perfNetworks(kind).filter((_, i) =>
+            String(row[at + i * portal.perfFigures(kind).length] ?? '').trim() !== '').length;
+        }, 0)
       : body.length;
   check(`and yields its sample rows`, back.rows.length, expected);
 });
@@ -629,7 +633,7 @@ check('every figure is still loadable from some visible box',
   [...everyField].filter(f => !visibleFields.has(f)), []);
 check('its columns carry each network by name',
   portal.perfColumns('fy'),
-  ['Employee number', 'Month',
+  ['Employee number', 'Team', 'Month',
    'MTN stock', 'MTN connections', 'MTN payable',
    'Telkom stock', 'Telkom connections', 'Telkom payable']);
 // A wide file has NO network column: its networks are in the headings.
@@ -640,7 +644,7 @@ check('and still runs on two networks only', portal.perfNetworks('fy'), ['MTN', 
 
 const fy = portal.parsePerformanceLines(
   portal.perfColumns('fy').join(',') + '\n'
-  + 'T042,2026-08,1000,400,5600.00,600,210,2940.00\n', 'fy');
+  + 'T042,MAMELODI,2026-08,1000,400,5600.00,600,210,2940.00\n', 'fy');
 check('one wide row becomes one row per network', fy.rows.length, 2);
 check('with no errors', fy.errors.length, 0);
 check('each carrying its own network', fy.rows.map(r => r.network), ['MTN', 'TELKOM']);
@@ -882,7 +886,7 @@ check('the connections-only file loads', fyConnParsed.errors, []);
 check('and one row per network it names', fyConnParsed.rows.length, 3);
 check('its columns name each network and nothing else',
   portal.perfColumns('fyConnections'),
-  ['Employee number', 'Month', 'MTN connections', 'Telkom connections']);
+  ['Employee number', 'Team', 'Month', 'MTN connections', 'Telkom connections']);
 
 // THE PIN. Every field this file is capable of writing, across every row.
 check('it writes connections and nothing else, ever',
@@ -918,7 +922,11 @@ Object.entries(SINGLE_FY).forEach(([kind, field]) => {
    heading names the figure it carries. Getting that wrong is how a month of payables
    lands in the stock column and reads as a perfectly plausible number. */
 check('each single-figure FY file has its own columns',
-  Object.keys(SINGLE_FY).map(k => portal.perfColumns(k).slice(2).join(',')),
+  // The figure columns alone: the key, the team and the month are the same on all three,
+  // and what must differ is what each one says it carries.
+  Object.keys(SINGLE_FY).map(k => portal.perfColumns(k)
+    .slice(portal.perfColumns(k).findIndex(h => String(h).toLowerCase() === 'month') + 1)
+    .join(',')),
   ['MTN stock,Telkom stock', 'MTN connections,Telkom connections',
    'MTN payable,Telkom payable']);
 // Which is only safe because the writer merges rather than replaces.
@@ -1358,6 +1366,96 @@ check('and a file that would breach the cap is split', chunkCount(648), 2);
 // Checked against the source, because the number that matters is the one in the code.
 check('the upload really does chunk at that size',
   source.includes(`rows.slice(start, start + ${CHUNK})`), true);
+
+
+/* ---------------- the team column, which is there to be read ---------------- */
+/* FY is keyed on the employee number, so the file was a column of T-numbers with nothing
+   to say who was who — Aadil: "im currently filling in employee numbers manually".
+
+   The column is dropped BY ITS HEADING rather than by its position, which is the whole
+   point: every parser below takes its values by position, so a column nobody knew about
+   would shift the month into the first figure and file a year of work under nothing. */
+const withTeam = portal.parsePerformanceLines(
+  'Employee number,Team,Month,MTN stock,Telkom stock\n'
+  + 'T042,MAMELODI,2026-08,1000,600\n', 'fyStock');
+check('a team column loads and is not a figure', withTeam.errors.length, 0);
+check('and the figures land where they belong',
+  withTeam.rows.map(r => [r.network, r.values.fyStock]), [['MTN', 1000], ['TELKOM', 600]]);
+check('on the right month', withTeam.rows[0].month, '2026-08');
+// What is typed in it changes nothing: a team is moved on the Employees tab and nowhere
+// else, so a stale team beside a number must not follow the figures into the database.
+check('and nothing about the team is stored',
+  withTeam.rows.some(r => JSON.stringify(r).toUpperCase().includes('MAMELODI')), false);
+
+// Every file uploaded before today has no such column, and must load exactly as it did.
+const withoutTeam = portal.parsePerformanceLines(
+  'Employee number,Month,MTN stock,Telkom stock\nT042,2026-08,1000,600\n', 'fyStock');
+check('a file without the column is untouched',
+  withoutTeam.rows.map(r => [r.network, r.values.fyStock]), [['MTN', 1000], ['TELKOM', 600]]);
+
+// Anywhere in the row, because somebody will move it.
+const teamLast = portal.parsePerformanceLines(
+  'Employee number,Month,MTN stock,Telkom stock,Team\nT042,2026-08,1000,600,MAMELODI\n',
+  'fyStock');
+check('the column may sit anywhere',
+  teamLast.rows.map(r => [r.network, r.values.fyStock]), [['MTN', 1000], ['TELKOM', 600]]);
+
+// THE WIDTH CHECK STILL BITES. An extra column is almost always a comma decimal that has
+// split a figure in two, and dropping a reference column must not buy one back.
+const tooWide = portal.parsePerformanceLines(
+  'Employee number,Team,Month,MTN stock,Telkom stock\nT042,MAMELODI,2026-08,1000,600,9\n',
+  'fyStock');
+check('and an extra column is still refused', tooWide.errors.length, 1);
+check('saying so plainly', tooWide.errors[0].why, 'more columns than this file should have');
+
+// Column 0 is the key, whatever it is called — a team FILE is keyed on the team, and
+// dropping that column would throw away the only thing the row is filed under.
+const teamKeyed = portal.parsePerformanceLines(
+  'Team name,Month,Network,stock\nSOWETO,2026-08,MTN,1000\n', 'stock');
+check('a team-keyed file keeps its team', teamKeyed.errors.length, 0);
+check('because that team is the key', teamKeyed.rows[0].key, 'SOWETO');
+
+/* ---------------- the template says who each row is ---------------- */
+/* The plain template is two made-up rows showing the shape. FY is filled in by hand, a
+   person at a time, so its template comes down with the staff list already in it. */
+portal.data.employees = [
+  { id: 'a', employeeNumber: 'T042', name: 'Mike', surname: 'Nkhoma', teamName: 'CAPE TOWN CC' },
+  { id: 'b', employeeNumber: 'T009', name: 'Lovemore', surname: 'Mugwagwa', teamName: 'VOSLOORUS' },
+  { id: 'c', employeeNumber: '', name: 'Milton', surname: 'Musarurwa', teamName: 'NONGOMA' },
+  { id: 'd', employeeNumber: 'T500', name: 'Gone', surname: 'Away', teamName: 'OLD', active: false }
+];
+setValue('fyMonth', '2026-09');
+const fyRoster = portal.perfTemplateRoster('fyStock');
+check('the roster keeps the template header', fyRoster[0], portal.perfColumns('fyStock'));
+check('and gives a row per active person with a number',
+  fyRoster.slice(1), [['T009', 'VOSLOORUS', '2026-09', '', ''],
+    ['T042', 'CAPE TOWN CC', '2026-09', '', '']]);
+// Somebody with no number cannot be filed against anything, so a row for them could only
+// ever fail. They are chased on the Employees tab instead.
+check('nobody without a number is on it',
+  JSON.stringify(fyRoster).includes('Milton'), false);
+check('and nobody who has left', JSON.stringify(fyRoster).includes('T500'), false);
+
+// A roster of rows with the network column empty would be a file of errors, not a head
+// start, so the month-by-month files keep their worked example.
+check('a month-by-month file keeps its sample',
+  portal.perfTemplateRoster('fyConnectionsMonthly'),
+  portal.perfTemplateRows('fyConnectionsMonthly'));
+
+// AND THE ROSTER IS A FILE THIS PORTAL READS. The rows come down blank; filling one in is
+// what somebody actually uploads, and the untouched ones must not write a nought over
+// anybody — they are reported and skipped.
+const filled = [fyRoster[0], ['T009', 'VOSLOORUS', '2026-09', '250', ''],
+  ['T042', 'CAPE TOWN CC', '2026-09', '', '']]
+  .map(r => r.map(c => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(','))
+  .join('\r\n');
+const back = portal.parsePerformanceLines(filled, 'fyStock');
+check('a filled roster row loads',
+  back.rows.map(r => [r.key, r.network, r.values.fyStock]), [['T009', 'MTN', 250]]);
+check('and an untouched row stores nothing', back.rows.length, 1);
+check('it is reported rather than written',
+  back.errors.map(e => e.why), ['no figures on this row for any network']);
+
 
 console.log(failures === 0
   ? '\nPARSER TESTS OK'

@@ -4697,8 +4697,8 @@ const PERF_UPLOADS = {
       { label: 'payable', field: 'fyAmountRands', kind: 'money' }
     ],
     sample: [
-      ['T042', '2026-08', '1000', '400', '5600.00', '600', '210', '2940.00'],
-      ['T099', '2026-08', '500', '125', '1750.00', '', '', '']
+      ['T042', 'MAMELODI', '2026-08', '1000', '400', '5600.00', '600', '210', '2940.00'],
+      ['T099', 'SOWETO', '2026-08', '500', '125', '1750.00', '', '', '']
     ]
   },
 
@@ -4832,8 +4832,8 @@ const PERF_UPLOADS = {
       { label: 'stock', field: 'fyStock', kind: 'count' }
     ],
     sample: [
-      ['T042', '2026-08', '1000', '600'],
-      ['T099', '2026-08', '500', '']
+      ['T042', 'MAMELODI', '2026-08', '1000', '600'],
+      ['T099', 'SOWETO', '2026-08', '500', '']
     ]
   },
 
@@ -4847,8 +4847,8 @@ const PERF_UPLOADS = {
       { label: 'connections', field: 'fyConnections', kind: 'count' }
     ],
     sample: [
-      ['T042', '2026-08', '400', '210'],
-      ['T099', '2026-08', '125', '']
+      ['T042', 'MAMELODI', '2026-08', '400', '210'],
+      ['T099', 'SOWETO', '2026-08', '125', '']
     ]
   },
 
@@ -4868,8 +4868,8 @@ const PERF_UPLOADS = {
       { label: 'payable', field: 'fyAmountRands', kind: 'money' }
     ],
     sample: [
-      ['T042', '2026-08', '5600.00', '2940.00'],
-      ['T099', '2026-08', '1750.00', '']
+      ['T042', 'MAMELODI', '2026-08', '5600.00', '2940.00'],
+      ['T099', 'SOWETO', '2026-08', '1750.00', '']
     ]
   }
 };
@@ -5020,6 +5020,19 @@ const perfColumns = (kind) => {
   if (perfIsWide(kind)) {
     return [
       perfKeyLabel(kind),
+      /*
+       * THE TEAM IS THERE TO BE READ BY A PERSON, and by nothing else.
+       *
+       * FY is keyed on the employee number, so the file is a column of T-numbers with
+       * no way to tell who is who — Aadil: "im currently filling in employee numbers
+       * manually". The team beside the number is how he finds the person.
+       *
+       * IGNORED ON THE WAY BACK IN, by its heading rather than by its position, so what
+       * is typed here changes nothing: a team is moved on the Employees tab and nowhere
+       * else. A file without the column loads exactly as it always did, which matters
+       * because every file uploaded before today is that shape.
+       */
+      'Team',
       'Month',
       // "MTN stock, MTN connections, MTN payable, Telkom stock, ..." — generated, so the
       // headings cannot disagree with the networks the figures are read into.
@@ -5034,6 +5047,31 @@ const perfColumns = (kind) => {
     ...perfFigures(kind).map(f => f.label)
   ];
 };
+
+/*
+ * HEADINGS THAT ARE THERE FOR THE PERSON FILLING THE FILE IN.
+ *
+ * Declared once and used twice — by the template that writes them and by the parser that
+ * drops them — because a parser that did not know about a column the template writes
+ * would read every figure one place to the left.
+ */
+const REFERENCE_HEADINGS = ['team', 'teamname', 'name', 'employeename'];
+const isReferenceHeading = (cell) =>
+  REFERENCE_HEADINGS.includes(String(cell ?? '').toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+/**
+ * The columns that carry DATA — the template's columns with the reference ones taken out.
+ *
+ * This is what a row is measured against. Measuring against perfColumns() would let a
+ * file through with one more column than it has figures, because the reference column is
+ * already gone from the row by the time the width is checked — and an extra column is
+ * almost always a comma decimal that has split a figure in two, which is exactly the
+ * thing the width check exists to catch.
+ */
+const perfDataColumns = (kind) => perfColumns(kind)
+  // NEVER COLUMN 0. A team file is keyed on "Team name", which reads as a reference
+  // heading and is the one column the row cannot do without.
+  .filter((h, i) => i === 0 || !isReferenceHeading(h));
 
 /** The template for one upload, header first — what the Download template button gives. */
 const perfTemplateRows = (kind) => {
@@ -5059,6 +5097,52 @@ const perfTemplateRows = (kind) => {
     ['T099', ...Array.from({ length: months }, (_, i) => gap(i))]
   ];
 };
+
+/**
+ * The template with the staff list already typed into it.
+ *
+ * The plain template is two made-up rows showing the shape, which is the right thing for
+ * a file somebody builds from an export. FY is not that file: Aadil fills it in by hand,
+ * a person at a time, and was looking every employee number up as he went.
+ *
+ * So the wide FY templates come down with a row per active person — number, team and the
+ * month being looked at — and he types figures into a sheet that already says who each
+ * row is. Only the wide ones: a month-by-month file needs a network on every row, and a
+ * roster of rows with that column empty would be a file of errors rather than a head start.
+ *
+ * ROWS HE DOES NOT FILL IN COST NOTHING. A person with every figure blank is skipped by
+ * the parser, reported as a line with no figures and not stored — so an unused row cannot
+ * write a nought over anybody, which is the only way a head start like this could hurt.
+ */
+function perfTemplateRoster(kind) {
+  const rows = perfTemplateRows(kind);
+  if (!perfIsWide(kind) || PERF_UPLOADS[kind].keyedOn !== 'employee') return rows;
+
+  const header = rows[0];
+  const at = (name) => header.findIndex(h => String(h).toLowerCase() === name);
+  const teamAt = at('team');
+  const monthAt = at('month');
+  // The month being looked at, off whichever tab this upload lives on, so a template
+  // downloaded to load August is about August.
+  const picker = perfOnFy(kind) ? 'fyMonth' : 'perfMonth';
+  const month = ($(picker) && $(picker).value) || todayString().slice(0, 7);
+
+  const people = data.employees
+    // Somebody with no number cannot be filed against anything, so a row for them would
+    // be a row that can only fail. They are chased on the Employees tab instead.
+    .filter(e => numberKey(e.employeeNumber))
+    .filter(e => e.active !== false)
+    .sort((a, b) => String(a.employeeNumber).localeCompare(
+      String(b.employeeNumber), undefined, { numeric: true }));
+  if (!people.length) return rows;
+
+  return [header, ...people.map(p => header.map((_, i) => {
+    if (i === 0) return String(p.employeeNumber).trim().toUpperCase();
+    if (i === teamAt) return p.teamName || '';
+    if (i === monthAt) return month;
+    return '';
+  }))];
+}
 
 /**
  * A team name reduced to something comparable: uppercased, punctuation dropped, runs of
@@ -5313,6 +5397,32 @@ function parsePerformanceLines(text, kind) {
   }
 
   /*
+   * COLUMNS THAT ARE THERE FOR THE PERSON FILLING THE FILE IN, and are not figures.
+   *
+   * Every parser below takes its values by POSITION, so a column nobody declared would
+   * silently shift the month into the network and the first figure into the month. They
+   * are therefore removed from every row up front, BY HEADING — so the column may sit
+   * anywhere, and a file that does not carry one is untouched.
+   *
+   * NEVER COLUMN 0: that is the key, whatever it happens to be called. And only on
+   * files keyed on a person — on a team file the team IS the key, and dropping it would
+   * throw away the only thing the row is filed under.
+   */
+  const ignoredColumns = [];
+  if (looksLikeHeader && spec.keyedOn === 'employee') {
+    firstCells.forEach((cell, i) => {
+      if (i === 0) return;
+      if (isReferenceHeading(cell)) ignoredColumns.push(i);
+    });
+  }
+  const dropIgnored = (cells) => ignoredColumns.length
+    ? cells.filter((_, i) => !ignoredColumns.includes(i))
+    : cells;
+  // The heading row is read again below for a monthly file's months, and has to be the
+  // same shape as the rows underneath it or the months come out one column over.
+  const headerCells = dropIgnored(firstCells);
+
+  /*
    * A MONTHLY FILE DECLARES ITS OWN MONTHS in the heading row, so they are read once
    * here and every row below is measured against them.
    *
@@ -5340,7 +5450,7 @@ function parsePerformanceLines(text, kind) {
         + `carries — it says "${firstCells[0] ?? ''}". Two month-by-month files are `
         + 'identical otherwise, and loading one as the other cannot be undone' }] };
     }
-    const headings = firstCells.slice(perfMonthOffset(kind))
+    const headings = headerCells.slice(perfMonthOffset(kind))
       .filter(c => String(c).trim() !== '');
     if (headings.length === 0) {
       return { rows: [], errors: [{ line: lines[0], why: 'the heading row names no months' }] };
@@ -5362,7 +5472,7 @@ function parsePerformanceLines(text, kind) {
      * name-based skip below is looking for "Employee number".
      */
     if (perfIsMonthly(kind) && lineIndex === 0) return;
-    const parts = splitCells(line, delimiter);
+    const parts = dropIgnored(splitCells(line, delimiter));
     // A row with nothing in it at all is skipped in silence rather than reported. Excel
     // writes a tail of them after the last real row, and a file ending in eighteen
     // "no employee number" errors reads as eighteen problems when there are none.
@@ -5443,7 +5553,7 @@ function parsePerformanceLines(text, kind) {
       made.forEach(r => rows.push(r));
       return;
     }
-    const width = perfColumns(kind).length;
+    const width = perfDataColumns(kind).length;
     // Where the figures start: after the key, the month, and the network if there is one.
     const firstFigure = hasNetwork ? 3 : 2;
 
@@ -6726,7 +6836,7 @@ function renderPerformanceUploads(container = 'perfUploads') {
 
   perfUploadKinds(container).forEach(kind => {
     $('perfTemplate-' + kind).addEventListener('click', () => {
-      downloadCsv(`performance-${kind}-template.csv`, perfTemplateRows(kind));
+      downloadCsv(`performance-${kind}-template.csv`, perfTemplateRoster(kind));
     });
     $('perfFile-' + kind).addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];
