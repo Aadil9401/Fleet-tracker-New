@@ -6409,14 +6409,84 @@ function visibleFyRows(month = $('fyMonth').value || todayString().slice(0, 7)) 
   });
 }
 
+/*
+ * ONE TEAM'S BOOK, TYPED AGAINST EVERYBODY ON THE TEAM.
+ *
+ * FY is stored per PERSON, but the figures arrive per TEAM — one line per branch on the
+ * network's report. Where two reps share a branch, the branch's figure gets entered
+ * against both of them and the total counts that book twice. Measured on the real
+ * September file: 322 of 40 799 MTN connections, from two branches.
+ *
+ * So a figure recorded IDENTICALLY against more than one person on the same team, month
+ * and network is counted ONCE, and the repeats are MARKED ON THE TABLE rather than
+ * hidden. A total that quietly halves itself is worse than one that is visibly wrong —
+ * and with a small figure two reps genuinely could each have sold one, so the reader has
+ * to be able to see what was set aside and disagree with it.
+ *
+ * STOCK AND CONNECTIONS ONLY. The payable is money owed to a named person; two people on
+ * a branch can perfectly well be paid the same for their own work, and dropping one of
+ * those takes somebody's pay off the report it is owed on. A repeated payable stays.
+ *
+ * Somebody who is not on the staff list has no team to be compared within, and is always
+ * counted — their row is real money that nobody can yet attribute, which is the one thing
+ * that must never quietly disappear.
+ */
+const FY_TEAM_FIGURES = ['stock', 'connections'];
+
+/** Which figures on which rows are a second copy of another rep's, and what they add to. */
+function fyRepeats(rows) {
+  const groups = {};
+  rows.forEach(r => {
+    const team = teamKey(r.team);
+    if (!team) return;
+    FY_TEAM_FIGURES.forEach(field => {
+      const value = r[field];
+      if (value === null || value === undefined) return;
+      (groups[`${field}|${team}|${r.network}|${value}`] ??= []).push(r);
+    });
+  });
+
+  const dropped = new Set();
+  const excluded = {};
+  FY_TEAM_FIGURES.forEach(field => { excluded[field] = 0; });
+
+  Object.entries(groups).forEach(([at, group]) => {
+    const field = at.split('|')[0];
+    /*
+     * DISTINCT PEOPLE. One person's MTN row and Telkom row are already two rows and are
+     * not a repeat of each other — they are grouped by network, so they never meet here,
+     * but the count has to be of people either way.
+     */
+    const people = [...new Set(group.map(r => r.numberKey))].sort();
+    if (people.length < 2) return;
+    // The lowest employee number keeps it, so the same row survives every redraw and an
+    // export says the same thing as the screen.
+    group.forEach(r => {
+      if (r.numberKey === people[0]) return;
+      dropped.add(`${r.numberKey}|${r.network}|${field}`);
+      excluded[field] += Number(r[field]);
+    });
+  });
+
+  return { dropped, excluded, count: dropped.size };
+}
+
+/** Whether this row's figure is one of those second copies. */
+const fyIsRepeat = (repeats, row, field) =>
+  repeats.dropped.has(`${row.numberKey}|${row.network}|${field}`);
+
 /**
- * FY totals. Summed over every row, with no de-duplication: FY belongs to a person, and
- * one person on two networks earned both amounts.
+ * FY totals. One person on two networks earned both amounts, so those are added — the
+ * only thing set aside is a figure that is a second copy of another rep's, see
+ * fyRepeats() above.
  *
  * Null where nothing was uploaded, so the tiles show a dash — the same rule the figures
  * above follow, and for the same reason.
  */
-function fyTotals(rows) {
+function fyTotals(rows, repeats = fyRepeats(rows)) {
+  // A repeated figure reads as ABSENT rather than as nought: a nought would drag an
+  // average down and would show as a real figure of none, which is a different claim.
+  const counted = (row, field) => fyIsRepeat(repeats, row, field) ? null : row[field];
   const sumOf = (pick, from = rows) => {
     const present = from.map(pick).filter(v => v !== null && v !== undefined);
     return present.length === 0 ? null : present.reduce((a, b) => a + Number(b), 0);
@@ -6441,8 +6511,8 @@ function fyTotals(rows) {
   FY_NETWORKS.forEach(network => {
     const mine = rows.filter(r => networkKey(r.network) === network);
     byNetwork[network] = {
-      stock: sumOf(r => r.stock, mine),
-      connections: sumOf(r => r.connections, mine),
+      stock: sumOf(r => counted(r, 'stock'), mine),
+      connections: sumOf(r => counted(r, 'connections'), mine),
       amount: sumOf(r => r.amount, mine)
     };
   });
@@ -6451,14 +6521,33 @@ function fyTotals(rows) {
     // Kept for the ONE figure that is genuinely a total: what a person is actually paid
     // is both networks added up. The stock and connections totals stay so an export or a
     // caller that wants them still has them, but no tile shows them any more.
-    stock: sumOf(r => r.stock),
-    connections: sumOf(r => r.connections),
+    stock: sumOf(r => counted(r, 'stock')),
+    connections: sumOf(r => counted(r, 'connections')),
     amount: sumOf(r => r.amount),
     byNetwork,
+    // Carried out so the tab can say what it set aside and why.
+    repeats,
     // The old shape, so nothing that reads amountByNetwork breaks.
     amountByNetwork: Object.fromEntries(
       FY_NETWORKS.map(n => [n, byNetwork[n].amount]))
   };
+}
+
+/**
+ * What the tab says about figures it counted once.
+ *
+ * Empty where there are none, so nothing is said when there is nothing to say. Names the
+ * figure and the amount, because "some rows were excluded" is an announcement that
+ * something is wrong without saying what, and the reader cannot check it.
+ */
+function fyRepeatNote(repeats) {
+  const parts = FY_TEAM_FIGURES
+    .filter(field => repeats.excluded[field])
+    .map(field => `${num(repeats.excluded[field])} ${field}`);
+  if (!parts.length) return '';
+  const n = repeats.count;
+  return `${n} figure${n === 1 ? '' : 's'} left out of the totals — ${parts.join(' and ')}`
+    + ` recorded twice on one team. Marked "repeat" below.`;
 }
 
 function renderFy() {
@@ -6497,7 +6586,8 @@ function renderFy() {
   refreshClearButtons('fyUploads');
 
   const rows = visibleFyRows();
-  const totals = fyTotals(rows);
+  const repeats = fyRepeats(rows);
+  const totals = fyTotals(rows, repeats);
   const count = (v) => v === null ? '—' : num(v);
   const money = (v) => v === null ? '—' : rand(v);
 
@@ -6526,10 +6616,21 @@ function renderFy() {
       esc(cap)}</div></div>`).join('');
 
   const people = new Set(rows.map(r => r.numberKey)).size;
-  $('fyShowing').textContent = rows.length === 0 ? '' :
-    `${rows.length} row(s) · ${people} ${people === 1 ? 'person' : 'people'}`;
+  const note = fyRepeatNote(repeats);
+  $('fyShowing').innerHTML = rows.length === 0 ? '' :
+    esc(`${rows.length} row(s) · ${people} ${people === 1 ? 'person' : 'people'}`)
+    + (note ? ` · <span style="color:var(--secondary)">${esc(note)}</span>` : '');
 
   const figure = (v, format) => v === null ? '<span class="meta">—</span>' : format(v);
+  /*
+   * STILL SHOWN, struck through and labelled. The figure was uploaded and is real — what
+   * is being said is that this copy of it is not being added, and somebody who disagrees
+   * has to be able to see it to disagree.
+   */
+  const fyFigure = (r, field, format) => fyIsRepeat(repeats, r, field)
+    ? `<span class="meta" style="text-decoration:line-through">${esc(format(r[field]))}</span>`
+      + '<div class="meta">repeat</div>'
+    : figure(r[field], format);
 
   $('fyRows').innerHTML = rows.length === 0
     ? `<tr><td colspan="7" class="empty">No FY for this month${
@@ -6542,8 +6643,8 @@ function renderFy() {
             || '<div class="meta">not on the staff list</div>'}</td>
         <td>${esc(r.employeeNumber || '—')}</td>
         <td><span class="chip">${esc(NETWORK_LABELS[r.network] || r.network)}</span></td>
-        <td>${figure(r.stock, num)}</td>
-        <td>${figure(r.connections, num)}</td>
+        <td>${fyFigure(r, 'stock', num)}</td>
+        <td>${fyFigure(r, 'connections', num)}</td>
         <td>${percentLabel(ratioPercent(r.connections, r.stock))}</td>
         <td>${figure(r.amount, rand)}</td>
       </tr>`).join('');
@@ -6562,14 +6663,18 @@ function renderFy() {
 function fyExportRows(month) {
   const asPercent = (v) => v === null ? '' : v.toFixed(1);
   const header = ['Employee', 'Employee number', 'Province', 'Team', 'Month', 'Network',
-    'FY stock', 'FY connections', 'Stock to connection %', 'FY payable R'];
-  return [header, ...visibleFyRows(month).map(r => [
+    'FY stock', 'FY connections', 'Stock to connection %', 'FY payable R',
+    'Left out of the total'];
+  const rows = visibleFyRows(month);
+  const repeats = fyRepeats(rows);
+  return [header, ...rows.map(r => [
     r.name, r.employeeNumber, r.province, r.team, month,
     NETWORK_LABELS[r.network] || r.network,
     r.stock === null ? '' : r.stock,
     r.connections === null ? '' : r.connections,
     asPercent(ratioPercent(r.connections, r.stock)),
-    r.amount === null ? '' : r.amount.toFixed(2)
+    r.amount === null ? '' : r.amount.toFixed(2),
+    FY_TEAM_FIGURES.filter(field => fyIsRepeat(repeats, r, field)).join(' and ')
   ])];
 }
 

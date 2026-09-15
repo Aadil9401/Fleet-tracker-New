@@ -17,6 +17,7 @@ import { readFileSync } from 'fs';
 import { loadPortal, writes, setValue, dataset } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
+  'fyRepeats',
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
@@ -2820,6 +2821,126 @@ check('and every one of them is typed as an email, so none gets uppercased',
 check('every modal sub-label is capitalised',
   ['tileSub', 'svcSub', 'fuelEditSub', 'entrySub']
     .filter(id => !new RegExp(`class="sub caps"[^>]*id="${id}"`).test(src)), []);
+
+
+/* ---------------- one team's book, typed against everybody on it ---------------- */
+/* FY is stored per PERSON; the figures arrive per TEAM — one line per branch on the
+   network's report. Where two reps share a branch, the branch's figure gets typed against
+   both and the total counts that book twice. On the real September file that was 322 of
+   40 799 MTN connections, from two branches.
+
+   The repeat is COUNTED ONCE and MARKED, never hidden: with a small figure two reps
+   really could each have sold one, so the reader has to be able to see what was set aside
+   and disagree with it. */
+portal.data.employees = [
+  { id: 'a', employeeNumber: 'T074', name: 'Chance', surname: 'Chikede', teamName: 'NEWCASTLE',
+    province: 'KwaZulu-Natal' },
+  { id: 'b', employeeNumber: 'T079', name: 'Jealous', surname: 'Goora', teamName: 'newcastle',
+    province: 'KwaZulu-Natal' },
+  { id: 'c', employeeNumber: 'T099', name: 'Tawanda', surname: 'Mandebvu',
+    teamName: 'PORT ELIZABETH', province: 'Eastern Cape' }
+];
+portal.data.perfFy = [
+  { numberKey: 'T074', employeeNumber: 'T074', month: '2026-09', network: 'MTN',
+    fyConnections: 321, fyStock: 900, fyAmountRands: 4200 },
+  // The same branch book, typed against the other rep on the branch.
+  { numberKey: 'T079', employeeNumber: 'T079', month: '2026-09', network: 'MTN',
+    fyConnections: 321, fyStock: 900, fyAmountRands: 4200 },
+  { numberKey: 'T099', employeeNumber: 'T099', month: '2026-09', network: 'MTN',
+    fyConnections: 1197, fyStock: 2000, fyAmountRands: 9000 }
+];
+
+const fySep = portal.fyRows('2026-09', '');
+const fyRepeats = portal.fyRepeats(fySep);
+check('the second copy is spotted', fyRepeats.count, 2);
+check('and it is the higher employee number that gives way',
+  [...fyRepeats.dropped].sort(), ['T079|MTN|connections', 'T079|MTN|stock']);
+check('the amount set aside is named',
+  [fyRepeats.excluded.connections, fyRepeats.excluded.stock], [321, 900]);
+
+const fySums = portal.fyTotals(fySep);
+// 321 + 321 + 1197 would be 1839. The branch sold 321, so the honest figure is 1518.
+check('and the total counts the book once', fySums.byNetwork.MTN.connections, 1518);
+check('stock the same way', fySums.byNetwork.MTN.stock, 2900);
+/* THE PAYABLE IS NOT TOUCHED. It is money owed to a named person, and two reps on one
+   branch can perfectly well be paid the same for their own work — dropping one of those
+   takes somebody's pay off the report it is owed on. */
+check('but the payable is left alone', fySums.byNetwork.MTN.amount, 17400);
+
+// A team is only a team once its name is normalised: NEWCASTLE and newcastle are one.
+check('case in the team name does not hide a repeat',
+  fyRepeats.dropped.has('T079|MTN|connections'), true);
+
+/* A DIFFERENT FIGURE IS NOT A REPEAT. Two reps splitting a branch between them is the
+   thing this is asking him to do, and it must not then be undone. */
+portal.data.perfFy[1].fyConnections = 160;
+portal.data.perfFy[1].fyStock = 450;
+const split = portal.fyRows('2026-09', '');
+check('a split branch is two real figures', portal.fyRepeats(split).count, 0);
+check('and both are counted', portal.fyTotals(split).byNetwork.MTN.connections, 1678);
+
+/* AND THE SAME FIGURE ON TWO DIFFERENT TEAMS IS A COINCIDENCE, not a repeat. Bloemfontein
+   and Newcastle both did 321 in September; calling that a duplicate takes a real month off
+   somebody. */
+portal.data.perfFy[1].fyConnections = 321;
+portal.data.perfFy[1].fyStock = 900;
+portal.data.employees[1].teamName = 'BLOEMFONTEIN';
+const elsewhere = portal.fyRows('2026-09', '');
+check('the same figure on another team is left alone', portal.fyRepeats(elsewhere).count, 0);
+check('and both books count', portal.fyTotals(elsewhere).byNetwork.MTN.connections, 1839);
+
+/* SOMEBODY NOT ON THE STAFF LIST has no team to be compared within, and is always
+   counted — that row is real money nobody can yet attribute, which is the one thing that
+   must never quietly disappear. */
+portal.data.employees = [];
+const nameless = portal.fyRows('2026-09', '');
+check('a row with no team is never set aside', portal.fyRepeats(nameless).count, 0);
+check('and every figure still counts',
+  portal.fyTotals(nameless).byNetwork.MTN.connections, 1839);
+
+/* ---------------- and the tab says what it did ---------------- */
+portal.data.employees = [
+  { id: 'a', employeeNumber: 'T074', name: 'Chance', surname: 'Chikede', teamName: 'NEWCASTLE',
+    province: 'KwaZulu-Natal' },
+  { id: 'b', employeeNumber: 'T079', name: 'Jealous', surname: 'Goora', teamName: 'NEWCASTLE',
+    province: 'KwaZulu-Natal' }
+];
+portal.data.perfFy = portal.data.perfFy.slice(0, 2);
+setValue('fyMonth', '2026-09');
+portal.renderFy();
+
+const showing = writes()['fyShowing'] || '';
+check('the tab says how many it left out', showing.includes('2 figures left out'), true);
+check('and names the figures and the amounts',
+  [showing.includes('321 connections'), showing.includes('900 stock')], [true, true]);
+// "Some rows were excluded" announces that something is wrong without saying what, and
+// the reader cannot check it.
+check('and why', showing.includes('recorded twice on one team'), true);
+
+const fyBody = writes()['fyRows'] || '';
+check('the repeated figure is still on the table', fyBody.includes('line-through'), true);
+check('and labelled', fyBody.includes('repeat'), true);
+// Both reps stay visible. Hiding the row would look like the upload had failed.
+check('both people are still listed',
+  [fyBody.includes('Chance'), fyBody.includes('Jealous')], [true, true]);
+
+// Nothing to say when there is nothing to say.
+portal.data.perfFy[1].fyConnections = 160;
+portal.data.perfFy[1].fyStock = 450;
+portal.renderFy();
+check('a clean month says nothing about repeats',
+  (writes()['fyShowing'] || '').includes('left out'), false);
+
+/* THE EXPORT AND THE SCREEN MUST AGREE. An export whose figures do not add up to the tile
+   beside them is the quiet kind of wrong this whole change exists to stop. */
+portal.data.perfFy[1].fyConnections = 321;
+portal.data.perfFy[1].fyStock = 900;
+const fyExported = portal.fyExportRows('2026-09');
+check('the export has a column for it',
+  fyExported[0][fyExported[0].length - 1], 'Left out of the total');
+check('and names the figures on the repeated row',
+  fyExported.slice(1).map(r => r[r.length - 1]).sort(), ['', 'stock and connections']);
+
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);
