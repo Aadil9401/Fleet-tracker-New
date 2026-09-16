@@ -2,8 +2,31 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  viewport-fit=cover lets the page reach into the corners of a notched screen; the
+  safe-area padding further down is what keeps anything readable out of them. Without
+  the cover, iOS letterboxes the page in black and the chrome stops at the notch.
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>My Daily Work Info — Admin</title>
+
+<!--
+  ADDED TO A HOME SCREEN, this runs as its own app: own icon, own window, no browser
+  chrome. That is the whole of "on iOS" for an admin portal — no developer account, no
+  Mac, no review, and it updates the moment the site does.
+
+  There is deliberately NO SERVICE WORKER. An offline cache on a figures portal serves
+  last week's numbers with nothing on screen to say so, and a wrong figure that looks
+  current is worse than a page that admits it cannot reach the network.
+-->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2F6B5C">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- iOS reads its own spelling of that, and ignores the manifest's icons entirely. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Fleet Admin">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
 <style>
   /* Pastel sage/blush palette, matching the phone app. Pastels sit in the
      container and surface roles; --primary stays deeper because buttons carry
@@ -203,7 +226,49 @@
   }
   nav.tabs button.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  /*
+   * THE CORNERS OF A PHONE ARE NOT ALL USABLE. Run as a home-screen app the page owns the
+   * whole screen, including the strip under the home indicator and the sides beside the
+   * notch in landscape — so every edge of the chrome is held off by whatever the device
+   * says it needs, and by the ordinary padding where it says nothing.
+   *
+   * max() rather than adding the two: on a desktop the inset is zero and the padding is
+   * the padding, and on a phone the larger of the two wins rather than doubling up.
+   */
+  header.bar {
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+  }
+  nav.tabs {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+  main {
+    padding: 20px;
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /*
+   * ON A PHONE the gutters come in. Twenty points a side is a tenth of a 375pt screen
+   * spent on nothing, and these are tables — every point of width is a column that does
+   * not have to be scrolled to.
+   */
+  @media (max-width: 520px) {
+    main {
+      padding: 14px;
+      padding-left: max(14px, env(safe-area-inset-left));
+      padding-right: max(14px, env(safe-area-inset-right));
+      padding-bottom: max(14px, env(safe-area-inset-bottom));
+    }
+    header.bar { padding: 12px 14px; gap: 10px; }
+    header.bar h1 { font-size: 1rem; }
+    /* A table held to 70% of a laptop window is a keyhole on a phone. */
+    .table-wrap { max-height: none; }
+  }
   h2.section { font-size: 1.05rem; margin: 0 0 12px; }
 
   .card {

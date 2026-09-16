@@ -1,0 +1,16 @@
+{
+  "name": "My Daily Work Info — Admin",
+  "short_name": "Fleet Admin",
+  "description": "The admin portal: fleet, staff, figures and claims.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F6F7F8",
+  "theme_color": "#2F6B5C",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
