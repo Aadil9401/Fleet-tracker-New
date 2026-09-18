@@ -2321,7 +2321,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
       $('fyMonth').value = todayString().slice(0, 7);
     }
     if (btn.dataset.tab === 'fy') showFy();
-    if (btn.dataset.tab === 'stock') renderStock();
+    if (btn.dataset.tab === 'stock') showStock();
     if (btn.dataset.tab === 'debt') renderDebt();
     if (btn.dataset.tab === 'logs' && !$('lbMonth').value) {
       $('lbMonth').value = todayString().slice(0, 7);
@@ -8763,12 +8763,28 @@ function renderStock() {
  * list somebody works is the whole mechanism.
  */
 function renderStockNotCounted(month) {
+  /*
+   * NOTHING TO COMPARE AGAINST IS NOT AN EMPTY LIST. Without the month's figures there
+   * are no branches to check, and saying "nothing to chase" would be a confident claim
+   * built on having asked nobody.
+   */
+  if (!perfMonthsLoaded.has(month)) {
+    $('stockNotCountedCard').innerHTML =
+      '<h2 class="section">Who to chase</h2>'
+      + '<p class="sub">This month\'s figures have not loaded, so there is nothing to '
+      + 'check the counts against yet. Open the Performance tab, or press Refresh.</p>';
+    return;
+  }
   const waiting = stockNotCounted(month);
   if (waiting.length === 0) {
-    $('stockNotCountedCard').innerHTML =
-      '<h2 class="section">Nothing to chase</h2>'
-      + '<p class="sub">Every branch with figures this month has been counted in the '
-      + 'last fortnight.</p>';
+    const known = Object.keys(teamFiguresFor(month, '')).length;
+    $('stockNotCountedCard').innerHTML = known === 0
+      ? '<h2 class="section">Who to chase</h2>'
+        + '<p class="sub">No branch has figures for this month yet, so there is nothing '
+        + 'to check the counts against.</p>'
+      : '<h2 class="section">Nothing to chase</h2>'
+        + `<p class="sub">All ${known} branch(es) with figures this month have been `
+        + 'counted in the last fortnight.</p>';
     return;
   }
   $('stockNotCountedCard').innerHTML =
@@ -8788,6 +8804,31 @@ function renderStockNotCounted(month) {
         <td>${r.allocated === null ? '<span class="meta">—</span>' : num(r.allocated)}</td>
       </tr>`).join('')
     + '</tbody></table></div>';
+}
+
+/**
+ * Fetch, then draw — the same as the two other tabs that read figures.
+ *
+ * THE CHASE LIST IS BUILT FROM THE MONTH'S FIGURES, and those are not part of the bulk
+ * load: they are fetched a month at a time by loadPerfMonth, and only when a tab asks.
+ * So this tab, opened on a fresh page, saw no branches at all and said "nothing to chase"
+ * — which is a confident sentence, and was false for every branch in the business.
+ *
+ * A figure nobody has is a dash everywhere else here. A LIST nobody has was reading as an
+ * empty list, which is not the same claim at all.
+ */
+async function showStock() {
+  $('appView').classList.add('busy');
+  try {
+    await loadPerfMonth(todayString().slice(0, 7));
+  } catch (err) {
+    // Drawn anyway: the counts themselves came down with the bulk load and are worth
+    // seeing. renderStock says the chase list could not be built rather than saying
+    // there is nothing in it.
+  } finally {
+    $('appView').classList.remove('busy');
+    renderStock();
+  }
 }
 
 async function saveStockCounts() {

@@ -19,6 +19,7 @@ import { loadPortal, writes, setValue, dataset, classesOf } from './portal-harne
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRepeats',
   'stockOnHandRows', 'stockNotCounted', 'stockMonthsOfCover', 'renderStock',
+  'perfMonthsLoaded',
   'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
   'perfByMonthExportRows', 'renderPerformance',
@@ -3159,6 +3160,9 @@ portal.data.stockCounts = [
   { teamKey: 'TEMBISA', team: 'TEMBISA', countedOn: portal.shiftDate(stockNow, -37),
     network: 'MTN', held: 5000 }
 ];
+// The tab fetches this month before drawing; the harness has no network, so the cache
+// is marked by hand to stand for that fetch having happened.
+portal.perfMonthsLoaded.add(stockThisMonth);
 setValue('stockSearch', '');
 portal.stockFilters.query = '';
 portal.renderStock();
@@ -3175,6 +3179,37 @@ portal.data.stockCounts = [];
 portal.renderStock();
 check('with no counts at all it explains itself',
   (writes()['stockRows'] || '').includes('has to be counted'), true);
+
+/* NOTHING TO COMPARE AGAINST IS NOT AN EMPTY LIST, and this is the bug it is here for.
+   The month's figures are NOT part of the bulk load — they are fetched a month at a time,
+   and only when a tab asks. So this tab, opened on a fresh page, saw no branches and said
+   "nothing to chase": a confident sentence that was false for every branch in the
+   business. A figure nobody has is a dash everywhere else here; a LIST nobody has was
+   reading as an empty one, which is a different claim altogether. */
+portal.perfMonthsLoaded.delete(stockThisMonth);
+portal.renderStock();
+const notLoaded = writes()['stockNotCountedCard'] || '';
+check('with the figures unloaded it does not claim there is nothing to chase',
+  notLoaded.includes('Nothing to chase'), false);
+check('it says it could not check', notLoaded.includes('have not loaded'), true);
+
+// Loaded, and genuinely nothing outstanding, is the only time that sentence is earned.
+portal.perfMonthsLoaded.add(stockThisMonth);
+portal.data.stockCounts = portal.data.perfTeams.map(t => ({
+  teamKey: t.teamKey, team: t.team, countedOn: stockNow, network: 'MTN', held: 1000
+}));
+portal.renderStock();
+check('counted everywhere, and only then, does it say so',
+  (writes()['stockNotCountedCard'] || '').includes('Nothing to chase'), true);
+check('and it names how many it checked',
+  (writes()['stockNotCountedCard'] || '').includes('All 3 branch(es)'), true);
+
+// A month nobody has figures for is not "all counted" either.
+portal.data.perfTeams = [];
+portal.renderStock();
+check('no figures for the month is said plainly',
+  (writes()['stockNotCountedCard'] || '').includes('nothing to check the counts against'),
+  true);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
