@@ -1044,8 +1044,21 @@
     <section id="tab-performance" class="hidden">
       <div class="card">
         <div class="toolbar">
+          <!--
+            TWO PICKERS, both filled in. "From" defaults to the same month as "To", so
+            the tab opens on one month exactly as it always did and there is no hidden
+            state to explain — widening the range is moving one picker.
+
+            perfMonth stays the "to" month and keeps its id, because the upload boxes and
+            the Remove-a-month button act on ONE month and read it from here. They name
+            the month they will act on, so a range on screen cannot mislead about that.
+          -->
           <div>
-            <label for="perfMonth">Month</label>
+            <label for="perfFrom">From</label>
+            <input id="perfFrom" type="month">
+          </div>
+          <div>
+            <label for="perfMonth">To</label>
             <input id="perfMonth" type="month">
           </div>
           <div>
@@ -1097,6 +1110,36 @@
           A percentage is shown only where both of its figures have been uploaded. It is
           not capped at 100% — more connections than stock means the stock figure is
           understated or carried over, which is worth seeing rather than rounding away.
+        </p>
+      </div>
+
+      <!--
+        MONTH BY MONTH, one figure at a time. Hidden on a single month, where it would
+        repeat the table above it with one column.
+      -->
+      <div class="card hidden" id="perfByMonthCard">
+        <div class="toolbar">
+          <h2 class="section grow" id="perfByMonthTitle">Month by month</h2>
+          <div>
+            <label for="perfByMonthFigure">Figure</label>
+            <select id="perfByMonthFigure">
+              <option value="stock">Stock</option>
+              <option value="connections" selected>Connections</option>
+              <option value="activations">Activations</option>
+            </select>
+          </div>
+          <button id="exportPerfByMonth" class="outline">Export CSV</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr id="perfByMonthHead"></tr></thead>
+          <tbody id="perfByMonthRows"></tbody>
+        </table></div>
+        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          One row per <b>team</b>, biggest first — these three figures are uploaded per
+          team, so a row is a branch rather than a person. Every team with a figure is
+          listed, <b>including one nobody is posted to</b>, which is how a book with no
+          rep on it gets found. Setting a province, team or search narrows this to the
+          teams those people are on.
         </p>
       </div>
 
@@ -2154,10 +2197,18 @@ async function loadPerfMonth(month) {
 
 /** Fetch then draw, for each of the two tabs that read figures. */
 async function showPerformance() {
-  const month = $('perfMonth').value || todayString().slice(0, 7);
+  /*
+   * EVERY MONTH IN THE RANGE, one at a time, and each only once per session —
+   * loadPerfMonth returns immediately for a month already held. So widening a range by a
+   * month costs that one month, and narrowing it costs nothing at all.
+   *
+   * Sequential rather than in parallel: a year asked for at once is thirty-six queries
+   * leaving together, and Firestore answers a burst like that more slowly than it answers
+   * a queue, while the page has nothing to show either way.
+   */
   $('appView').classList.add('busy');
   try {
-    await loadPerfMonth(month);
+    for (const month of perfRange()) await loadPerfMonth(month);
     renderPerformance();
   } catch (err) {
     showMsg('Could not load the figures: ' + err.message, 'err');
@@ -2195,7 +2246,9 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
       runReport();
     }
     if (btn.dataset.tab === 'performance' && !$('perfMonth').value) {
+      // Both, so the tab opens on a single month and widening it is moving one picker.
       $('perfMonth').value = todayString().slice(0, 7);
+      $('perfFrom').value = todayString().slice(0, 7);
     }
     if (btn.dataset.tab === 'performance') showPerformance();
     if (btn.dataset.tab === 'fy' && !$('fyMonth').value) {
@@ -6254,11 +6307,96 @@ const perfFilters = { province: '', team: '', network: '', query: '' };
  * of a team shows the same three numbers because that is what they are. Nothing here
  * has to work out whether two equal numbers are one figure written twice.
  */
+/**
+ * Every month from one to another, inclusive.
+ *
+ * GIVEN THE WRONG WAY ROUND IT SWAPS THEM rather than showing nothing. Somebody setting
+ * a range moves one picker at a time, so "from July to March" is a state the screen
+ * passes through on the way to what was meant, and an empty table in the middle of that
+ * reads as a fault.
+ *
+ * Bounded by the same 24-month window the pickers themselves offer. That is not a limit
+ * on the range — it is the range those pickers can express — and it is here because a
+ * mistyped year would otherwise ask for twelve hundred months and read the database dry.
+ */
+function perfMonthsInRange(from, to) {
+  const end = /^\d{4}-\d{2}$/.test(String(to ?? '')) ? to : todayString().slice(0, 7);
+  const start = /^\d{4}-\d{2}$/.test(String(from ?? '')) ? from : end;
+  const [a, b] = start <= end ? [start, end] : [end, start];
+  const months = [];
+  let [y, m] = a.split('-').map(Number);
+  const cap = PERF_HISTORY_MONTHS + 1;
+  while (months.length < cap) {
+    const month = `${y}-${String(m).padStart(2, '0')}`;
+    months.push(month);
+    if (month >= b) break;
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return months;
+}
+
+/** The months the Performance tab is showing. */
+const perfRange = () => perfMonthsInRange(
+  $('perfFrom') && $('perfFrom').value,
+  $('perfMonth') && $('perfMonth').value);
+
+/**
+ * A team's figures added up across several months.
+ *
+ * Built by asking teamFiguresFor() for each month and adding what comes back, rather
+ * than by widening that function. The rule it carries — that a month's networked figures
+ * hide the ones written before networks existed — is a rule about ONE month, and it is
+ * held to a shared specification the phone app answers to as well. Summing the raw
+ * documents across a range would apply that rule to the range instead, so a single month
+ * with no networked figure would suppress the eight around it that had.
+ *
+ * A field no month carried stays NULL. Nothing uploaded is not a nought, and a range is
+ * not a licence to turn one into the other.
+ */
+function teamFiguresAcross(months, network) {
+  const list = Array.isArray(months) ? months : [months];
+  if (list.length === 1) return teamFiguresFor(list[0], network);
+
+  const out = {};
+  list.forEach(month => {
+    Object.entries(teamFiguresFor(month, network)).forEach(([key, row]) => {
+      const into = out[key] || (out[key] = { team: row.team || key, teamKey: key });
+      TEAM_LEVEL_FIELDS.forEach(field => {
+        const value = row[field];
+        if (value === null || value === undefined) return;
+        into[field] = (into[field] ?? 0) + Number(value);
+      });
+    });
+  });
+  Object.values(out).forEach(row => TEAM_LEVEL_FIELDS.forEach(field => {
+    if (row[field] === undefined) row[field] = null;
+  }));
+  return out;
+}
+
+/**
+ * One row per employee, for a month or for a range of them.
+ *
+ * Still takes a bare month string, because the leaderboard and the specification tests
+ * call it that way and a range means nothing to either.
+ *
+ * PAY IS ADDED ACROSS THE RANGE and the team figures with it: seven months of commission
+ * is what that person earned over seven months. A field absent from every month in the
+ * range stays null rather than becoming nought.
+ */
 function performanceRows(month, network) {
-  const teamFigures = teamFiguresFor(month, network);
+  const months = Array.isArray(month) ? month : [month];
+  const teamFigures = teamFiguresAcross(months, network);
   const commissionByNumber = {};
-  data.perfMonthly.filter(r => r.month === month).forEach(r => {
-    commissionByNumber[r.numberKey] = r;
+  const PAY_FIELDS = ['commissionRands', 'basicSalaryRands'];
+  data.perfMonthly.filter(r => months.includes(r.month)).forEach(r => {
+    const into = commissionByNumber[r.numberKey] || (commissionByNumber[r.numberKey] = {});
+    PAY_FIELDS.forEach(field => {
+      const value = r[field];
+      if (value === null || value === undefined) return;
+      into[field] = (into[field] ?? 0) + Number(value);
+    });
   });
 
   const figure = (row, field) => {
@@ -6333,11 +6471,45 @@ function teamFiguresFor(month, network) {
   return out;
 }
 
+/**
+ * One row per team, one column per month, for a single figure.
+ *
+ * The employee table cannot do this: three figures across nine months is twenty-seven
+ * columns, and it is one row per PERSON, so a team of two says everything twice. This is
+ * the shape the question is actually asked in — which branch fell off in May — so it is
+ * its own table, one figure at a time.
+ *
+ * BUILT PER MONTH through teamFiguresFor(), for the reason teamFiguresAcross() is: the
+ * networked-figures rule belongs to one month.
+ *
+ * EVERY TEAM WITH A FIGURE, not every team on the staff list — so a book nobody is
+ * posted to appears here rather than being invisible, which is how the unclaimed ones
+ * get found. Narrowed to the teams on screen only when a filter is actually set, since
+ * those filters are about PEOPLE and a team with nobody on it matches none of them.
+ */
+function perfByMonthRows(months, network, field, onlyTeams = null) {
+  const byTeam = {};
+  months.forEach(month => {
+    Object.entries(teamFiguresFor(month, network)).forEach(([key, row]) => {
+      if (onlyTeams && !onlyTeams.has(key)) return;
+      const value = row[field];
+      if (value === null || value === undefined) return;
+      const into = byTeam[key]
+        || (byTeam[key] = { team: row.team || key, teamKey: key, months: {}, total: 0 });
+      into.months[month] = (into.months[month] ?? 0) + Number(value);
+      into.total += Number(value);
+    });
+  });
+  // Biggest first: the question is which branches carry the period, and the answer is
+  // the top of the list rather than wherever the alphabet puts it.
+  return Object.values(byTeam).sort((a, b) => b.total - a.total
+    || String(a.team).localeCompare(String(b.team)));
+}
+
 /** Rows on screen, after the dropdowns and the search box. */
 function visiblePerformanceRows() {
   const q = perfFilters.query.trim().toLowerCase();
-  return performanceRows($('perfMonth').value || todayString().slice(0, 7),
-    perfFilters.network).filter(r => {
+  return performanceRows(perfRange(), perfFilters.network).filter(r => {
     if (perfFilters.province && r.province !== perfFilters.province) return false;
     if (perfFilters.team && r.team !== perfFilters.team) return false;
     if (!q) return true;
@@ -6891,6 +7063,7 @@ function renderPerformance() {
     ...teams.map(v =>
       `<option value="${esc(v)}" ${v === perfFilters.team ? 'selected' : ''}>${esc(v)}</option>`)].join('');
 
+  const months = perfRange();
   const rows = visiblePerformanceRows();
 
   const totals = performanceTotals(rows);
@@ -6917,13 +7090,19 @@ function renderPerformance() {
       esc(big)}</div><div class="cap">${esc(cap)}</div></div>`
   ).join('');
 
-  $('perfShowing').textContent = rows.length === all.length
+  // The period is named beside the count. A total over seven months looks exactly like a
+  // total over one, and the picker it came from is above the tiles rather than beside them.
+  const period = months.length === 1 ? months[0]
+    : `${months[0]} to ${months[months.length - 1]} · ${months.length} months added up`;
+  $('perfShowing').textContent = (rows.length === all.length
     ? `${all.length} employee(s)`
-    : `Showing ${rows.length} of ${all.length}`;
+    : `Showing ${rows.length} of ${all.length}`) + ` · ${period}`;
 
   // A dash, not a zero: nothing uploaded is not the same as a week with no connections,
   // and showing 0 would make a missing upload look like a bad month.
   const figure = (value, format) => value === null ? '<span class="meta">—</span>' : format(value);
+
+  renderPerfByMonth(months, rows, all);
 
   $('perfRows').innerHTML = rows.length === 0
     ? `<tr><td colspan="10" class="empty">${data.employees.length === 0
@@ -6979,6 +7158,55 @@ const perfUploadKinds = (container) => Object.keys(PERF_UPLOADS)
   .filter(kind => perfOnFy(kind) === (container === 'fyUploads'));
 
 /** The upload cards, built from the same table the parser reads. */
+/** Which teams the by-month table should be narrowed to, or nothing for all of them. */
+function perfByMonthTeams(rows, all) {
+  // Narrowed only when a filter is ACTUALLY set. Comparing the two row counts would
+  // narrow it whenever somebody happened to have no team, which is not a filter.
+  const filtered = perfFilters.province || perfFilters.team || perfFilters.query.trim();
+  if (!filtered) return null;
+  return new Set(rows.map(r => r.teamKey).filter(Boolean));
+}
+
+const PERF_FIGURE_LABELS = { stock: 'Stock', connections: 'Connections',
+  activations: 'Activations' };
+
+function renderPerfByMonth(months, rows, all) {
+  const card = $('perfByMonthCard');
+  // One month is the table above it with a single column. Nothing to add.
+  if (months.length < 2) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+
+  const field = $('perfByMonthFigure').value || 'connections';
+  const byMonth = perfByMonthRows(months, perfFilters.network, field,
+    perfByMonthTeams(rows, all));
+
+  $('perfByMonthTitle').textContent =
+    `${PERF_FIGURE_LABELS[field] || field} month by month`
+    + (perfFilters.network ? ` · ${NETWORK_LABELS[networkKey(perfFilters.network)]}` : '');
+
+  $('perfByMonthHead').innerHTML =
+    '<th>Team</th>' + months.map(m => `<th>${esc(m)}</th>`).join('')
+    + '<th>Total</th>';
+
+  $('perfByMonthRows').innerHTML = byMonth.length === 0
+    ? `<tr><td colspan="${months.length + 2}" class="empty">`
+      + `No ${esc(String(PERF_FIGURE_LABELS[field] || field).toLowerCase())} `
+      + 'uploaded for these months.</td></tr>'
+    : byMonth.map(r => `<tr>
+        <td><div class="nm">${esc(r.team)}</div></td>
+        ${months.map(m => `<td>${r.months[m] === undefined
+          ? '<span class="meta">—</span>' : num(r.months[m])}</td>`).join('')}
+        <td><b>${num(r.total)}</b></td>
+      </tr>`).join('');
+}
+
+/** The by-month grid as CSV rows, header first — the same shape as the table. */
+function perfByMonthExportRows(months, field, onlyTeams = null) {
+  const rows = perfByMonthRows(months, perfFilters.network, field, onlyTeams);
+  return [['Team', ...months, 'Total'],
+    ...rows.map(r => [r.team, ...months.map(m => r.months[m] ?? ''), r.total])];
+}
+
 function renderPerformanceUploads(container = 'perfUploads') {
   if ($(container).dataset.built === 'yes') return;
   $(container).innerHTML = perfUploadKinds(container).map(kind => {
@@ -7280,9 +7508,20 @@ async function savePerformance(kind) {
 }
 
 // So a month with no data loaded cannot be selected and read as "nothing happened".
-$('perfMonth').min = monthsBack(PERF_HISTORY_MONTHS);
-$('perfMonth').max = todayString().slice(0, 7);
-$('perfMonth').addEventListener('change', showPerformance);
+['perfFrom', 'perfMonth'].forEach(id => {
+  $(id).min = monthsBack(PERF_HISTORY_MONTHS);
+  $(id).max = todayString().slice(0, 7);
+  $(id).addEventListener('change', showPerformance);
+});
+$('perfByMonthFigure').addEventListener('change', renderPerformance);
+$('exportPerfByMonth').addEventListener('click', () => {
+  const months = perfRange();
+  const field = $('perfByMonthFigure').value || 'connections';
+  const rows = visiblePerformanceRows();
+  downloadCsv(`performance-${field}-${months[0]}-to-${months[months.length - 1]}.csv`,
+    perfByMonthExportRows(months, field,
+      perfByMonthTeams(rows, performanceRows(months, perfFilters.network))));
+});
 $('perfProvince').addEventListener('change', (e) => {
   perfFilters.province = e.target.value;
   renderPerformance();
@@ -7316,6 +7555,14 @@ $('perfSearch').addEventListener('input', (e) => {
  */
 function performanceExportRows(month) {
   const asPercent = (value) => value === null ? '' : value.toFixed(1);
+  /*
+   * ONE CELL, however many months it covers. An array dropped into a cell writes itself
+   * with commas in it, which in a comma-separated file is not one cell any more — every
+   * column after it shifts, and a sheet of shifted figures looks perfectly reasonable.
+   */
+  const months = Array.isArray(month) ? month : [month];
+  const period = months.length === 1 ? months[0]
+    : `${months[0]} to ${months[months.length - 1]}`;
   // Which network the figures are for, on every row — a sheet of numbers with the
   // network only in the filename is a sheet nobody can safely combine with another.
   const network = perfFilters.network
@@ -7326,7 +7573,7 @@ function performanceExportRows(month) {
     'Activations', 'Connection to activation %', 'Stock to activation %',
     'Basic salary R', 'Commission R'];
   return [header, ...visiblePerformanceRows().map(r => [
-    r.name, r.employeeNumber, r.province, r.team, month, network,
+    r.name, r.employeeNumber, r.province, r.team, period, network,
     r.stock === null ? '' : r.stock,
     r.connections === null ? '' : r.connections,
     asPercent(ratioPercent(r.connections, r.stock)),
@@ -7378,8 +7625,10 @@ $('exportFy').addEventListener('click', () => {
 });
 
 $('exportPerformance').addEventListener('click', () => {
-  const month = $('perfMonth').value || todayString().slice(0, 7);
-  downloadCsv(`performance-${month}.csv`, performanceExportRows(month));
+  const months = perfRange();
+  const span = months.length === 1 ? months[0]
+    : `${months[0]}-to-${months[months.length - 1]}`;
+  downloadCsv(`performance-${span}.csv`, performanceExportRows(months));
 });
 
 /* ---------------- what employees owe ---------------- */

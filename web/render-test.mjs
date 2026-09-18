@@ -14,10 +14,12 @@
  * data and counts the cells.
  */
 import { readFileSync } from 'fs';
-import { loadPortal, writes, setValue, dataset } from './portal-harness.mjs';
+import { loadPortal, writes, setValue, dataset, classesOf } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRepeats',
+  'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
+  'perfByMonthExportRows', 'renderPerformance',
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
@@ -2940,6 +2942,149 @@ check('the export has a column for it',
   fyExported[0][fyExported[0].length - 1], 'Left out of the total');
 check('and names the figures on the repeated row',
   fyExported.slice(1).map(r => r[r.length - 1]).sort(), ['', 'stock and connections']);
+
+
+
+/* ---------------- a range of months on the Performance tab ---------------- */
+/* Aadil: "can we select multiple months, eg jan to july". The figures are stored one
+   month at a time and were read one month at a time, so the range is a filter change
+   rather than a new way of storing anything. */
+
+check('a range is inclusive at both ends',
+  portal.perfMonthsInRange('2026-01', '2026-03'), ['2026-01', '2026-02', '2026-03']);
+check('one month is just that month',
+  portal.perfMonthsInRange('2026-07', '2026-07'), ['2026-07']);
+check('and it crosses a year end',
+  portal.perfMonthsInRange('2025-11', '2026-02'),
+  ['2025-11', '2025-12', '2026-01', '2026-02']);
+/* GIVEN THE WRONG WAY ROUND IT SWAPS THEM. Somebody setting a range moves one picker at
+   a time, so "July to March" is a state the screen passes through on the way to what was
+   meant, and an empty table in the middle of that reads as a fault. */
+check('back to front is the same range',
+  portal.perfMonthsInRange('2026-07', '2026-03'), portal.perfMonthsInRange('2026-03', '2026-07'));
+// An empty or malformed "from" is one month, which is how the tab behaved before today.
+check('no start is a single month', portal.perfMonthsInRange('', '2026-05'), ['2026-05']);
+check('and nor does rubbish widen it', portal.perfMonthsInRange('later', '2026-05'), ['2026-05']);
+// A mistyped year would otherwise ask for twelve hundred months and read the database dry.
+check('a mistyped year cannot ask for centuries',
+  portal.perfMonthsInRange('1900-01', '2026-05').length, portal.PERF_HISTORY_MONTHS + 1);
+
+/* ---- the figures added rngAcross it ---- */
+portal.data.employees = [
+  { id: 'a', employeeNumber: 'T001', name: 'Ayanda', surname: 'Khumalo',
+    teamName: 'SOWETO', province: 'Gauteng' },
+  { id: 'b', employeeNumber: 'T002', name: 'Bongi', surname: 'Ndlovu',
+    teamName: 'TEMBISA', province: 'Gauteng' }
+];
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'SOWETO', month: '2026-01', network: 'MTN',
+    stock: 100, connections: 40 },
+  { teamKey: 'SOWETO', team: 'SOWETO', month: '2026-02', network: 'MTN',
+    stock: 200, connections: 90 },
+  { teamKey: 'SOWETO', team: 'SOWETO', month: '2026-03', network: 'MTN',
+    stock: 300, connections: 150 },
+  // Tembisa sold nothing in February — an absent month, not a nought.
+  { teamKey: 'TEMBISA', team: 'TEMBISA', month: '2026-01', network: 'MTN',
+    stock: 50, connections: 10 },
+  { teamKey: 'TEMBISA', team: 'TEMBISA', month: '2026-03', network: 'MTN',
+    stock: 70, connections: 30 }
+];
+portal.data.perfMonthly = [
+  { numberKey: 'T001', month: '2026-01', commissionRands: 1000, basicSalaryRands: 5000 },
+  { numberKey: 'T001', month: '2026-02', commissionRands: 1500, basicSalaryRands: 5000 },
+  { numberKey: 'T001', month: '2026-03', commissionRands: 2000, basicSalaryRands: 5000 }
+];
+portal.data.perfFy = [];
+
+const rngQ1 = ['2026-01', '2026-02', '2026-03'];
+const rngAcross = portal.teamFiguresAcross(rngQ1, '');
+check('three months of stock are added', rngAcross.SOWETO.stock, 600);
+check('and three months of connections', rngAcross.SOWETO.connections, 280);
+check('a month a team missed simply is not added', rngAcross.TEMBISA.stock, 120);
+/* A FIGURE NO MONTH CARRIED STAYS NULL. Nothing uploaded is not a nought, and a range is
+   not a licence to turn one into the other — the tile would read a real 0 either way. */
+check('and a figure nobody uploaded stays a dash', rngAcross.SOWETO.activations, null);
+// One month has to come out exactly as it did before there were ranges.
+check('one month is untouched by any of this',
+  portal.teamFiguresAcross(['2026-02'], ''), portal.teamFiguresFor('2026-02', ''));
+
+/* PAY IS ADDED TOO. Seven months of commission is what that person earned over seven
+   months, which is the question being asked by picking seven months. */
+const rngRanged = portal.performanceRows(rngQ1, '');
+const rngAyanda = rngRanged.find(r => r.employeeNumber === 'T001');
+check('commission is summed over the range', rngAyanda.commissionRands, 4500);
+check('and so is basic', rngAyanda.basicSalaryRands, 15000);
+check('with the team figures beside them', [rngAyanda.stock, rngAyanda.connections], [600, 280]);
+const rngBongi = rngRanged.find(r => r.employeeNumber === 'T002');
+check('somebody with no pay uploaded still shows a dash',
+  [rngBongi.commissionRands, rngBongi.basicSalaryRands], [null, null]);
+// The old call still works, because the leaderboard and the spec tests use it.
+check('a bare month string still works',
+  portal.performanceRows('2026-02', '').find(r => r.employeeNumber === 'T001').stock, 200);
+
+/* ---- a column per month ---- */
+const rngGrid = portal.perfByMonthRows(rngQ1, '', 'connections');
+check('one row per team', rngGrid.map(r => r.team), ['SOWETO', 'TEMBISA']);
+check('biggest first, because the question is who carries the period',
+  rngGrid.map(r => r.total), [280, 40]);
+check('a column per month', rngGrid[0].months, { '2026-01': 40, '2026-02': 90, '2026-03': 150 });
+// An absent month must not read as a nought: the row would say they sold none.
+check('and a month with nothing is absent rather than nought',
+  Object.keys(rngGrid[1].months), ['2026-01', '2026-03']);
+check('the figure chosen is the figure shown',
+  portal.perfByMonthRows(rngQ1, '', 'stock')[0].total, 600);
+
+/* A BOOK NOBODY IS POSTED TO IS LISTED. That is how the unclaimed ones get found, and the
+   employee table cannot show them — it is built from the staff list. */
+portal.data.perfTeams.push({ teamKey: 'HAZYVIEW', team: 'HAZYVIEW', month: '2026-01',
+  network: 'MTN', connections: 999 });
+check('a team nobody is on still has a row',
+  portal.perfByMonthRows(rngQ1, '', 'connections')[0].team, 'HAZYVIEW');
+// Until a filter is set, at which point the table is about those people's teams.
+check('but a filter narrows it to the teams on screen',
+  portal.perfByMonthRows(rngQ1, '', 'connections', new Set(['SOWETO'])).map(r => r.team),
+  ['SOWETO']);
+portal.data.perfTeams.pop();
+
+/* ---- what the tab shows ---- */
+setValue('perfFrom', '2026-01');
+setValue('perfMonth', '2026-03');
+portal.perfFilters.province = '';
+portal.perfFilters.team = '';
+portal.perfFilters.query = '';
+portal.perfFilters.network = '';
+portal.renderPerformance();
+
+check('the range is what the tab reads', portal.perfRange(), rngQ1);
+// A total over three months looks exactly like a total over one, and the pickers it came
+// from are above the tiles rather than beside them.
+check('the count names the period',
+  (writes()['perfShowing'] || '').includes('2026-01 to 2026-03 · 3 months added up'), true);
+check('the tiles add the range up',
+  (writes()['perfTiles'] || '').includes('720'), true);   // 600 + 120 stock
+check('the month-by-month table is showing', classesOf('perfByMonthCard').includes('hidden'), false);
+check('with a column for each month',
+  (writes()['perfByMonthHead'] || '').match(/<th>2026-0\d<\/th>/g).length, 3);
+
+// One month is the table above it with a single column, so it says nothing at all.
+setValue('perfFrom', '2026-03');
+portal.renderPerformance();
+check('one month hides it again', classesOf('perfByMonthCard').includes('hidden'), true);
+check('and the count just names the month',
+  (writes()['perfShowing'] || '').includes('· 2026-03'), true);
+
+/* THE EXPORT SAYS THE SAME THING AS THE SCREEN, and says it in ONE cell — an array
+   dropped into a cell writes itself with commas, which in a comma-separated file shifts
+   every column after it. */
+const rngPerfCsv = portal.performanceExportRows(rngQ1);
+check('the month column names the whole period',
+  rngPerfCsv[1][rngPerfCsv[0].indexOf('Month')], '2026-01 to 2026-03');
+check('and one month still names itself',
+  portal.performanceExportRows('2026-02')[1][rngPerfCsv[0].indexOf('Month')], '2026-02');
+const rngGridCsv = portal.perfByMonthExportRows(rngQ1, 'connections');
+check('the grid exports its own shape', rngGridCsv[0], ['Team', ...rngQ1, 'Total']);
+check('and its rows', rngGridCsv[1], ['SOWETO', 40, 90, 150, 280]);
+check('a month a team missed exports empty, not nought', rngGridCsv[2], ['TEMBISA', 10, '', 30, 40]);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
