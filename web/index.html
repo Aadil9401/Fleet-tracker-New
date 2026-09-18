@@ -2297,12 +2297,28 @@ async function showLeaderboard() {
 }
 
 /* ---------------- tabs ---------------- */
+/*
+ * THE TABS ARE WHATEVER BUTTONS ARE IN THE BAR.
+ *
+ * This was a hand-typed list of the nine names, sitting a long way from the markup that
+ * declares them — so adding a tab meant remembering a THIRD place after the button and
+ * the section. The Stock tab was added to two of the three, and clicking it hid every
+ * section and unhid none: a completely blank page, with no error anywhere to say why.
+ *
+ * Read off the buttons instead, so the list cannot fall behind the bar again. A button
+ * whose section is missing is reported once at startup rather than blanking the page.
+ */
+const TAB_NAMES = [...document.querySelectorAll('nav.tabs button')]
+  .map(b => b.dataset.tab).filter(Boolean);
+
 document.querySelectorAll('nav.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['today','reports','employees','vehicles','performance','fy','debt','insurance','logs'].forEach(t =>
-      $('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
+    TAB_NAMES.forEach(t => {
+      const section = $('tab-' + t);
+      if (section) section.classList.toggle('hidden', t !== btn.dataset.tab);
+    });
     $('globalMsg').innerHTML = '';
 
     // Open the Reports tab on today rather than two empty date boxes.

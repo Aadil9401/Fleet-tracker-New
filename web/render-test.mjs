@@ -3212,5 +3212,39 @@ check('no figures for the month is said plainly',
   true);
 
 
+
+/* ---------------- every tab button has a tab behind it ---------------- */
+/* THE FAULT THIS IS HERE FOR. A tab needed listing in THREE places — the button, the
+   section, and a hand-typed array of names in the click handler a thousand lines away.
+   Stock was added to two of them. Clicking it hid every section and unhid none: a wholly
+   blank page, no error in the console, nothing on screen to say what had happened.
+
+   The array is now read off the buttons, so it cannot fall behind again. This checks the
+   other half — that the markup itself is whole — because the renderer can only be as
+   right as the page it is drawing into.
+
+   Read from the FILE rather than through the stubs: querySelectorAll returns nothing in
+   the harness, which is exactly why the original fault was invisible to these tests. */
+const portalHtml = readFileSync(process.argv[2] ?? 'web/index.html', 'utf8');
+const tabBar = (portalHtml.match(/<nav class="tabs">([\s\S]*?)<\/nav>/) ?? [])[1] ?? '';
+const tabButtons = [...tabBar.matchAll(/data-tab="([^"]+)"/g)].map(m => m[1]);
+const tabSections = [...portalHtml.matchAll(/id="tab-([a-z]+)"/g)].map(m => m[1]);
+
+check('the tab bar has buttons at all', tabButtons.length > 0, true);
+check('every button has a section behind it',
+  tabButtons.filter(t => !tabSections.includes(t)), []);
+check('and every section has a button in front of it',
+  tabSections.filter(t => !tabButtons.includes(t)), []);
+// The one that was missing, named, so a regression says which tab broke.
+check('stock is one of them', tabButtons.includes('stock'), true);
+/* AND NOBODY HAS TYPED THE LIST OUT AGAIN. A second copy is what let the two drift apart,
+   and it drifted silently — which is the part that made it expensive. */
+check('the handler reads the buttons rather than a list of its own',
+  /TAB_NAMES = \[\.\.\.document\.querySelectorAll\('nav\.tabs button'\)\]/.test(portalHtml),
+  true);
+check('and no hand-typed tab list survives',
+  /\['today','reports','employees'/.test(portalHtml), false);
+
+
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);
