@@ -1275,6 +1275,43 @@
 
       <div class="card" id="stockNotCountedCard"></div>
 
+      <!--
+        ONE BRANCH AT A TIME, which is how a count actually arrives — somebody rings in,
+        or sends a photo of a shelf. A file is the right shape for a stocktake and the
+        wrong one for a single answer.
+
+        THE TEAM IS A LIST, not a box to type in. Every figure lost this week was lost to
+        a team name typed slightly differently — "UPPINGTON", "polokwane voda",
+        "Cape town CC 1" — and a count filed under a name nothing matches is a count
+        nobody will ever see again.
+      -->
+      <div class="card">
+        <h2 class="section">Add a count</h2>
+        <div class="grid-2">
+          <div class="field">
+            <label for="stockAddTeam">Team</label>
+            <select id="stockAddTeam"></select>
+          </div>
+          <div class="field">
+            <label for="stockAddDate">Counted on</label>
+            <input id="stockAddDate" type="date">
+          </div>
+        </div>
+        <div class="grid-2" id="stockAddFields"></div>
+        <div class="toolbar" style="margin-top:var(--s2)">
+          <button id="stockAddSave">Save this count</button>
+        </div>
+        <div id="stockAddStatus" class="meta" style="margin-top:var(--s2)"></div>
+        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          <b>Leave a network empty</b> if this branch does not carry it — nothing is
+          stored and nothing is assumed. <b>Type 0</b> if they carry it and have run out;
+          that is a real stockout and it is recorded.
+          <br>
+          Counting the same branch again on the same date <b>corrects</b> that count
+          rather than adding to it.
+        </p>
+      </div>
+
       <div class="card">
         <h2 class="section">Upload a count</h2>
         <div class="field">
@@ -8769,6 +8806,7 @@ function renderStock() {
     }).join('');
 
   renderStockNotCounted(month);
+  renderStockAdd();
 }
 
 /**
@@ -8847,6 +8885,130 @@ async function showStock() {
   }
 }
 
+/**
+ * Every team this portal knows of, for the picker.
+ *
+ * BOTH SIDES, because neither is complete on its own: the figures name branches nobody is
+ * posted to, and the staff list names branches that have had no figures this month. A
+ * count is worth taking for either.
+ *
+ * The name shown is the one the FIGURES use where there is one, because that is the
+ * spelling everything else here matches on — offering the staff-list spelling of a team
+ * the figures call something else is how a count ends up filed where nothing finds it.
+ */
+function knownStockTeams(month = todayString().slice(0, 7)) {
+  const byKey = {};
+  data.employees.forEach(e => {
+    const key = teamKey(e.teamName);
+    if (key) byKey[key] = { key, name: String(e.teamName).trim(), fromFigures: false };
+  });
+  Object.entries(teamFiguresFor(month, '')).forEach(([key, row]) => {
+    byKey[key] = { key, name: row.team || key, fromFigures: true };
+  });
+  // Anything already counted, so a branch stays pickable after its figures stop.
+  data.stockCounts.forEach(r => {
+    const key = r.teamKey || teamKey(r.team);
+    if (key && !byKey[key]) byKey[key] = { key, name: r.team || key, fromFigures: false };
+  });
+  return Object.values(byKey).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Writes counts, however they were typed.
+ *
+ * The file and the form share this so there is ONE way a count reaches the database. Two
+ * would drift, and the one that drifted would be the one nobody tested.
+ */
+async function writeStockRows(rows) {
+  // One document per branch per count per network, so counting the same branch again on
+  // the same day corrects it rather than adding to it.
+  for (let start = 0; start < rows.length; start += 400) {
+    const batch = writeBatch(db);
+    rows.slice(start, start + 400).forEach(r => {
+      batch.set(doc(db, 'stockCounts', `${r.teamKey}_${r.countedOn}_${r.network}`), {
+        team: r.team,
+        teamKey: r.teamKey,
+        countedOn: r.countedOn,
+        network: r.network,
+        held: r.held,
+        uploadedAtMillis: Date.now()
+      }, { merge: true });
+    });
+    await batch.commit();
+  }
+}
+
+/** The four boxes, generated so they cannot fall out of step with the networks. */
+function renderStockAddFields() {
+  $('stockAddFields').innerHTML = NETWORKS.map(n => `
+    <div class="field">
+      <label for="stockAdd-${n}">${esc(NETWORK_LABELS[n])}</label>
+      <input id="stockAdd-${n}" type="number" min="0" step="1" inputmode="numeric"
+        placeholder="leave empty if not carried">
+    </div>`).join('');
+}
+
+/** The team picker and the date, refreshed whenever the tab is drawn. */
+function renderStockAdd() {
+  const teams = knownStockTeams();
+  const chosen = $('stockAddTeam').value;
+  $('stockAddTeam').innerHTML = teams.length === 0
+    ? '<option value="">No teams yet</option>'
+    : ['<option value="">Choose a team</option>',
+      ...teams.map(t => `<option value="${esc(t.key)}" ${t.key === chosen ? 'selected' : ''}>`
+        + `${esc(t.name)}${t.fromFigures ? '' : ' · no figures this month'}</option>`)].join('');
+  if (!$('stockAddDate').value) $('stockAddDate').value = todayString();
+  if (!$('stockAddFields').innerHTML) renderStockAddFields();
+}
+
+async function saveStockAdd() {
+  const key = $('stockAddTeam').value;
+  if (!key) { showMsg('Choose a team first.', 'err'); return; }
+  const team = knownStockTeams().find(t => t.key === key);
+  const countedOn = normaliseDate($('stockAddDate').value);
+  if (!countedOn) { showMsg('Choose the date it was counted.', 'err'); return; }
+
+  /*
+   * A BLANK IS NOT A NOUGHT here either, and the form has to hold that line as firmly as
+   * the file does — an empty box is a network this branch does not carry, and a typed 0
+   * is a stockout worth recording.
+   */
+  const rows = [];
+  let bad = null;
+  NETWORKS.forEach(network => {
+    if (bad) return;
+    const typed = String($('stockAdd-' + network).value ?? '').trim();
+    if (typed === '') return;
+    const held = perfCount(typed);
+    if (held === null) {
+      bad = `${NETWORK_LABELS[network]} must be a whole number`;
+      return;
+    }
+    rows.push({ team: team.name, teamKey: key, countedOn, network, held });
+  });
+  if (bad) { showMsg(bad, 'err'); return; }
+  if (rows.length === 0) {
+    showMsg('Type at least one figure. An empty row would say nothing.', 'err');
+    return;
+  }
+
+  $('stockAddSave').disabled = true;
+  try {
+    await writeStockRows(rows);
+    // Read back rather than patched in, so what is on screen is what was stored.
+    await loadAll();
+    $('stockAddStatus').innerHTML =
+      `<span style="color:var(--primary)">Saved ${rows.length} figure(s) for `
+      + `${esc(team.name)} on ${esc(prettyDate(countedOn))}.</span>`;
+    NETWORKS.forEach(n => { $('stockAdd-' + n).value = ''; });
+    renderStock();
+  } catch (err) {
+    showMsg('Could not save the count: ' + err.message, 'err');
+  } finally {
+    $('stockAddSave').disabled = false;
+  }
+}
+
 async function saveStockCounts() {
   const text = $('stockText').value;
   if (!text.trim()) { showMsg('Choose a file or paste the counts first.', 'err'); return; }
@@ -8863,25 +9025,8 @@ async function saveStockCounts() {
   $('stockSave').disabled = true;
   try {
     const known = new Set(data.employees.map(e => teamKey(e.teamName)).filter(Boolean));
-    let matched = 0;
-    // Chunked for Firestore's 500-write cap, the same way every other upload here is.
-    for (let start = 0; start < rows.length; start += 400) {
-      const batch = writeBatch(db);
-      rows.slice(start, start + 400).forEach(r => {
-        if (known.has(r.teamKey)) matched++;
-        // One document per branch per count per network, so counting the same branch
-        // again on the same day corrects it rather than adding to it.
-        batch.set(doc(db, 'stockCounts', `${r.teamKey}_${r.countedOn}_${r.network}`), {
-          team: r.team,
-          teamKey: r.teamKey,
-          countedOn: r.countedOn,
-          network: r.network,
-          held: r.held,
-          uploadedAtMillis: Date.now()
-        }, { merge: true });
-      });
-      await batch.commit();
-    }
+    const matched = rows.filter(r => known.has(r.teamKey)).length;
+    await writeStockRows(rows);
 
     const dates = [...new Set(rows.map(r => r.countedOn))].sort();
     $('stockUploadStatus').innerHTML =
@@ -9081,6 +9226,7 @@ $('stockSearch').addEventListener('input', (e) => {
   renderStock();
 });
 $('stockSave').addEventListener('click', saveStockCounts);
+$('stockAddSave').addEventListener('click', saveStockAdd);
 $('stockTemplate').addEventListener('click', () =>
   downloadCsv('stock-on-hand-template.csv', stockTemplateRows()));
 $('stockFile').addEventListener('change', async (e) => {

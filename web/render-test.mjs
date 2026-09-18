@@ -19,6 +19,7 @@ import { loadPortal, writes, setValue, dataset, classesOf } from './portal-harne
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRepeats',
   'stockOnHandRows', 'stockNotCounted', 'stockMonthsOfCover', 'renderStock',
+  'knownStockTeams', 'renderStockAdd',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -3244,6 +3245,62 @@ check('the handler reads the buttons rather than a list of its own',
   true);
 check('and no hand-typed tab list survives',
   /\['today','reports','employees'/.test(portalHtml), false);
+
+
+
+/* ---------------- adding one count by hand ---------------- */
+/* A file is the right shape for a stocktake and the wrong one for a single answer —
+   somebody rings in, or sends a photo of a shelf.
+
+   THE TEAM IS A LIST, not a box to type in. Every figure lost this week was lost to a
+   team name typed slightly differently — "UPPINGTON", "polokwane voda", "Cape town CC 1"
+   — and a count filed under a name nothing matches is a count nobody sees again. */
+portal.data.employees = [
+  { id: 'a', employeeNumber: 'T001', name: 'Ayanda', surname: 'K', teamName: 'SOWETO' },
+  // On the staff list, no figures this month — still worth counting.
+  { id: 'b', employeeNumber: 'T002', name: 'Bongi', surname: 'N', teamName: 'NEWCASTLE' }
+];
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'SOWETO', month: stockThisMonth, network: 'MTN', stock: 100 },
+  // In the figures and on nobody's record — the branch that most needs asking.
+  { teamKey: 'HAZYVIEW', team: 'HAZYVIEW', month: stockThisMonth, network: 'MTN', stock: 900 }
+];
+portal.data.stockCounts = [];
+portal.perfMonthsLoaded.add(stockThisMonth);
+
+const pickable = portal.knownStockTeams(stockThisMonth);
+check('both sides of the house are offered',
+  pickable.map(t => t.name).sort(), ['HAZYVIEW', 'NEWCASTLE', 'SOWETO']);
+// A branch nobody is posted to is exactly the one nobody thinks to ask.
+check('a branch with figures and no staff can be counted',
+  pickable.find(t => t.key === 'HAZYVIEW').fromFigures, true);
+check('and one with staff and no figures is marked as such',
+  pickable.find(t => t.key === 'NEWCASTLE').fromFigures, false);
+
+/* THE FIGURES' SPELLING WINS. Offering the staff-list spelling of a team the figures call
+   something else is how a count gets filed where nothing finds it — which is the whole of
+   this week. */
+portal.data.employees.push(
+  { id: 'c', employeeNumber: 'T003', name: 'Chris', surname: 'M', teamName: 'hazyview' });
+check('the name offered is the one the figures use',
+  portal.knownStockTeams(stockThisMonth).find(t => t.key === 'HAZYVIEW').name, 'HAZYVIEW');
+check('and it is still one team, not two',
+  portal.knownStockTeams(stockThisMonth).filter(t => t.key === 'HAZYVIEW').length, 1);
+
+setValue('stockAddTeam', '');
+setValue('stockAddDate', '');
+portal.renderStockAdd();
+const picker = writes()['stockAddTeam'] || '';
+check('the picker asks rather than assuming', picker.includes('Choose a team'), true);
+check('and lists every team', portal.NETWORKS.length > 0
+  && ['HAZYVIEW', 'NEWCASTLE', 'SOWETO'].every(t => picker.includes(t)), true);
+// One box per network, generated, so they cannot fall out of step with NETWORKS.
+const boxes = writes()['stockAddFields'] || '';
+check('a box for every network',
+  portal.NETWORKS.filter(n => !boxes.includes('stockAdd-' + n)), []);
+// The empty box has to say what empty MEANS, or somebody types 0 to be tidy.
+check('and the empty box says what empty means',
+  boxes.includes('leave empty if not carried'), true);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
