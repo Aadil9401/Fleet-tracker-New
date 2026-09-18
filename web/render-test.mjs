@@ -25,6 +25,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
   'setPerfPeriod',
   'perfByMonthExportRows', 'renderPerformance', 'droppableTeams', 'renderPerfDrop',
+  'planTeamMerge', 'renderPerfMerge',
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
@@ -3417,6 +3418,74 @@ check('and only touches the team figures',
   [/perfFy/, /perfMonthly/].some(rx =>
     rx.test(src.slice(src.indexOf('async function dropTeamFigures'),
       src.indexOf('async function dropTeamFigures') + 2000))), false);
+
+
+
+/* ---------------- putting a renamed branch back together ---------------- */
+/* Aadil: "paarl gives me figures, paarl f&b gives me another set". The network renamed
+   three branches in August — Paarl, Bethlehem, George — so each has nine months of
+   figures under two names. A person carries one team, so whichever name they are given
+   shows half a year, and no team name typed on their record can fix that. */
+const paarl = [
+  // The old book: every month to August, then it stops.
+  { id: 'PAARL F B_2026-07_MTN', teamKey: 'PAARL F B', team: 'PAARL - F&B',
+    month: '2026-07', network: 'MTN', stock: 14200, connections: 2908 },
+  { id: 'PAARL F B_2026-08_MTN', teamKey: 'PAARL F B', team: 'PAARL - F&B',
+    month: '2026-08', network: 'MTN', stock: 10650, connections: 2661 },
+  // The new book: starts in August, so August exists under BOTH.
+  { id: 'PAARL_2026-08_MTN', teamKey: 'PAARL', team: 'PAARL',
+    month: '2026-08', network: 'MTN', stock: 7750 },
+  { id: 'PAARL_2026-09_MTN', teamKey: 'PAARL', team: 'PAARL',
+    month: '2026-09', network: 'MTN', stock: 9100, connections: 535 }
+];
+
+const merged = portal.planTeamMerge(paarl, 'PAARL F B', 'PAARL', 'PAARL');
+check('every month of the old book moves', merged.writes.length, 2);
+check('and it knows which months they are', merged.months, ['2026-07', '2026-08']);
+
+const july = merged.writes.find(w => w.month === '2026-07');
+check('a month only the old book had simply moves',
+  [july.values.stock, july.values.connections, july.added], [14200, 2908, false]);
+check('under the new key', july.id, 'PAARL_2026-07_MTN');
+
+/* THE HANDOVER MONTH IS ADDED, NOT REPLACED. Both books have real August stock — 10 650
+   under the old name and 7 750 under the new — and keeping only one would lose the rest
+   with nothing on screen to show it had gone. */
+const august = merged.writes.find(w => w.month === '2026-08');
+check('the handover month is added together', august.values.stock, 10650 + 7750);
+check('and is flagged as an addition', august.added, true);
+check('a figure only one side had still comes across', august.values.connections, 2661);
+check('and the plan counts what it will add', [merged.added, merged.moved], [1, 1]);
+
+/* ABSENT STAYS ABSENT. Nothing uploaded is not a nought, and a merge is not a licence to
+   turn one into the other — a nought would read as a month the branch sold none. */
+check('a figure neither side has is not invented',
+  'activations' in august.values, false);
+check('nor on a month that simply moved', 'activations' in july.values, false);
+
+// What is moving, so the confirm can say it before anything is written.
+check('the totals it will move are worked out up front',
+  [merged.totals.stock, merged.totals.connections], [24850, 5569]);
+
+// The new book's own rows are left alone — only the old name's are rewritten.
+check('nothing is planned for the rows already on the new name',
+  merged.writes.some(w => w.from && w.from.startsWith('PAARL_')), false);
+
+// Both pickers offer the same teams, so either can be the old or the new name.
+setValue('perfMergeFrom', '');
+setValue('perfMergeTo', '');
+portal.data.perfTeams = paarl.map(r => ({ ...r }));
+portal.renderPerfMerge();
+// The ampersand arrives escaped, as any team name with punctuation would.
+check('both pickers are filled',
+  [(writes()['perfMergeFrom'] || '').includes('PAARL - F&amp;B'),
+   (writes()['perfMergeTo'] || '').includes('PAARL')], [true, true]);
+
+/* WRITTEN BEFORE THE OLD ROWS ARE DELETED. If the run fails halfway the figures exist
+   twice, which is visible and fixable; the other way round they would be gone. */
+check('the new rows are written before the old are deleted',
+  src.indexOf('...w.values, mergedAtMillis') < src.indexOf('fromSnap.docs.slice(start, start + 400).forEach(d => batch.delete'),
+  true);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);

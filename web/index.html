@@ -1167,6 +1167,42 @@
         Separate from "Remove a month" on purpose: that one is about a file loaded wrongly
         and is scoped to a month, and this is about a name that should never appear again.
       -->
+      <!--
+        A BRANCH RENAMED MID-YEAR has its figures split across two names — Paarl's nine
+        months sit under PAARL - F&B until August and PAARL from August. A person carries
+        one team, so whichever name they are given shows half a year. Aadil: "paarl gives
+        me figures, paarl f&b gives me another set".
+
+        Three branches were renamed in August the same way: Paarl, Bethlehem and George.
+      -->
+      <div class="card">
+        <h2 class="section">Move a team's figures onto another name</h2>
+        <div class="toolbar">
+          <div class="grow">
+            <label for="perfMergeFrom">Old name</label>
+            <select id="perfMergeFrom"></select>
+          </div>
+          <div class="grow">
+            <label for="perfMergeTo">New name</label>
+            <select id="perfMergeTo"></select>
+          </div>
+          <button id="perfMergeGo" class="outline">Move every month</button>
+        </div>
+        <div id="perfMergeStatus" class="meta" style="margin-top:var(--s2)"></div>
+        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          For a branch the network <b>renamed</b>, so its year sits under two names. Every
+          month of stock, connections and activations moves from the old name to the new,
+          and the old name is left with nothing.
+          <br>
+          <b>Where both names have the same month, the figures are added</b> — the
+          handover month usually has real stock under both, and keeping only one would
+          lose the rest with nothing to show it had gone.
+          <br>
+          Pay and FY are not touched; those are filed against a person. <b>There is no
+          undo.</b>
+        </p>
+      </div>
+
       <div class="card">
         <h2 class="section">Remove a team's figures</h2>
         <div class="toolbar">
@@ -7296,6 +7332,7 @@ function renderPerformance() {
 
   renderPerfByMonth(months, rows, all);
   renderPerfDrop();
+  renderPerfMerge();
 
   $('perfRows').innerHTML = rows.length === 0
     ? `<tr><td colspan="10" class="empty">${data.employees.length === 0
@@ -7400,6 +7437,70 @@ function perfByMonthExportRows(months, field, onlyTeams = null) {
     ...rows.map(r => [r.team, ...months.map(m => r.months[m] ?? ''), r.total])];
 }
 
+/**
+ * What moving one team's figures onto another name would do.
+ *
+ * A branch renamed mid-year has its figures split across two names — Paarl's nine months
+ * sit under PAARL - F&B until August and PAARL from August — and since a person carries
+ * one team, whichever name they are given shows half a year. Merging puts the branch back
+ * together.
+ *
+ * WHERE BOTH NAMES HAVE THE SAME MONTH AND NETWORK THE FIGURES ARE ADDED, not replaced.
+ * August is the handover month and both books have real stock in it; taking one and
+ * discarding the other would lose a fortnight of allocation with nothing to show it had
+ * gone. Everywhere else the row simply moves.
+ *
+ * Pure: takes the rows and returns the plan, so the arithmetic can be tested without a
+ * database and the caller can show it before it happens.
+ */
+const MERGE_FIELDS = [...TEAM_LEVEL_FIELDS];
+
+function planTeamMerge(rows, fromKey, toKey, toName) {
+  const moving = rows.filter(r => (r.teamKey || teamKey(r.team)) === fromKey);
+  const already = {};
+  rows.filter(r => (r.teamKey || teamKey(r.team)) === toKey).forEach(r => {
+    already[`${r.month}_${r.network || ''}`] = r;
+  });
+
+  const writes = [];
+  moving.forEach(r => {
+    const at = `${r.month}_${r.network || ''}`;
+    const onto = already[at];
+    const values = {};
+    MERGE_FIELDS.forEach(field => {
+      const mine = r[field];
+      const theirs = onto ? onto[field] : undefined;
+      const has = (v) => v !== null && v !== undefined;
+      // Absent stays absent. Nothing uploaded is not a nought, and a merge is not a
+      // licence to turn one into the other.
+      if (!has(mine) && !has(theirs)) return;
+      values[field] = (has(mine) ? Number(mine) : 0) + (has(theirs) ? Number(theirs) : 0);
+    });
+    writes.push({
+      id: `${toKey}_${r.month}_${r.network || ''}`,
+      from: r.id,
+      month: r.month,
+      network: r.network || '',
+      team: toName,
+      teamKey: toKey,
+      values,
+      added: !!onto
+    });
+  });
+
+  return {
+    writes,
+    months: [...new Set(moving.map(r => r.month))].sort(),
+    added: writes.filter(w => w.added).length,
+    moved: writes.filter(w => !w.added).length,
+    totals: MERGE_FIELDS.reduce((acc, field) => {
+      acc[field] = moving.reduce((sum, r) =>
+        sum + (r[field] === null || r[field] === undefined ? 0 : Number(r[field])), 0);
+      return acc;
+    }, {})
+  };
+}
+
 /** Every team carrying a figure in the months on screen, for the removal picker. */
 function droppableTeams(months = perfRange()) {
   const seen = {};
@@ -7425,6 +7526,104 @@ function renderPerfDrop() {
     : ['<option value="">Choose a team</option>', ...teams.map(t =>
       `<option value="${esc(t.key)}" ${t.key === chosen ? 'selected' : ''}>`
       + `${esc(t.team)}${t.onStaff ? '' : ' · nobody on it'}</option>`)].join('');
+}
+
+function renderPerfMerge() {
+  const teams = droppableTeams();
+  const options = (chosen) => teams.length === 0
+    ? '<option value="">No figures loaded</option>'
+    : ['<option value="">Choose a team</option>', ...teams.map(t =>
+      `<option value="${esc(t.key)}" ${t.key === chosen ? 'selected' : ''}>`
+      + `${esc(t.team)}${t.onStaff ? '' : ' · nobody on it'}</option>`)].join('');
+  $('perfMergeFrom').innerHTML = options($('perfMergeFrom').value);
+  $('perfMergeTo').innerHTML = options($('perfMergeTo').value);
+}
+
+/**
+ * Moves every figure from one team name onto another.
+ *
+ * READ BY TEAM KEY, not by the months on screen, for the same reason the removal is: a
+ * book running since January has documents this page has never loaded, and moving only
+ * what is visible would leave half a branch behind under the old name.
+ *
+ * WRITTEN BEFORE THE OLD ROWS ARE DELETED, and in that order. If the run fails halfway
+ * the figures exist twice, which is visible and fixable; the other way round they would
+ * be gone.
+ */
+async function mergeTeamFigures() {
+  const fromKey = $('perfMergeFrom').value;
+  const toKey = $('perfMergeTo').value;
+  if (!fromKey || !toKey) { showMsg('Choose both names.', 'err'); return; }
+  if (fromKey === toKey) { showMsg('Those are the same team.', 'err'); return; }
+  const teams = droppableTeams();
+  const fromName = (teams.find(t => t.key === fromKey) || {}).team || fromKey;
+  const toName = (teams.find(t => t.key === toKey) || {}).team || toKey;
+
+  $('perfMergeGo').disabled = true;
+  try {
+    // Both sides, whole. Two equality queries, no composite index.
+    const [fromSnap, toSnap] = await Promise.all([
+      getDocs(query(collection(db, 'perfTeams'), where('teamKey', '==', fromKey))),
+      getDocs(query(collection(db, 'perfTeams'), where('teamKey', '==', toKey)))
+    ]);
+    if (fromSnap.empty) {
+      $('perfMergeStatus').innerHTML =
+        `<span class="meta">Nothing stored against ${esc(fromName)}.</span>`;
+      return;
+    }
+    const rows = [...fromSnap.docs, ...toSnap.docs].map(d => ({ id: d.id, ...d.data() }));
+    const plan = planTeamMerge(rows, fromKey, toKey, toName);
+
+    const totals = TEAM_LEVEL_FIELDS
+      .filter(f => plan.totals[f])
+      .map(f => `${num(plan.totals[f])} ${f}`).join(', ');
+    const typed = prompt(
+      `Move every figure from ${fromName} to ${toName}?\n\n`
+      + `${plan.writes.length} figure(s) across ${plan.months.length} month(s): `
+      + `${plan.months[0]} to ${plan.months[plan.months.length - 1]}.\n`
+      + `${totals || 'no figures'} moving across.\n`
+      + (plan.added
+        ? `${plan.added} of them land on a month ${toName} already has — those are ADDED.\n`
+        : '')
+      + `\n${fromName} will be left with nothing. This cannot be undone.\n\n`
+      + `Type the new name to confirm:\n${toName}`);
+    if (typed === null) return;
+    if (teamKey(typed) !== toKey) {
+      $('perfMergeStatus').innerHTML =
+        `<span style="color:var(--error)">That did not match ${esc(toName)} — nothing moved.</span>`;
+      return;
+    }
+
+    // Written first, deleted second: a half-finished run leaves figures twice over
+    // rather than not at all.
+    for (let start = 0; start < plan.writes.length; start += 400) {
+      const batch = writeBatch(db);
+      plan.writes.slice(start, start + 400).forEach(w => {
+        batch.set(doc(db, 'perfTeams', w.id), {
+          team: w.team, teamKey: w.teamKey, month: w.month, network: w.network,
+          ...w.values, mergedAtMillis: Date.now()
+        }, { merge: true });
+      });
+      await batch.commit();
+    }
+    for (let start = 0; start < fromSnap.docs.length; start += 400) {
+      const batch = writeBatch(db);
+      fromSnap.docs.slice(start, start + 400).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    $('perfMergeStatus').innerHTML =
+      `<span style="color:var(--primary)">Moved ${plan.writes.length} figure(s) from `
+      + `${esc(fromName)} to ${esc(toName)}`
+      + (plan.added ? `, ${plan.added} added to a month it already had` : '')
+      + `. ${plan.months.length} month(s).</span>`;
+    perfMonthsLoaded.clear();
+    await showPerformance();
+  } catch (err) {
+    showMsg('Could not move the figures: ' + err.message, 'err');
+  } finally {
+    $('perfMergeGo').disabled = false;
+  }
 }
 
 /**
@@ -7830,6 +8029,7 @@ $('perfOneMonth').addEventListener('click', () => setPerfPeriod('month'));
 $('perfRange').addEventListener('click', () => setPerfPeriod('range'));
 $('perfByMonthFigure').addEventListener('change', renderPerformance);
 $('perfDropGo').addEventListener('click', dropTeamFigures);
+$('perfMergeGo').addEventListener('click', mergeTeamFigures);
 $('exportPerfByMonth').addEventListener('click', () => {
   const months = perfRange();
   const field = $('perfByMonthFigure').value || 'connections';
