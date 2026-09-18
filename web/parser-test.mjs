@@ -32,6 +32,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'costPerKm', 'costPerKmLabel', 'sortReportRows', 'reportSort',
   'vehicleCostPerKm', 'MAX_KM_BETWEEN_FILLS',
   'parsePerformanceLines', 'perfTemplateRows', 'perfTemplateRoster',
+  'parseStockLines', 'stockTemplateRows', 'STOCK_COLUMNS',
   'PERF_UPLOADS', 'teamKey', 'perfKeyLabel',
   'perfColumns', 'perfHasNetwork', 'networkKey', 'NETWORKS', 'NETWORK_LABELS',
   'perfFigures', 'perfNetworks', 'FY_NETWORKS', 'perfIsWide', 'perfIsMonthly', 'perfOnFy', 'templateMonths', 'perfMonthOffset', 'normaliseMonth',
@@ -1455,6 +1456,76 @@ check('a filled roster row loads',
 check('and an untouched row stores nothing', back.rows.length, 1);
 check('it is reported rather than written',
   back.errors.map(e => e.why), ['no figures on this row for any network']);
+
+
+
+/* ---------------- counting what is in the boot ---------------- */
+/* The figures record what was ALLOCATED and what eventually ACTIVATED — 12.8 million
+   against 4.2 million over nine months. A SIM plainly leaves for a shop long before it
+   activates, so a holding cannot be derived from either, and this is the count itself. */
+const stockOk = portal.parseStockLines(
+  'Team name,Date,MTN,Vodacom,Cell C,Telkom\n'
+  + 'SOWETO,2026-09-15,12000,8000,3000,5000\n');
+check('a count becomes a row per network', stockOk.rows.length, 4);
+check('with no errors', stockOk.errors.length, 0);
+check('each carrying its own network and figure',
+  stockOk.rows.map(r => [r.network, r.held]),
+  [['MTN', 12000], ['VODACOM', 8000], ['CELLC', 3000], ['TELKOM', 5000]]);
+check('keyed on the team, which is the grain the other figures use',
+  stockOk.rows[0].teamKey, 'SOWETO');
+check('and dated', stockOk.rows[0].countedOn, '2026-09-15');
+
+/* A BLANK IS NOT A NOUGHT. A branch that does not carry Cell C leaves it empty; one that
+   carries it and has run out types 0 — and that zero is a real stockout, which would be
+   invisible if every network it does not sell also read as zero. */
+const stockBlank = portal.parseStockLines('SOWETO,2026-09-15,12000,,0,\n');
+check('a blank network is simply not counted',
+  stockBlank.rows.map(r => r.network), ['MTN', 'CELLC']);
+check('but a typed nought is a real stockout and is kept',
+  stockBlank.rows.find(r => r.network === 'CELLC').held, 0);
+check('and none of that is an error', stockBlank.errors.length, 0);
+
+// Somebody meant to count something; a line with nothing on it was left half-typed.
+const stockEmpty = portal.parseStockLines('SOWETO,2026-09-15,,,,\n');
+check('a row with no count at all is refused', stockEmpty.rows.length, 0);
+check('and says so', stockEmpty.errors[0].why, 'no count on this row for any network');
+
+check('a row with no team is refused',
+  portal.parseStockLines(',2026-09-15,100,,,').errors[0].why, 'no team name');
+check('and one with no date says what a date looks like',
+  portal.parseStockLines('SOWETO,sometime,100,,,').errors[0].why.includes('2026-09-15'), true);
+check('a figure that is not a number names its network',
+  portal.parseStockLines('SOWETO,2026-09-15,lots,,,').errors[0].why,
+  'MTN must be a whole number');
+// The dates people actually type.
+check('the date is read however it was written',
+  ['2026-09-15', '15/09/2026', '15-Sep-26'].map(d =>
+    portal.parseStockLines(`SOWETO,${d},100,,,`).rows[0].countedOn),
+  ['2026-09-15', '2026-09-15', '2026-09-15']);
+
+/* THE SAME BRANCH TWICE ON ONE DAY is two rows at one address, and the last would
+   silently win. A count nobody can see being dropped is worse than a file that will not
+   load — the same rule the performance uploads learned the hard way. */
+const stockTwice = portal.parseStockLines(
+  'SOWETO,2026-09-15,100,,,\nsoweto,2026-09-15,200,,,\n');
+check('one branch counted twice on a day is refused',
+  stockTwice.errors[0].why.includes('counted twice'), true);
+// The same branch on a DIFFERENT day is the history this whole tab runs on.
+check('but the same branch on another day is fine',
+  portal.parseStockLines('SOWETO,2026-09-08,100,,,\nSOWETO,2026-09-15,200,,,').rows.length, 2);
+
+check('the header row is skipped however it is capitalised',
+  portal.parseStockLines('TEAM NAME,Date,MTN,Vodacom,Cell C,Telkom\nSOWETO,2026-09-15,1,,,')
+    .rows.length, 1);
+check('an extra column is refused',
+  portal.parseStockLines('SOWETO,2026-09-15,1,2,3,4,5').errors[0].why,
+  'more columns than this file should have');
+
+// A file the portal hands out has to be a file the portal reads.
+const stockTemplate = portal.stockTemplateRows();
+check('the template names its columns', stockTemplate[0], portal.STOCK_COLUMNS);
+check('and parses cleanly through its own parser',
+  portal.parseStockLines(stockTemplate.map(r => r.join(',')).join('\n')).errors.length, 0);
 
 
 console.log(failures === 0

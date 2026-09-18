@@ -18,6 +18,8 @@ import { loadPortal, writes, setValue, dataset, classesOf } from './portal-harne
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRepeats',
+  'stockOnHandRows', 'stockNotCounted', 'stockMonthsOfCover', 'renderStock',
+  'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
   'perfByMonthExportRows', 'renderPerformance',
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
@@ -3085,6 +3087,94 @@ const rngGridCsv = portal.perfByMonthExportRows(rngQ1, 'connections');
 check('the grid exports its own shape', rngGridCsv[0], ['Team', ...rngQ1, 'Total']);
 check('and its rows', rngGridCsv[1], ['SOWETO', 40, 90, 150, 280]);
 check('a month a team missed exports empty, not nought', rngGridCsv[2], ['TEMBISA', 10, '', 30, 40]);
+
+
+
+/* ---------------- stock on hand ---------------- */
+/* Counted, not calculated. What makes the tab readable is knowing how OLD each figure is
+   and which branches have not been counted at all. */
+portal.data.stockCounts = [
+  // Soweto counted twice, so it has a change to show.
+  { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-01', network: 'MTN', held: 10000 },
+  { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-01', network: 'TELKOM', held: 4000 },
+  { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-15', network: 'MTN', held: 12000 },
+  { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-15', network: 'TELKOM', held: 3000 },
+  // Tembisa counted MTN last week and Cell C a month ago: two facts of different ages.
+  { teamKey: 'TEMBISA', team: 'TEMBISA', countedOn: '2026-09-14', network: 'MTN', held: 5000 },
+  { teamKey: 'TEMBISA', team: 'TEMBISA', countedOn: '2026-08-10', network: 'CELLC', held: 900 }
+];
+
+const onHand = portal.stockOnHandRows('2026-09-16');
+check('one row per branch, biggest holding first',
+  onHand.map(r => [r.team, r.held]), [['SOWETO', 15000], ['TEMBISA', 5900]]);
+// The newest count for each network wins; the one it replaced is what change measures from.
+check('the latest count for each network is the one shown',
+  onHand[0].networks.MTN.held, 12000);
+check('and the change is against the previous count', onHand[0].change, 1000);
+/* A ROW IS AS OLD AS ITS OLDEST NETWORK. Dating it by the newest would read a month-old
+   Cell C figure as current because MTN was counted yesterday. */
+check('a row is dated by its oldest network', onHand[1].countedOn, '2026-08-10');
+check('and says how many days that is', onHand[1].daysOld, 37);
+// Change needs every network on the row counted twice, or it is comparing halves.
+check('a branch counted only once has no change to show', onHand[1].change, null);
+
+/* WHO TO CHASE — built from the teams in the FIGURES, not the staff list, because a
+   branch nobody is posted to still holds stock and is the one nobody thinks to ask. */
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'SOWETO', month: '2026-09', network: 'MTN', stock: 20000 },
+  { teamKey: 'TEMBISA', team: 'TEMBISA', month: '2026-09', network: 'MTN', stock: 8000 },
+  { teamKey: 'HAZYVIEW', team: 'HAZYVIEW', month: '2026-09', network: 'MTN', stock: 30000 }
+];
+const chase = portal.stockNotCounted('2026-09', 14, '2026-09-16');
+check('a branch never counted is on the list, and first',
+  chase.map(r => r.team), ['HAZYVIEW', 'TEMBISA']);
+check('never counted says so rather than showing a date', chase[0].countedOn, '');
+check('a stale count is chased too, with its age', [chase[1].team, chase[1].daysOld],
+  ['TEMBISA', 37]);
+check('and the allocation is beside it, so the biggest gap is obvious',
+  chase[0].allocated, 30000);
+// Soweto was counted yesterday, so it is not on anybody's list.
+check('a fresh count is not chased',
+  chase.some(r => r.team === 'SOWETO'), false);
+
+/* COVER: the count against that branch's own average monthly allocation. Averaged over a
+   quarter so one big month cannot set it. */
+check('cover is the count over the average month',
+  portal.stockMonthsOfCover('SOWETO', 20000, ['2026-09']), 1);
+check('a branch with no allocation has no cover to report',
+  portal.stockMonthsOfCover('NOWHERE', 500, ['2026-09']), null);
+
+// Built from today, because renderStock() reads the clock rather than being handed a
+// date — fixed months here would stop being "this month" the moment the calendar moved.
+const stockNow = portal.todayString();
+const stockThisMonth = stockNow.slice(0, 7);
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'SOWETO', month: stockThisMonth, network: 'MTN', stock: 20000 },
+  { teamKey: 'TEMBISA', team: 'TEMBISA', month: stockThisMonth, network: 'MTN', stock: 8000 },
+  { teamKey: 'HAZYVIEW', team: 'HAZYVIEW', month: stockThisMonth, network: 'MTN', stock: 30000 }
+];
+portal.data.stockCounts = [
+  { teamKey: 'SOWETO', team: 'SOWETO', countedOn: portal.shiftDate(stockNow, -1),
+    network: 'MTN', held: 12000 },
+  { teamKey: 'TEMBISA', team: 'TEMBISA', countedOn: portal.shiftDate(stockNow, -37),
+    network: 'MTN', held: 5000 }
+];
+setValue('stockSearch', '');
+portal.stockFilters.query = '';
+portal.renderStock();
+const stockBody = writes()['stockRows'] || '';
+check('both branches are on the table',
+  [stockBody.includes('SOWETO'), stockBody.includes('TEMBISA')], [true, true]);
+check('the chase card names how many', (writes()['stockNotCountedCard'] || '')
+  .includes('branch(es) to chase'), true);
+check('and marks the one never counted',
+  (writes()['stockNotCountedCard'] || '').includes('NEVER'), true);
+
+// Nothing uploaded says what the tab is for, rather than drawing an empty table.
+portal.data.stockCounts = [];
+portal.renderStock();
+check('with no counts at all it explains itself',
+  (writes()['stockRows'] || '').includes('has to be counted'), true);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
