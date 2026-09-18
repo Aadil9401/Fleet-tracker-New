@@ -24,7 +24,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
   'setPerfPeriod',
-  'perfByMonthExportRows', 'renderPerformance',
+  'perfByMonthExportRows', 'renderPerformance', 'droppableTeams', 'renderPerfDrop',
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
   'performanceRows', 'unmatchedPerformance', 'ratioPercent', 'percentLabel',
@@ -3364,6 +3364,59 @@ check('and back again is one month', portal.perfRange(), ['2026-09']);
 setValue('perfFrom', '2026-03');
 portal.setPerfPeriod('range');
 check('a range already set is kept', portal.perfRange().length, 7);
+
+
+
+/* ---------------- retiring a book ---------------- */
+/* Aadil, of MTN - TM - FY24: "delete it as its captured under fy". There are others like
+   it — ZZZ OLD REPS, ZZZZZZOLD WC - GEORGE — names that still carry figures and still sit
+   on the leaderboard with nobody on them. */
+portal.data.employees = [
+  { id: 'a', employeeNumber: 'T001', name: 'Ayanda', surname: 'K', teamName: 'SOWETO' }
+];
+portal.data.perfTeams = [
+  { teamKey: 'SOWETO', team: 'SOWETO', month: '2026-08', network: 'MTN', stock: 100 },
+  { teamKey: 'SOWETO', team: 'SOWETO', month: '2026-09', network: 'MTN', stock: 200 },
+  { teamKey: 'MTN TM FY24', team: 'MTN - TM - FY24', month: '2026-09', network: 'MTN',
+    connections: 51857 },
+  { teamKey: 'ZZZ OLD REPS', team: 'ZZZ OLD REPS', month: '2026-09', network: 'MTN',
+    connections: 1 }
+];
+
+const droppable = portal.droppableTeams(['2026-08', '2026-09']);
+check('every team with a figure can be removed',
+  droppable.map(t => t.team).sort(),
+  ['MTN - TM - FY24', 'SOWETO', 'ZZZ OLD REPS']);
+/* THE ONES NOBODY IS ON COME FIRST. Those are the ones being retired, and a list that
+   buries them alphabetically among the live branches is a list somebody mis-clicks. */
+check('and the ones nobody is on are at the top',
+  droppable.map(t => t.onStaff), [false, false, true]);
+check('a live branch is marked as having somebody', 
+  droppable.find(t => t.team === 'SOWETO').onStaff, true);
+// The months it would touch are collected, so the confirm can name the span.
+check('it knows which months a team spans',
+  [...droppable.find(t => t.team === 'SOWETO').months].sort(), ['2026-08', '2026-09']);
+
+setValue('perfDropTeam', '');
+portal.renderPerfDrop();
+const dropList = writes()['perfDropTeam'] || '';
+check('the picker asks rather than assuming', dropList.includes('Choose a team'), true);
+check('and says which teams have nobody on them',
+  dropList.includes('MTN - TM - FY24 · nobody on it'), true);
+check('while a live branch is offered plainly',
+  dropList.includes('>SOWETO</option>'), true);
+
+/* IT DELETES BY TEAM KEY, NOT BY A LIST OF MONTHS. A book running since January has
+   documents this page has never loaded, and deleting only the months on screen leaves
+   half a book behind — which reads as a branch that suddenly stopped rather than one
+   that was removed. */
+check('the removal queries on the team, not the month',
+  src.includes("where('teamKey', '==', key)"), true);
+// Pay and FY are filed against a person; retiring a branch says nothing about wages.
+check('and only touches the team figures',
+  [/perfFy/, /perfMonthly/].some(rx =>
+    rx.test(src.slice(src.indexOf('async function dropTeamFigures'),
+      src.indexOf('async function dropTeamFigures') + 2000))), false);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);

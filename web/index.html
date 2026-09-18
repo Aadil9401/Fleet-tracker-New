@@ -1158,6 +1158,36 @@
         </p>
       </div>
 
+      <!--
+        A BOOK THAT SHOULD NOT BE THERE AT ALL, as opposed to a month loaded wrongly.
+        Aadil, of MTN - TM - FY24: "delete it as its captured under fy". There are others
+        like it — ZZZ OLD REPS, ZZZZZZOLD WC - GEORGE — retired names that still carry
+        figures and still sit on the leaderboard with nobody on them.
+
+        Separate from "Remove a month" on purpose: that one is about a file loaded wrongly
+        and is scoped to a month, and this is about a name that should never appear again.
+      -->
+      <div class="card">
+        <h2 class="section">Remove a team's figures</h2>
+        <div class="toolbar">
+          <div class="grow">
+            <label for="perfDropTeam">Team</label>
+            <select id="perfDropTeam"></select>
+          </div>
+          <button id="perfDropGo" class="outline danger">Remove every month</button>
+        </div>
+        <div id="perfDropStatus" class="meta" style="margin-top:var(--s2)"></div>
+        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          Clears <b>every month and every network</b> of stock, connections and
+          activations stored against that team name. Pay and FY are not touched — those
+          are filed against a person, not a branch.
+          <br>
+          The list is built from the months currently loaded, so widen the range if the
+          team you want is not in it. <b>There is no undo</b>; the figures would have to
+          be uploaded again.
+        </p>
+      </div>
+
       <div class="card" id="perfUnmatchedCard"></div>
 
       <div class="card">
@@ -7265,6 +7295,7 @@ function renderPerformance() {
   const figure = (value, format) => value === null ? '<span class="meta">—</span>' : format(value);
 
   renderPerfByMonth(months, rows, all);
+  renderPerfDrop();
 
   $('perfRows').innerHTML = rows.length === 0
     ? `<tr><td colspan="10" class="empty">${data.employees.length === 0
@@ -7367,6 +7398,94 @@ function perfByMonthExportRows(months, field, onlyTeams = null) {
   const rows = perfByMonthRows(months, perfFilters.network, field, onlyTeams);
   return [['Team', ...months, 'Total'],
     ...rows.map(r => [r.team, ...months.map(m => r.months[m] ?? ''), r.total])];
+}
+
+/** Every team carrying a figure in the months on screen, for the removal picker. */
+function droppableTeams(months = perfRange()) {
+  const seen = {};
+  months.forEach(month => {
+    Object.entries(teamFiguresFor(month, '')).forEach(([key, row]) => {
+      seen[key] = seen[key] || { key, team: row.team || key, months: new Set() };
+      seen[key].months.add(month);
+    });
+  });
+  // Teams nobody is posted to first: those are the ones being retired.
+  const onStaff = new Set(data.employees.map(e => teamKey(e.teamName)).filter(Boolean));
+  return Object.values(seen).sort((a, b) =>
+    (onStaff.has(a.key) ? 1 : 0) - (onStaff.has(b.key) ? 1 : 0)
+    || a.team.localeCompare(b.team))
+    .map(t => ({ ...t, onStaff: onStaff.has(t.key) }));
+}
+
+function renderPerfDrop() {
+  const teams = droppableTeams();
+  const chosen = $('perfDropTeam').value;
+  $('perfDropTeam').innerHTML = teams.length === 0
+    ? '<option value="">No figures loaded</option>'
+    : ['<option value="">Choose a team</option>', ...teams.map(t =>
+      `<option value="${esc(t.key)}" ${t.key === chosen ? 'selected' : ''}>`
+      + `${esc(t.team)}${t.onStaff ? '' : ' · nobody on it'}</option>`)].join('');
+}
+
+/**
+ * Clears every figure stored against one team name.
+ *
+ * QUERIED ON THE TEAM KEY, not on a list of months. A book that has been running since
+ * January has documents this page has never loaded, and deleting only the months on
+ * screen would leave half a book behind — which reads as a team that suddenly stopped
+ * rather than one that was removed. An equality filter needs no composite index and
+ * finds them all.
+ *
+ * PAY AND FY ARE NOT TOUCHED. Those are filed against a person; retiring a branch name
+ * says nothing about what somebody was paid.
+ */
+async function dropTeamFigures() {
+  const key = $('perfDropTeam').value;
+  if (!key) { showMsg('Choose a team first.', 'err'); return; }
+  const chosen = droppableTeams().find(t => t.key === key);
+  const name = chosen ? chosen.team : key;
+
+  $('perfDropGo').disabled = true;
+  try {
+    const snap = await getDocs(query(collection(db, 'perfTeams'),
+      where('teamKey', '==', key)));
+    if (snap.empty) {
+      $('perfDropStatus').innerHTML =
+        `<span class="meta">Nothing stored against ${esc(name)}.</span>`;
+      return;
+    }
+    const months = [...new Set(snap.docs.map(d => d.data().month))].sort();
+    // Typed out in full, because this cannot be undone and a team name is easy to
+    // mis-click in a list where several look alike.
+    const typed = prompt(
+      `Remove every figure for ${name}?\n\n`
+      + `${snap.size} figure(s) across ${months.length} month(s): `
+      + `${months[0]} to ${months[months.length - 1]}.\n\n`
+      + 'Stock, connections and activations, every network. Pay and FY are not touched.\n'
+      + 'This cannot be undone.\n\n'
+      + `Type the team name to confirm:\n${name}`);
+    if (typed === null) return;
+    if (teamKey(typed) !== key) {
+      $('perfDropStatus').innerHTML =
+        `<span style="color:var(--error)">That did not match ${esc(name)} — nothing removed.</span>`;
+      return;
+    }
+
+    for (let start = 0; start < snap.docs.length; start += 400) {
+      const batch = writeBatch(db);
+      snap.docs.slice(start, start + 400).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+    $('perfDropStatus').innerHTML =
+      `<span style="color:var(--primary)">Removed ${snap.size} figure(s) for ${esc(name)}, `
+      + `${months.length} month(s).</span>`;
+    perfMonthsLoaded.clear();
+    await showPerformance();
+  } catch (err) {
+    showMsg('Could not remove the figures: ' + err.message, 'err');
+  } finally {
+    $('perfDropGo').disabled = false;
+  }
 }
 
 function renderPerformanceUploads(container = 'perfUploads') {
@@ -7710,6 +7829,7 @@ function setPerfPeriod(mode) {
 $('perfOneMonth').addEventListener('click', () => setPerfPeriod('month'));
 $('perfRange').addEventListener('click', () => setPerfPeriod('range'));
 $('perfByMonthFigure').addEventListener('change', renderPerformance);
+$('perfDropGo').addEventListener('click', dropTeamFigures);
 $('exportPerfByMonth').addEventListener('click', () => {
   const months = perfRange();
   const field = $('perfByMonthFigure').value || 'connections';
