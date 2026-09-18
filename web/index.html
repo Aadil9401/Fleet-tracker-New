@@ -5050,6 +5050,17 @@ const PERF_UPLOADS = {
    */
   fyConnectionsMonthly: {
     label: 'FY connections by month',
+    /*
+     * OFF THE TAB. Aadil: "hide the fy by month button" — the back history is loaded and
+     * FY arrives a month at a time now, so a box for nine months at once is a box that
+     * can only be picked by mistake.
+     *
+     * The spec STAYS, and that is deliberate: it is the only FY upload using the months
+     * layout with a network column, so deleting it would make that combination unreachable
+     * and untested on the same afternoon, still sitting in the parser to be broken by the
+     * next change. Turning it back on is removing this one line.
+     */
+    hidden: true,
     keyedOn: 'employee',
     stores: 'perfFy',
     layout: 'months',

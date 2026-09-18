@@ -615,10 +615,14 @@ check('and the FY file that is not wide carries a network column',
 // multi-figure rules, which the cases above depend on — but it is no longer on the tab.
 check('the combined FY file is not offered any more',
   portal.PERF_UPLOADS.fy.hidden, true);
-check('and the single-figure ones are, plus the by-month connections file',
+/* THREE BOXES, one figure each. The by-month file went the same way as the combined one:
+   the back history is loaded, FY arrives a month at a time, and a box for nine months at
+   once can now only be picked by mistake. Both specs stay — see the guard below, which is
+   what stops hiding a box from quietly retiring the last way to load something. */
+check('and the single-figure ones are, and nothing else',
   Object.keys(portal.PERF_UPLOADS)
     .filter(k => portal.perfOnFy(k) && !portal.PERF_UPLOADS[k].hidden),
-  ['fyConnectionsMonthly', 'fyStock', 'fyConnections', 'fyPayable']);
+  ['fyStock', 'fyConnections', 'fyPayable']);
 /* EVERY FIGURE KEEPS A BOX. Hiding is how an upload is retired, and the risk it carries
    is retiring the last way to load something — which nothing on screen would announce,
    because a missing box looks exactly like a box you have not scrolled to.
