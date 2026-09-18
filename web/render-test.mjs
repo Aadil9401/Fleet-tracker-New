@@ -23,6 +23,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
+  'setPerfPeriod',
   'perfByMonthExportRows', 'renderPerformance',
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
@@ -3301,6 +3302,41 @@ check('a box for every network',
 // The empty box has to say what empty MEANS, or somebody types 0 to be tidy.
 check('and the empty box says what empty means',
   boxes.includes('leave empty if not carried'), true);
+
+
+
+/* ---------------- one month, or a range ---------------- */
+/* Aadil: "give a one month button only and then the range button". Two pickers showing at
+   all times made the ordinary case look like a thing to be configured, and left a second
+   box on screen that most days does nothing. */
+setValue('perfMonth', '2026-09');
+setValue('perfFrom', '2026-01');
+
+portal.setPerfPeriod('month');
+check('one month hides the second picker',
+  classesOf('perfFromField').includes('hidden'), true);
+check('and the one that is left is just "Month"', writes()['perfMonthLabel'], 'Month');
+/* IT COLLAPSES THE RANGE rather than remembering it. A hidden From still holding January
+   would put figures on screen that disagree with the only picker visible, and nothing on
+   the tab would explain why. */
+check('and the range really is one month', portal.perfRange(), ['2026-09']);
+
+portal.setPerfPeriod('range');
+check('range shows the second picker',
+  classesOf('perfFromField').includes('hidden'), false);
+check('and the month becomes the end of it', writes()['perfMonthLabel'], 'To');
+/* Two months, not one. Stepping From back means pressing Range always widens something —
+   a range of a single month would look like the button had not worked. */
+check('pressing range widens to two months', portal.perfRange(), ['2026-08', '2026-09']);
+
+// Back and forth has to land where it started, or the buttons are not a pair.
+portal.setPerfPeriod('month');
+check('and back again is one month', portal.perfRange(), ['2026-09']);
+
+// A range somebody actually set is left alone when they come back to it.
+setValue('perfFrom', '2026-03');
+portal.setPerfPeriod('range');
+check('a range already set is kept', portal.perfRange().length, 7);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);

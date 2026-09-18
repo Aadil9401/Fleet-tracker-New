@@ -1054,12 +1054,26 @@
             the Remove-a-month button act on ONE month and read it from here. They name
             the month they will act on, so a range on screen cannot mislead about that.
           -->
+          <!--
+            ONE MONTH OR A RANGE, chosen rather than inferred.
+
+            Two pickers showing at all times made the ordinary case — one month — look
+            like a thing to be configured, and left a second box on screen that most days
+            does nothing. The choice is now explicit, and one month is where it starts.
+          -->
           <div>
+            <label>Period</label>
+            <div class="toolbar" style="margin:0;gap:4px">
+              <button id="perfOneMonth" class="outline">One month</button>
+              <button id="perfRange" class="outline">Range</button>
+            </div>
+          </div>
+          <div id="perfFromField" class="hidden">
             <label for="perfFrom">From</label>
             <input id="perfFrom" type="month">
           </div>
           <div>
-            <label for="perfMonth">To</label>
+            <label for="perfMonth" id="perfMonthLabel">Month</label>
             <input id="perfMonth" type="month">
           </div>
           <div>
@@ -2365,9 +2379,13 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
       runReport();
     }
     if (btn.dataset.tab === 'performance' && !$('perfMonth').value) {
-      // Both, so the tab opens on a single month and widening it is moving one picker.
+      // Both, so the tab opens on a single month — the ordinary case — and the second
+      // picker is not even on screen until it is asked for.
       $('perfMonth').value = todayString().slice(0, 7);
       $('perfFrom').value = todayString().slice(0, 7);
+      $('perfMonthLabel').textContent = 'Month';
+      $('perfRange').classList.add('outline');
+      $('perfOneMonth').classList.remove('outline');
     }
     if (btn.dataset.tab === 'performance') showPerformance();
     if (btn.dataset.tab === 'fy' && !$('fyMonth').value) {
@@ -7644,6 +7662,40 @@ async function savePerformance(kind) {
   $(id).max = todayString().slice(0, 7);
   $(id).addEventListener('change', showPerformance);
 });
+
+/**
+ * Which of the two the tab is showing, and the state that goes with it.
+ *
+ * ONE MONTH COLLAPSES THE RANGE rather than remembering it. A hidden From holding some
+ * older month would make the figures on screen disagree with the only picker visible,
+ * and there would be nothing on the tab to explain why.
+ *
+ * Going the other way keeps the month as the END of the range and steps From back one, so
+ * pressing Range always shows two months rather than a range of one — which would look
+ * like the button had not worked.
+ */
+function setPerfPeriod(mode) {
+  const month = $('perfMonth').value || todayString().slice(0, 7);
+  const range = mode === 'range';
+  $('perfFromField').classList.toggle('hidden', !range);
+  $('perfMonthLabel').textContent = range ? 'To' : 'Month';
+  $('perfOneMonth').classList.toggle('outline', range);
+  $('perfRange').classList.toggle('outline', !range);
+  if (range) {
+    if (!$('perfFrom').value || $('perfFrom').value >= month) {
+      const [y, m] = month.split('-').map(Number);
+      const back = new Date(y, m - 2, 1);
+      $('perfFrom').value =
+        `${back.getFullYear()}-${String(back.getMonth() + 1).padStart(2, '0')}`;
+    }
+  } else {
+    $('perfFrom').value = month;
+  }
+  showPerformance();
+}
+
+$('perfOneMonth').addEventListener('click', () => setPerfPeriod('month'));
+$('perfRange').addEventListener('click', () => setPerfPeriod('range'));
 $('perfByMonthFigure').addEventListener('change', renderPerformance);
 $('exportPerfByMonth').addEventListener('click', () => {
   const months = perfRange();
