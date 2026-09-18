@@ -2264,23 +2264,36 @@ let lastFiguresRead = 0;
 /** The month on the tab being looked at, or nothing if it is not a figures tab. */
 function visibleFiguresMonth() {
   if (!$('tab-performance').classList.contains('hidden')) {
-    return { month: $('perfMonth').value || todayString().slice(0, 7), draw: renderPerformance };
+    /*
+     * EVERY MONTH ON SCREEN, not just the last one.
+     *
+     * This read the "to" picker alone, which was right when there was only ever one
+     * month. With a range it re-read September and left August through March as they
+     * were — so the tiles added one fresh month to six stale ones, and nothing said so.
+     */
+    return { months: perfRange(), draw: renderPerformance };
   }
   if (!$('tab-fy').classList.contains('hidden')) {
-    return { month: $('fyMonth').value || todayString().slice(0, 7), draw: renderFy };
+    return { months: [$('fyMonth').value || todayString().slice(0, 7)], draw: renderFy };
   }
   return null;
 }
 
 async function refreshFiguresIfStale() {
   const showing = visibleFiguresMonth();
-  if (!showing) return;
-  if (Date.now() - lastFiguresRead < REFRESH_AFTER_MS) return;
+  if (!showing || showing.months.length === 0) return;
+  /*
+   * THE WAIT SCALES WITH THE WORK. One month costs about six hundred documents to
+   * re-read; seven costs seven times that, and a tab somebody alt-tabs to every couple of
+   * minutes would burn the day's free quota on a range they are only reading. Waiting
+   * proportionally longer keeps the cost per hour the same whatever the range.
+   */
+  if (Date.now() - lastFiguresRead < REFRESH_AFTER_MS * showing.months.length) return;
   // Dropped from the cache so loadPerfMonth actually goes and looks, rather than seeing
   // the month already in the set and returning.
-  perfMonthsLoaded.delete(showing.month);
+  showing.months.forEach(month => perfMonthsLoaded.delete(month));
   try {
-    await loadPerfMonth(showing.month);
+    for (const month of showing.months) await loadPerfMonth(month);
     lastFiguresRead = Date.now();
     showing.draw();
   } catch (err) {
@@ -8780,9 +8793,22 @@ function visibleStockRows() {
 }
 
 /** The last few months, newest first, for the cover average. */
+/**
+ * The months the cover figure is averaged over: the last three COMPLETE ones.
+ *
+ * THIS MONTH IS DELIBERATELY NOT AMONG THEM. On the eighteenth a month has had about
+ * sixty per cent of its allocation, and averaging that in drags the average down — which
+ * makes the same holding look like more months of cover than it is. The error grows the
+ * earlier in the month somebody looks, which is exactly when the figure gets read.
+ *
+ * Three, so one heavy month cannot set it on its own.
+ */
 function stockCoverMonths(today = todayString()) {
   const months = [];
   let [y, m] = today.slice(0, 7).split('-').map(Number);
+  // Step back one before collecting: the current month is partial by definition.
+  m -= 1;
+  if (m < 1) { m = 12; y -= 1; }
   for (let i = 0; i < STOCK_COVER_MONTHS; i++) {
     months.push(`${y}-${String(m).padStart(2, '0')}`);
     m -= 1;
@@ -8937,7 +8963,19 @@ function renderStockNotCounted(month) {
 async function showStock() {
   $('appView').classList.add('busy');
   try {
-    await loadPerfMonth(todayString().slice(0, 7));
+    /*
+     * THE MONTH THE CHASE LIST IS ABOUT, AND THE MONTHS COVER IS AVERAGED OVER.
+     *
+     * Only the first was fetched before, so cover was divided by whichever of the three
+     * months happened to be in memory — usually one, and usually the partial current one.
+     * The same screen gave a different answer depending on whether somebody had visited
+     * the Performance tab first, and neither answer said which it was.
+     *
+     * Each is fetched once per session, so this costs nothing on the second visit.
+     */
+    for (const month of [todayString().slice(0, 7), ...stockCoverMonths()]) {
+      await loadPerfMonth(month);
+    }
   } catch (err) {
     // Drawn anyway: the counts themselves came down with the bulk load and are worth
     // seeing. renderStock says the chase list could not be built rather than saying

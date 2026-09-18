@@ -19,7 +19,7 @@ import { loadPortal, writes, setValue, dataset, classesOf } from './portal-harne
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRepeats',
   'stockOnHandRows', 'stockNotCounted', 'stockMonthsOfCover', 'renderStock',
-  'knownStockTeams', 'renderStockAdd',
+  'knownStockTeams', 'renderStockAdd', 'stockCoverMonths',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -323,15 +323,23 @@ check('coming back to a tab that is not about figures does nothing',
 // Showing the Performance tab the way the page does, and asking again.
 document.getElementById('tab-performance').classList.remove('hidden');
 setValue('perfMonth', '2026-08');
+setValue('perfFrom', '2026-08');
 check('the tab being looked at is the one re-read',
-  portal.visibleFiguresMonth().month, '2026-08');
+  portal.visibleFiguresMonth().months, ['2026-08']);
+/* EVERY MONTH ON SCREEN, not just the last. Reading the "to" picker alone was right when
+   there was only ever one month; with a range it refreshed September and left the six
+   months before it as they were, so the tiles added one fresh month to six stale ones and
+   nothing said so. */
+setValue('perfFrom', '2026-06');
+check('and a range re-reads all of it',
+  portal.visibleFiguresMonth().months, ['2026-06', '2026-07', '2026-08']);
 // FY has its own month picker, and re-reading the wrong one would refresh a month
 // nobody is looking at while leaving the one they are looking at stale.
 document.getElementById('tab-performance').classList.add('hidden');
 document.getElementById('tab-fy').classList.remove('hidden');
 setValue('fyMonth', '2026-03');
 check('and FY is read off its own picker, not the other tab',
-  portal.visibleFiguresMonth().month, '2026-03');
+  portal.visibleFiguresMonth().months, ['2026-03']);
 document.getElementById('tab-fy').classList.add('hidden');
 
 /* THROTTLED, because a tab regains focus every time somebody alt-tabs. Re-reading
@@ -3146,6 +3154,25 @@ check('cover is the count over the average month',
   portal.stockMonthsOfCover('SOWETO', 20000, ['2026-09']), 1);
 check('a branch with no allocation has no cover to report',
   portal.stockMonthsOfCover('NOWHERE', 500, ['2026-09']), null);
+
+/* THIS MONTH IS NOT ONE OF THE MONTHS COVER IS AVERAGED OVER, and that is the bug this is
+   here for. On the eighteenth a month has had about sixty per cent of its allocation, so
+   averaging it in drags the average down and makes the same holding look like more months
+   of cover than it is — worst early in the month, which is when the figure gets read. */
+check('cover looks at three months', portal.stockCoverMonths('2026-09-18').length,
+  portal.STOCK_COVER_MONTHS);
+check('and none of them is this one',
+  portal.stockCoverMonths('2026-09-18').includes('2026-09'), false);
+check('it is the three complete months before it',
+  portal.stockCoverMonths('2026-09-18'), ['2026-08', '2026-07', '2026-06']);
+// And it steps over a year end without landing on month zero.
+check('stepping back over a year end still works',
+  portal.stockCoverMonths('2027-01-05'), ['2026-12', '2026-11', '2026-10']);
+// Every month it will divide by has to be fetched, or the divisor is whatever happened to
+// be in memory — which made the same screen give different answers.
+check('the tab fetches every month cover needs',
+  portal.stockCoverMonths('2026-09-18').every(m =>
+    src.includes('...stockCoverMonths()')), true);
 
 // Built from today, because renderStock() reads the clock rather than being handed a
 // date — fixed months here would stop being "this month" the moment the calendar moved.
