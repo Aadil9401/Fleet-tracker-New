@@ -4,6 +4,7 @@ import co.za.cspc.fleettracker.data.model.AppSettings
 import co.za.cspc.fleettracker.data.model.Debt
 import co.za.cspc.fleettracker.data.model.Birthday
 import co.za.cspc.fleettracker.data.model.FuelLog
+import co.za.cspc.fleettracker.data.model.Leave
 import co.za.cspc.fleettracker.data.model.Performance
 import co.za.cspc.fleettracker.data.model.Role
 import co.za.cspc.fleettracker.data.model.StockCount
@@ -947,6 +948,88 @@ class FleetRepository(
             .mapNotNull { it.getString("countedOn") }
             .maxOrNull() ?: ""
     }.getOrDefault("")
+
+    /**
+     * Books a run of leave, one day at a time.
+     *
+     * A day of leave is written as the thing this app already has: a time log carrying
+     * notWorking and a reason. So the day view counts it as off rather than not started,
+     * the reports show why, and nothing else had to learn about a second kind of absence.
+     *
+     * A DAY ALREADY WORKED IS LEFT ALONE. Somebody who clocked in on the 3rd and then
+     * books the 1st to the 5th has worked that day, whatever the leave form says — and
+     * writing leave over it would erase real hours, a real odometer reading and a real
+     * vehicle, none of which could be got back. Those days are reported instead, so the
+     * person can see which of their days did not take.
+     *
+     * Returns the days actually booked and the days skipped.
+     */
+    suspend fun bookLeave(
+        uid: String,
+        employeeName: String,
+        dates: List<String>
+    ): Pair<List<String>, List<String>> {
+        val booked = mutableListOf<String>()
+        val skipped = mutableListOf<String>()
+
+        for (date in dates) {
+            val ref = db.collection("timeLogs").document("${uid}_${date}")
+            val existing = runCatching { ref.get().await() }.getOrNull()
+            val worked = existing != null && existing.exists()
+                && (existing.getLong("startTimeMillis") ?: 0L) > 0L
+            if (worked) { skipped.add(date); continue }
+            ref.set(
+                mapOf(
+                    "uid" to uid,
+                    "employeeName" to employeeName,
+                    "date" to date,
+                    "notWorking" to true,
+                    "notWorkingReason" to Leave.REASON,
+                    "startTimeMillis" to 0L,
+                    "startOdometerKm" to 0L,
+                    "endTimeMillis" to 0L,
+                    "endOdometerKm" to 0L,
+                    "vehicleId" to "",
+                    "mainAreasWorked" to ""
+                )
+            ).await()
+            booked.add(date)
+        }
+        return booked to skipped
+    }
+
+    /**
+     * The leave this person has on the books from today onwards.
+     *
+     * FROM TODAY, not everything ever: the screen is for checking what is coming and
+     * cancelling it, and a year of past leave scrolling above that helps nobody.
+     */
+    suspend fun upcomingLeave(uid: String): List<String> = runCatching {
+        db.collection("timeLogs")
+            .whereEqualTo("uid", uid)
+            .get().await()
+            .documents
+            .filter { it.getBoolean("notWorking") == true
+                && it.getString("notWorkingReason") == Leave.REASON }
+            .mapNotNull { it.getString("date") }
+            .filter { it >= todayString() }
+            .sorted()
+    }.getOrDefault(emptyList())
+
+    /**
+     * Cancels one booked day.
+     *
+     * DELETES THE LOG rather than clearing the flag. A day marked "not working: false"
+     * with no hours on it is a day that reads as started-and-abandoned on the day view,
+     * which is a worse thing to leave behind than no entry at all. Employees cannot
+     * delete a time log — the rule reserves that for an admin — so the flag is cleared
+     * and the reason emptied, which is the same day with nothing claimed about it.
+     */
+    suspend fun cancelLeaveDay(uid: String, date: String) {
+        db.collection("timeLogs").document("${uid}_${date}").update(
+            mapOf("notWorking" to false, "notWorkingReason" to "")
+        ).await()
+    }
 
     suspend fun saveSettings(settings: AppSettings) {
         // merge() matters: the attendance Cloud Function stores lastAttendanceAlertDate

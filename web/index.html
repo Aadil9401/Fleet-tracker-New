@@ -1780,7 +1780,7 @@ let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLog
   insuranceClaims: [],
   recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [], birthdays: null,
   perfMonthly: [], perfTeams: [], perfFy: [], debtLines: [], debtPayments: [],
-  stockCounts: [] };
+  stockCounts: [], leaveAhead: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -1902,6 +1902,56 @@ const MAX_KM_BETWEEN_FILLS = 5000;
  * why they are not all read at once.
  */
 const PERF_HISTORY_MONTHS = 24;
+
+/*
+ * The reason a day of leave carries, and the phone app's Leave.REASON has to match it
+ * exactly — it is how a booked day is told apart from any other day somebody marked
+ * themselves off for. One string, named here, so a change is one edit on each side
+ * rather than a search.
+ */
+const LEAVE_REASON = 'Annual leave';
+
+/** How far ahead the day view looks for booked leave. A fortnight is a plannable week. */
+const LEAVE_AHEAD_DAYS = 14;
+
+/**
+ * Who is away in the next fortnight, one row per person rather than per day.
+ *
+ * GROUPED INTO A RUN, because "Ayanda, 5 days, Mon 5 to Fri 9" is the thing somebody
+ * plans around and five rows of Ayanda is not. The days are kept so a broken run — two
+ * days, back, then three more — still reads as what it is rather than as one long block.
+ *
+ * FROM TOMORROW. Today's leave is already in the Not working card, and saying it twice on
+ * one screen reads as two different people being off.
+ */
+function leaveAhead(days = LEAVE_AHEAD_DAYS, from = todayString()) {
+  const first = shiftDate(from, 1);
+  const last = shiftDate(from, days);
+  const byPerson = {};
+  data.leaveAhead
+    .filter(l => l.date >= first && l.date <= last)
+    .forEach(l => {
+      const who = byPerson[l.uid] || (byPerson[l.uid] = {
+        uid: l.uid, name: l.employeeName || '', dates: []
+      });
+      if (!who.dates.includes(l.date)) who.dates.push(l.date);
+    });
+  return Object.values(byPerson)
+    .map(who => {
+      who.dates.sort();
+      const person = data.employees.find(e => e.id === who.uid);
+      return {
+        ...who,
+        name: person ? fullName(person) : who.name,
+        team: person ? (person.teamName || '') : '',
+        province: person ? (person.province || '') : '',
+        from: who.dates[0],
+        to: who.dates[who.dates.length - 1]
+      };
+    })
+    .sort((a, b) => a.from.localeCompare(b.from)
+      || String(a.name).localeCompare(String(b.name)));
+}
 
 /** The yyyy-MM this many whole months before the current one. */
 function monthsBack(count) {
@@ -2270,6 +2320,14 @@ async function loadAll() {
         (acc[f.vehicleId] = acc[f.vehicleId] || []).push(f);
         return acc;
       }, {}),
+      /*
+       * LEAVE BOOKED AHEAD, which costs nothing extra: the activity window is
+       * "date >= sixty days ago" with NO UPPER BOUND, so a day booked for next month is
+       * already in the snapshot. Kept rather than derived on demand for the same reason
+       * lastActive is — the rows themselves are not held anywhere else.
+       */
+      leaveAhead: rows(activityWindow).filter(l =>
+        l.notWorking && l.notWorkingReason === LEAVE_REASON),
       lastActive: rows(activityWindow).reduce((acc, l) => {
         if (l.uid && (!acc[l.uid] || l.date > acc[l.uid])) acc[l.uid] = l.date;
         return acc;
@@ -2564,6 +2622,17 @@ function renderToday() {
 
   const absent = data.todaysLogs.filter(l => l.notWorking);
 
+  /*
+   * WHO IS AWAY AFTER TODAY. The day view answers "who is off today"; this answers the
+   * question somebody actually plans around, which is who is off next week. Booked by
+   * the rep on their phone, so it is here the moment they book it rather than whenever
+   * somebody remembers to say.
+   *
+   * From TOMORROW: today's leave is already in the Not working card above, and saying it
+   * twice on one screen reads as two different people off.
+   */
+  const awaySoon = leaveAhead(LEAVE_AHEAD_DAYS, selectedDate);
+
   $('notStartedCard').innerHTML = `
     ${notStarted.length === 0 ? '' : `
       <div class="card" style="background:var(--error-container);color:var(--on-error-container)">
@@ -2575,6 +2644,22 @@ function renderToday() {
               ${personMeta(e.province, e.teamName, e.dateOfBirth, 'caps')}
             </div>
             <button class="ghost" data-entry="${esc(e.id)}">Record day</button>
+          </div>`).join('')}
+      </div>`}
+    ${awaySoon.length === 0 ? '' : `
+      <div class="card">
+        <h2 class="section">Away in the next ${LEAVE_AHEAD_DAYS} days (${awaySoon.length})</h2>
+        <p class="sub" style="font-size:.82rem;margin:0 0 var(--s3)">Leave the rep booked
+        on their phone. They will not be counted absent on these days.</p>
+        ${awaySoon.map(l => `
+          <div class="exception">
+            <div class="who">
+              <div class="nm caps">${esc(l.name)}</div>
+              ${personMeta(l.province, l.team, '', 'caps')}
+            </div>
+            <div class="meta">${esc(l.from === l.to ? prettyDate(l.from)
+              : `${prettyDate(l.from)} — ${prettyDate(l.to)}`)}<br>${
+              l.dates.length} day${l.dates.length === 1 ? '' : 's'}</div>
           </div>`).join('')}
       </div>`}
     ${absent.length === 0 ? '' : `

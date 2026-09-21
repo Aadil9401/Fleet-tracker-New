@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.*
@@ -56,6 +57,7 @@ fun EmployeeHomeScreen(
     onPerformanceClick: () -> Unit,
     onDebtClick: () -> Unit,
     onStockClick: () -> Unit,
+    onLeaveClick: () -> Unit,
     onLogout: () -> Unit,
     viewModel: EmployeeViewModel = viewModel()
 ) {
@@ -164,6 +166,20 @@ fun EmployeeHomeScreen(
                     Icon(Icons.Filled.Inventory2, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("My stock on hand")
+                }
+            }
+
+            // Booked ahead, so the day view stops counting somebody absent on days they
+            // told it about. Nothing else in the app knew a planned absence from a
+            // forgotten one.
+            item {
+                OutlinedButton(
+                    onClick = onLeaveClick,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.EventBusy, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("My leave")
                 }
             }
 

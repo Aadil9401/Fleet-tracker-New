@@ -17,7 +17,7 @@ import { readFileSync } from 'fs';
 import { loadPortal, writes, setValue, dataset, classesOf } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
-  'fyRepeats',
+  'fyRepeats', 'leaveAhead', 'LEAVE_REASON', 'LEAVE_AHEAD_DAYS',
   'stockOnHandRows', 'stockNotCounted', 'renderStock',
   'knownStockTeams', 'renderStockAdd', 'stockCountTeam',
   'visibleStockRows', 'renderStockFilters', 'stockTeamProvince',
@@ -3607,6 +3607,78 @@ check('and offers the ones that do',
    (writes()['stockProvince'] || '').includes('KwaZulu-Natal')], [true, true]);
 check('the network picker offers all four',
   portal.NETWORKS.filter(n => !(writes()['stockNetwork'] || '').includes('value="' + n + '"')), []);
+
+
+
+/* ---------------- leave booked on the phone ---------------- */
+/* Aadil: "if an employee takes annual leave, they should be able to select their leave
+   dates on the app, this will help for daily tracking and employee not being recorded for
+   days on leave."
+
+   A day of leave is written as the thing this app already has — a time log carrying
+   notWorking and a reason — so the day view counts it off rather than not started, and
+   nothing else had to learn about a second kind of absence. What is new is seeing it
+   BEFORE the day arrives. */
+const leaveFrom = portal.todayString();
+const onDay = (n) => portal.shiftDate(leaveFrom, n);
+
+portal.data.employees = [
+  { id: 'p1', employeeNumber: 'T001', name: 'Ayanda', surname: 'Khumalo',
+    teamName: 'SOWETO', province: 'Gauteng' },
+  { id: 'p2', employeeNumber: 'T002', name: 'Bongi', surname: 'Ndlovu',
+    teamName: 'PMB', province: 'KwaZulu-Natal' }
+];
+portal.data.leaveAhead = [
+  // Today's leave: already in the Not working card, so not repeated here.
+  { uid: 'p1', employeeName: 'Ayanda Khumalo', date: onDay(0),
+    notWorking: true, notWorkingReason: portal.LEAVE_REASON },
+  { uid: 'p1', employeeName: 'Ayanda Khumalo', date: onDay(3),
+    notWorking: true, notWorkingReason: portal.LEAVE_REASON },
+  { uid: 'p1', employeeName: 'Ayanda Khumalo', date: onDay(4),
+    notWorking: true, notWorkingReason: portal.LEAVE_REASON },
+  { uid: 'p2', employeeName: 'Bongi Ndlovu', date: onDay(1),
+    notWorking: true, notWorkingReason: portal.LEAVE_REASON },
+  // Beyond the fortnight, so out of view until it comes closer.
+  { uid: 'p2', employeeName: 'Bongi Ndlovu', date: onDay(40),
+    notWorking: true, notWorkingReason: portal.LEAVE_REASON }
+];
+
+const away = portal.leaveAhead(portal.LEAVE_AHEAD_DAYS, leaveFrom);
+/* ONE ROW PER PERSON, not per day. "Ayanda, 2 days" is what somebody plans around; two
+   rows of Ayanda is not. */
+check('one row per person, soonest first',
+  away.map(r => r.name), ['Bongi Ndlovu', 'Ayanda Khumalo']);
+check('and it counts their days', away.map(r => r.dates.length), [1, 2]);
+check('with the ends of the run', [away[1].from, away[1].to], [onDay(3), onDay(4)]);
+/* FROM TOMORROW. Today's leave is already in the Not working card, and saying it twice on
+   one screen reads as two different people being off. */
+check('today is left to the Not working card',
+  away.some(r => r.dates.includes(onDay(0))), false);
+check('and anything past the fortnight waits its turn',
+  away.some(r => r.dates.includes(onDay(40))), false);
+// The name and team come from the staff record, not from what the phone wrote — a rep
+// who moved team should read as where they are now.
+check('the team comes from the record, not the log', away[0].team, 'PMB');
+
+/* A BROKEN RUN IS STILL ONE PERSON. Two days, back at work, then three more is one row
+   whose ends are the outer days — and the day count is what says it is not a block. */
+portal.data.leaveAhead = [
+  { uid: 'p1', employeeName: 'A', date: onDay(1), notWorking: true,
+    notWorkingReason: portal.LEAVE_REASON },
+  { uid: 'p1', employeeName: 'A', date: onDay(2), notWorking: true,
+    notWorkingReason: portal.LEAVE_REASON },
+  { uid: 'p1', employeeName: 'A', date: onDay(8), notWorking: true,
+    notWorkingReason: portal.LEAVE_REASON }
+];
+const broken = portal.leaveAhead(portal.LEAVE_AHEAD_DAYS, leaveFrom);
+check('a broken run is one row', broken.length, 1);
+check('spanning the outer days', [broken[0].from, broken[0].to], [onDay(1), onDay(8)]);
+check('and the day count shows it is not a block', broken[0].dates.length, 3);
+
+// Nothing booked says nothing at all rather than drawing an empty card.
+portal.data.leaveAhead = [];
+check('with nothing booked there is nothing to show',
+  portal.leaveAhead(portal.LEAVE_AHEAD_DAYS, leaveFrom), []);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
