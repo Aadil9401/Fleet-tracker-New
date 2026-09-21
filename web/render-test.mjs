@@ -20,6 +20,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRepeats',
   'stockOnHandRows', 'stockNotCounted', 'stockMonthsOfCover', 'renderStock',
   'knownStockTeams', 'renderStockAdd', 'stockCoverMonths', 'stockCountTeam',
+  'visibleStockRows', 'renderStockFilters', 'stockTeamProvince',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -3200,7 +3201,7 @@ const stockBody = writes()['stockRows'] || '';
 check('both branches are on the table',
   [stockBody.includes('SOWETO'), stockBody.includes('TEMBISA')], [true, true]);
 check('the chase card names how many', (writes()['stockNotCountedCard'] || '')
-  .includes('branch(es) to chase'), true);
+  .includes('team(s) to chase'), true);
 check('and marks the one never counted',
   (writes()['stockNotCountedCard'] || '').includes('NEVER'), true);
 
@@ -3232,7 +3233,7 @@ portal.renderStock();
 check('counted everywhere, and only then, does it say so',
   (writes()['stockNotCountedCard'] || '').includes('Nothing to chase'), true);
 check('and it names how many it checked',
-  (writes()['stockNotCountedCard'] || '').includes('All 3 branch(es)'), true);
+  (writes()['stockNotCountedCard'] || '').includes('All 3 team(s)'), true);
 
 // A month nobody has figures for is not "all counted" either.
 portal.data.perfTeams = [];
@@ -3533,6 +3534,71 @@ check('phone counts land on the right branch',
    that network — the tab is about what the branch has, not who typed it. */
 check('and the newest count for a network is the one shown',
   phoneRows.find(r => r.team === 'SOWETO').networks.MTN.held, 1200);
+
+
+
+/* ---------------- province, team and network on the stock tab ---------------- */
+/* Aadil: "give me a filter option ... province, team, network same layout" — the same
+   three the Performance tab has, in the same order. */
+portal.data.employees = [
+  { id: 'u1', employeeNumber: 'T001', name: 'A', surname: 'A',
+    teamName: 'SOWETO', province: 'Gauteng' },
+  { id: 'u2', employeeNumber: 'T002', name: 'B', surname: 'B',
+    teamName: 'PMB', province: 'KwaZulu-Natal' }
+];
+portal.data.stockCounts = [
+  { uid: 'u1', countedOn: '2026-09-20', network: 'MTN', held: 900 },
+  { uid: 'u1', countedOn: '2026-09-20', network: 'TELKOM', held: 100 },
+  { uid: 'u2', countedOn: '2026-09-20', network: 'MTN', held: 500 }
+];
+portal.stockFilters.province = '';
+portal.stockFilters.team = '';
+portal.stockFilters.network = '';
+portal.stockFilters.query = '';
+
+check('a team takes its province from whoever is on it',
+  portal.stockTeamProvince('SOWETO'), 'Gauteng');
+check('and a team nobody is on has none', portal.stockTeamProvince('HAZYVIEW'), '');
+
+check('with nothing chosen, every team is listed',
+  portal.visibleStockRows().map(r => r.team).sort(), ['PMB', 'SOWETO']);
+portal.stockFilters.province = 'Gauteng';
+check('a province narrows it', portal.visibleStockRows().map(r => r.team), ['SOWETO']);
+portal.stockFilters.province = '';
+portal.stockFilters.team = 'PMB';
+check('and so does a team', portal.visibleStockRows().map(r => r.team), ['PMB']);
+portal.stockFilters.team = '';
+
+/* A NETWORK NARROWS THE FIGURE ITSELF, not just the rows. Showing a team's whole holding
+   under a Telkom heading would be the same number in every column, and "who is short of
+   Telkom" would have no answer on this tab. */
+portal.stockFilters.network = 'TELKOM';
+const telkomOnly = portal.visibleStockRows();
+check('a network leaves only the teams holding it',
+  telkomOnly.map(r => r.team), ['SOWETO']);
+check('and the holding is that network alone', telkomOnly[0].held, 100);
+portal.stockFilters.network = '';
+check('and clearing it puts the whole holding back',
+  portal.visibleStockRows().find(r => r.team === 'SOWETO').held, 1000);
+
+/* A CHOICE THAT NO LONGER MATCHES IS CLEARED, or the tab silently shows nothing and the
+   only clue is a picker nobody is looking at. */
+portal.stockFilters.province = 'Free State';
+portal.renderStockFilters();
+check('a province with nothing in it does not stay selected',
+  portal.stockFilters.province, '');
+
+setValue('stockProvince', '');
+setValue('stockTeam', '');
+setValue('stockNetwork', '');
+portal.renderStockFilters();
+check('the province picker offers only provinces that have counts',
+  (writes()['stockProvince'] || '').includes('Free State'), false);
+check('and offers the ones that do',
+  [(writes()['stockProvince'] || '').includes('Gauteng'),
+   (writes()['stockProvince'] || '').includes('KwaZulu-Natal')], [true, true]);
+check('the network picker offers all four',
+  portal.NETWORKS.filter(n => !(writes()['stockNetwork'] || '').includes('value="' + n + '"')), []);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);

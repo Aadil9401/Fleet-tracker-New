@@ -1151,7 +1151,7 @@
         </table></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
           One row per <b>team</b>, biggest first — these three figures are uploaded per
-          team, so a row is a branch rather than a person. Every team with a figure is
+          team, so a row is a team rather than a person. Every team with a figure is
           listed, <b>including one nobody is posted to</b>, which is how a book with no
           rep on it gets found. Setting a province, team or search narrows this to the
           teams those people are on.
@@ -1190,7 +1190,7 @@
         </div>
         <div id="perfMergeStatus" class="meta" style="margin-top:var(--s2)"></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
-          For a branch the network <b>renamed</b>, so its year sits under two names. Every
+          For a team the network <b>renamed</b>, so its year sits under two names. Every
           month of stock, connections and activations moves from the old name to the new,
           and the old name is left with nothing.
           <br>
@@ -1216,7 +1216,7 @@
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
           Clears <b>every month and every network</b> of stock, connections and
           activations stored against that team name. Pay and FY are not touched — those
-          are filed against a person, not a branch.
+          are filed against a person, not a team.
           <br>
           The list is built from the months currently loaded, so widen the range if the
           team you want is not in it. <b>There is no undo</b>; the figures would have to
@@ -1320,6 +1320,18 @@
       <div class="card">
         <div class="toolbar">
           <h2 class="section grow" style="margin:0">Stock on hand</h2>
+          <div>
+            <label for="stockProvince">Province</label>
+            <select id="stockProvince"></select>
+          </div>
+          <div>
+            <label for="stockTeam">Team</label>
+            <select id="stockTeam"></select>
+          </div>
+          <div>
+            <label for="stockNetwork">Network</label>
+            <select id="stockNetwork"></select>
+          </div>
           <div class="grow">
             <label for="stockSearch">Search</label>
             <input id="stockSearch" type="search" placeholder="Team">
@@ -1334,21 +1346,21 @@
         </table></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
           <b>This is counted, not calculated.</b> The Performance figures record what was
-          allocated to a branch and what eventually activated — over nine months that is
+          allocated to a team and what eventually activated — over nine months that is
           12.8&nbsp;million against 4.2&nbsp;million, so a SIM plainly leaves for a shop
           long before anybody activates it. The difference is stock in the channel, not
           stock in a boot, and a holding cannot be worked out from either number.
           <br><br>
-          <b>A row is as old as its oldest network.</b> A branch that counts MTN weekly
+          <b>A row is as old as its oldest network.</b> A team that counts MTN weekly
           and Cell C once a month holds two facts of different ages, and dating the row by
           the newest would read a month-old figure as current.
           <br>
-          <b>Change</b> is against that branch's previous count, and is shown only once
+          <b>Change</b> is against that team's previous count, and is shown only once
           every network on the row has been counted twice. <b>Cover</b> is the count
-          against that branch's own average monthly allocation — roughly how long what
+          against that team's own average monthly allocation — roughly how long what
           they are holding would last them.
           <br><br>
-          A blank in the file is a network that branch does not carry and gets no row; a
+          A blank in the file is a network that team does not carry and gets no row; a
           typed <b>0</b> is a real stockout and is stored.
         </p>
       </div>
@@ -1383,11 +1395,11 @@
         </div>
         <div id="stockAddStatus" class="meta" style="margin-top:var(--s2)"></div>
         <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
-          <b>Leave a network empty</b> if this branch does not carry it — nothing is
+          <b>Leave a network empty</b> if this team does not carry it — nothing is
           stored and nothing is assumed. <b>Type 0</b> if they carry it and have run out;
           that is a real stockout and it is recorded.
           <br>
-          Counting the same branch again on the same date <b>corrects</b> that count
+          Counting the same team again on the same date <b>corrects</b> that count
           rather than adding to it.
         </p>
       </div>
@@ -9040,7 +9052,22 @@ function stockCountTeam(row) {
   return key ? { key, name: row.team || key } : null;
 }
 
-function stockOnHandRows(today = todayString()) {
+/** The province a team sits in, taken from whoever is on it. */
+function stockTeamProvince(key) {
+  const person = data.employees.find(e => teamKey(e.teamName) === key && e.province);
+  return person ? person.province : '';
+}
+
+/**
+ * Every team's latest count, optionally narrowed to ONE NETWORK.
+ *
+ * With a network chosen the row is about that network alone — its figure, its age, its
+ * change. Showing a team's whole holding under a network heading would be the same
+ * number four times over, and the question "who is short of Telkom" would have no answer
+ * on this tab.
+ */
+function stockOnHandRows(today = todayString(), network = '') {
+  const wanted = networkKey(network);
   const byTeam = {};
 
   // Newest last, so the last one written for an address is the newest one.
@@ -9048,6 +9075,7 @@ function stockOnHandRows(today = todayString()) {
     String(a.countedOn).localeCompare(String(b.countedOn))).forEach(raw => {
     const whose = stockCountTeam(raw);
     if (!whose) return;
+    if (wanted && networkKey(raw.network) !== wanted) return;
     const r = { ...raw, team: whose.name, teamKey: whose.key };
     const key = whose.key;
     const team = byTeam[key] || (byTeam[key] = { team: r.team || key, teamKey: key, networks: {} });
@@ -9073,6 +9101,7 @@ function stockOnHandRows(today = todayString()) {
     return {
       team: team.team,
       teamKey: team.teamKey,
+      province: stockTeamProvince(team.teamKey),
       networks: team.networks,
       held,
       countedOn: oldest,
@@ -9114,7 +9143,7 @@ function stockNotCounted(month, staleAfterDays = 14, today = todayString()) {
     || (b.allocated ?? 0) - (a.allocated ?? 0));
 }
 
-/** How many months of a branch's own recent allocation its count would cover. */
+/** How many months of a team's own recent allocation its count would cover. */
 function stockMonthsOfCover(teamKeyed, held, months) {
   const each = months.map(month => {
     const row = teamFiguresFor(month, '')[teamKeyed];
@@ -9127,17 +9156,20 @@ function stockMonthsOfCover(teamKeyed, held, months) {
   return held / average;
 }
 
-const stockFilters = { query: '' };
+const stockFilters = { province: '', team: '', network: '', query: '' };
 
 /** The months the cover figure is averaged over — a quarter, so one big month cannot set it. */
 const STOCK_COVER_MONTHS = 3;
 
-/** Rows on screen, after the search box. */
+/** Rows on screen, after the pickers and the search box. */
 function visibleStockRows() {
   const q = stockFilters.query.trim().toLowerCase();
-  const rows = stockOnHandRows();
-  if (!q) return rows;
-  return rows.filter(r => String(r.team).toLowerCase().includes(q));
+  return stockOnHandRows(todayString(), stockFilters.network).filter(r => {
+    if (stockFilters.province && r.province !== stockFilters.province) return false;
+    if (stockFilters.team && r.team !== stockFilters.team) return false;
+    if (!q) return true;
+    return String(r.team).toLowerCase().includes(q);
+  });
 }
 
 /** The last few months, newest first, for the cover average. */
@@ -9180,8 +9212,44 @@ function stockExportRows() {
   })];
 }
 
+/**
+ * The three pickers, built the way the Performance tab builds its own.
+ *
+ * FROM THE ROWS THAT EXIST, not from a fixed list: a province nobody has counted in is a
+ * province that would show an empty table, and the team list narrows to the chosen
+ * province because a team belongs to one and offering the rest is noise.
+ *
+ * A choice that no longer matches anything is CLEARED rather than left selected, or the
+ * tab silently shows nothing and the only clue is a picker nobody is looking at.
+ */
+function renderStockFilters() {
+  // Before the province filter is applied, or choosing one would leave it the only option.
+  const all = stockOnHandRows(todayString(), stockFilters.network);
+
+  const provinces = [...new Set(all.map(r => r.province).filter(Boolean))].sort();
+  if (stockFilters.province && !provinces.includes(stockFilters.province)) {
+    stockFilters.province = '';
+  }
+  $('stockProvince').innerHTML = ['<option value="">All provinces</option>',
+    ...provinces.map(v => `<option value="${esc(v)}" ${
+      v === stockFilters.province ? 'selected' : ''}>${esc(v)}</option>`)].join('');
+
+  const inProvince = all.filter(r =>
+    !stockFilters.province || r.province === stockFilters.province);
+  const teams = [...new Set(inProvince.map(r => r.team).filter(Boolean))].sort();
+  if (stockFilters.team && !teams.includes(stockFilters.team)) stockFilters.team = '';
+  $('stockTeam').innerHTML = ['<option value="">All teams</option>',
+    ...teams.map(v => `<option value="${esc(v)}" ${
+      v === stockFilters.team ? 'selected' : ''}>${esc(v)}</option>`)].join('');
+
+  $('stockNetwork').innerHTML = ['<option value="">All networks</option>',
+    ...NETWORKS.map(n => `<option value="${n}" ${
+      n === stockFilters.network ? 'selected' : ''}>${esc(NETWORK_LABELS[n])}</option>`)].join('');
+}
+
 function renderStock() {
   $('stockFormat').textContent = STOCK_COLUMNS.join(', ');
+  renderStockFilters();
 
   const months = stockCoverMonths();
   const rows = visibleStockRows();
@@ -9195,7 +9263,7 @@ function renderStock() {
   const uncounted = stockNotCounted(month).length;
 
   $('stockTiles').innerHTML = [
-    ['Branches counted', rows.length === 0 ? '—' : num(rows.length), ''],
+    ['Teams counted', rows.length === 0 ? '—' : num(rows.length), ''],
     ['On hand', rows.length === 0 ? '—' : num(held), ''],
     ['Oldest count', oldest === null ? '—' : `${num(oldest)} days`,
       oldest !== null && oldest > 14 ? 'warn' : ''],
@@ -9205,29 +9273,34 @@ function renderStock() {
     + `<div class="cap">${esc(cap)}</div></div>`).join('');
 
   $('stockShowing').textContent = all.length === 0 ? ''
-    : rows.length === all.length ? `${all.length} branch(es) counted`
+    : rows.length === all.length ? `${all.length} team(s) counted`
     : `Showing ${rows.length} of ${all.length}`;
 
+  // One network chosen is one column: four columns of the same figure would be three
+  // columns of noise, and the total beside them would read as four times the holding.
+  const columns = stockFilters.network
+    ? [networkKey(stockFilters.network)] : NETWORKS;
   $('stockHead').innerHTML = '<th>Team</th>'
-    + NETWORKS.map(n => `<th>${esc(NETWORK_LABELS[n])}</th>`).join('')
+    + columns.map(n => `<th>${esc(NETWORK_LABELS[n])}</th>`).join('')
     + '<th>On hand</th><th>Counted</th><th>Change</th><th>Cover</th>';
 
   const cell = (v) => v === null || v === undefined
     ? '<span class="meta">—</span>' : num(v);
 
   $('stockRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="${NETWORKS.length + 5}" class="empty">`
+    ? `<tr><td colspan="${columns.length + 5}" class="empty">`
       + (all.length === 0
         ? 'No counts uploaded yet. The figures cannot tell you this one — it has to be counted.'
-        : 'No branch matches that search.')
+        : 'No team matches that search.')
       + '</td></tr>'
     : rows.map(r => {
       const cover = stockMonthsOfCover(r.teamKey, r.held, months);
       // A count nobody has refreshed for a fortnight is not a current holding.
       const stale = r.daysOld !== null && r.daysOld > 14;
       return `<tr>
-        <td><div class="nm">${esc(r.team)}</div></td>
-        ${NETWORKS.map(n => `<td>${r.networks[n]
+        <td><div class="nm">${esc(r.team)}</div>${
+          r.province ? `<div class="meta">${esc(r.province)}</div>` : ''}</td>
+        ${columns.map(n => `<td>${r.networks[n]
           ? num(r.networks[n].held) : '<span class="meta">—</span>'}</td>`).join('')}
         <td><b>${num(r.held)}</b></td>
         <td>${esc(prettyDate(r.countedOn))}<div class="meta${stale ? ' due' : ''}">${
@@ -9271,18 +9344,18 @@ function renderStockNotCounted(month) {
     const known = Object.keys(teamFiguresFor(month, '')).length;
     $('stockNotCountedCard').innerHTML = known === 0
       ? '<h2 class="section">Who to chase</h2>'
-        + '<p class="sub">No branch has figures for this month yet, so there is nothing '
+        + '<p class="sub">No team has figures for this month yet, so there is nothing '
         + 'to check the counts against.</p>'
       : '<h2 class="section">Nothing to chase</h2>'
-        + `<p class="sub">All ${known} branch(es) with figures this month have been `
+        + `<p class="sub">All ${known} team(s) with figures this month have been `
         + 'counted in the last fortnight.</p>';
     return;
   }
   $('stockNotCountedCard').innerHTML =
-    `<h2 class="section">${waiting.length} branch(es) to chase</h2>`
-    + '<p class="sub" style="font-size:.82rem">Branches with figures this month whose '
+    `<h2 class="section">${waiting.length} team(s) to chase</h2>`
+    + '<p class="sub" style="font-size:.82rem">Teams with figures this month whose '
     + 'count is missing or more than a fortnight old. Built from the teams in the '
-    + '<b>figures</b>, not the staff list — a branch nobody is posted to still holds '
+    + '<b>figures</b>, not the staff list — a team nobody is posted to still holds '
     + 'stock, and it is the one nobody thinks to ask.</p>'
     + '<div class="table-wrap"><table><thead><tr>'
     + '<th>Team</th><th>Last counted</th><th>Allocated this month</th>'
@@ -9480,7 +9553,7 @@ async function saveStockCounts() {
     const dates = [...new Set(rows.map(r => r.countedOn))].sort();
     $('stockUploadStatus').innerHTML =
       `<span style="color:var(--primary)">Saved ${rows.length} count(s) across `
-      + `${new Set(rows.map(r => r.teamKey)).size} branch(es). ${matched} matched a team `
+      + `${new Set(rows.map(r => r.teamKey)).size} team(s). ${matched} matched a team `
       + `on the staff list${matched < rows.length
         ? `, ${rows.length - matched} did not` : ''}. `
       + `${dates.length === 1 ? dates[0] : `${dates[0]} to ${dates[dates.length - 1]}`}.`
@@ -9673,6 +9746,13 @@ function debtExportRows() {
 $('stockSearch').addEventListener('input', (e) => {
   stockFilters.query = e.target.value;
   renderStock();
+});
+['province', 'team', 'network'].forEach(which => {
+  $('stock' + which.charAt(0).toUpperCase() + which.slice(1))
+    .addEventListener('change', (e) => {
+      stockFilters[which] = e.target.value;
+      renderStock();
+    });
 });
 $('stockSave').addEventListener('click', saveStockCounts);
 $('stockAddSave').addEventListener('click', saveStockAdd);
