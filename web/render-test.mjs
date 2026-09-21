@@ -19,7 +19,7 @@ import { loadPortal, writes, setValue, dataset, classesOf } from './portal-harne
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRepeats',
   'stockOnHandRows', 'stockNotCounted', 'stockMonthsOfCover', 'renderStock',
-  'knownStockTeams', 'renderStockAdd', 'stockCoverMonths',
+  'knownStockTeams', 'renderStockAdd', 'stockCoverMonths', 'stockCountTeam',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -3486,6 +3486,53 @@ check('both pickers are filled',
 check('the new rows are written before the old are deleted',
   src.indexOf('...w.values, mergedAtMillis') < src.indexOf('fromSnap.docs.slice(start, start + 400).forEach(d => batch.delete'),
   true);
+
+
+
+/* ---------------- a count taken on a phone ---------------- */
+/* The rep's own screen files a count under the PERSON, because a security rule can
+   compare a uid exactly and cannot normalise a team name — so the uid is the only part
+   of the row worth trusting, and this is where that trust is cashed in. */
+portal.data.employees = [
+  { id: 'uid-1', employeeNumber: 'T001', name: 'Ayanda', surname: 'K', teamName: 'SOWETO' }
+];
+
+check('a phone count is filed under the branch that person is on now',
+  portal.stockCountTeam({ uid: 'uid-1', team: 'ANYTHING AT ALL', network: 'MTN', held: 10 }),
+  { key: 'SOWETO', name: 'SOWETO' });
+
+/* A rep MOVED to another branch takes their counts with them, which is what moving
+   branches means — the team written on an old row is where they used to be. */
+portal.data.employees[0].teamName = 'TEMBISA';
+check('and follows them when they move',
+  portal.stockCountTeam({ uid: 'uid-1', team: 'SOWETO' }).key, 'TEMBISA');
+
+// A count UPLOADED BY AN ADMIN carries no uid, so the team on the row is all it has.
+check('an uploaded count is filed under the team on the row',
+  portal.stockCountTeam({ teamKey: 'HAZYVIEW', team: 'HAZYVIEW' }).key, 'HAZYVIEW');
+check('and one with neither is not filed at all',
+  portal.stockCountTeam({ network: 'MTN', held: 5 }), null);
+// A uid nobody recognises falls back rather than vanishing: that count is still real.
+check('a count from somebody no longer on the staff list still counts',
+  portal.stockCountTeam({ uid: 'gone', teamKey: 'SOWETO', team: 'SOWETO' }).key, 'SOWETO');
+
+// End to end: two phone counts and one upload, grouped the way the tab groups them.
+portal.data.employees = [
+  { id: 'uid-1', employeeNumber: 'T001', name: 'Ayanda', surname: 'K', teamName: 'SOWETO' },
+  { id: 'uid-2', employeeNumber: 'T002', name: 'Bongi', surname: 'N', teamName: 'SOWETO' }
+];
+portal.data.stockCounts = [
+  { uid: 'uid-1', team: 'stale name', countedOn: '2026-09-20', network: 'MTN', held: 900 },
+  { uid: 'uid-2', team: '', countedOn: '2026-09-21', network: 'MTN', held: 1200 },
+  { teamKey: 'HAZYVIEW', team: 'HAZYVIEW', countedOn: '2026-09-21', network: 'MTN', held: 40 }
+];
+const phoneRows = portal.stockOnHandRows('2026-09-21');
+check('phone counts land on the right branch',
+  phoneRows.map(r => r.team).sort(), ['HAZYVIEW', 'SOWETO']);
+/* Two reps on one branch each counting is ONE branch holding, and the newest wins for
+   that network — the tab is about what the branch has, not who typed it. */
+check('and the newest count for a network is the one shown',
+  phoneRows.find(r => r.team === 'SOWETO').networks.MTN.held, 1200);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);

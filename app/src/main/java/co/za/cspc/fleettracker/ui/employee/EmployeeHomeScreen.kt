@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -54,6 +55,7 @@ fun EmployeeHomeScreen(
     profile: UserProfile,
     onPerformanceClick: () -> Unit,
     onDebtClick: () -> Unit,
+    onStockClick: () -> Unit,
     onLogout: () -> Unit,
     viewModel: EmployeeViewModel = viewModel()
 ) {
@@ -147,6 +149,21 @@ fun EmployeeHomeScreen(
                     Icon(Icons.Filled.ReceiptLong, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("What I owe")
+                }
+            }
+
+            // What they are CARRYING, as opposed to what they owe for. Nothing else in
+            // this app knows it — the figures record what was allocated and what
+            // activated, and the gap between those is stock in the channel rather than
+            // stock in a boot.
+            item {
+                OutlinedButton(
+                    onClick = onStockClick,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Inventory2, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("My stock on hand")
                 }
             }
 

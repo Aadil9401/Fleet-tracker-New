@@ -6,6 +6,7 @@ import co.za.cspc.fleettracker.data.model.Birthday
 import co.za.cspc.fleettracker.data.model.FuelLog
 import co.za.cspc.fleettracker.data.model.Performance
 import co.za.cspc.fleettracker.data.model.Role
+import co.za.cspc.fleettracker.data.model.StockCount
 import co.za.cspc.fleettracker.data.model.TimeLog
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.Vehicle
@@ -862,6 +863,90 @@ class FleetRepository(
                 )
             }
     }
+
+    /**
+     * What this rep says they are carrying.
+     *
+     * ONE DOCUMENT PER PERSON, PER DAY, PER NETWORK. Counting again on the same day
+     * lands on the same addresses and CORRECTS the count rather than adding to it, which
+     * is what the screen promises and what a rep fixing a typo needs to be true.
+     *
+     * The TEAM IS STORED ALONGSIDE but is not what the row is filed under, and the
+     * portal re-derives it from the person rather than trusting it. A rule can compare a
+     * uid exactly; it cannot normalise a team name, so filing on the team would mean
+     * either trusting whatever a phone sent or storing a second normalised copy of every
+     * team on every user. The uid is the thing the rule can actually check.
+     *
+     * A network the rep left blank has NO ROW, deliberately — see StockCount.read().
+     * Nothing is deleted for it either: a network they stopped carrying keeps its last
+     * real count rather than being silently zeroed by an omission.
+     */
+    suspend fun saveStockCount(
+        uid: String,
+        employeeName: String,
+        teamName: String,
+        rows: List<StockCount.Row>
+    ) {
+        val countedOn = todayString()
+        val batch = db.batch()
+        rows.forEach { row ->
+            val ref = db.collection("stockCounts")
+                .document(StockCount.documentId(uid, countedOn, row.network))
+            batch.set(
+                ref,
+                mapOf(
+                    "uid" to uid,
+                    "employeeName" to employeeName,
+                    // For an admin reading the raw collection. The portal does not
+                    // trust it — it looks the person's current team up instead.
+                    "team" to teamName,
+                    "countedOn" to countedOn,
+                    "network" to row.network,
+                    "held" to row.held,
+                    "countedAtMillis" to System.currentTimeMillis()
+                ),
+                SetOptions.merge()
+            )
+        }
+        batch.commit().await()
+    }
+
+    /**
+     * What this rep last counted, whenever that was.
+     *
+     * Read so the screen can say it back to them: a rep who cannot see their last count
+     * has no way to tell a saved count from a lost one, and will either not bother or
+     * count twice.
+     *
+     * Ordered by the day rather than by when it was written, because a count entered
+     * late is still a count about the day it was taken.
+     */
+    suspend fun lastStockCount(uid: String): Map<String, Long> = runCatching {
+        val snap = db.collection("stockCounts")
+            .whereEqualTo("uid", uid)
+            .get().await()
+        val latest = snap.documents
+            .mapNotNull { it.getString("countedOn") }
+            .maxOrNull() ?: return emptyMap()
+        snap.documents
+            .filter { it.getString("countedOn") == latest }
+            .mapNotNull { doc ->
+                val network = doc.getString("network") ?: return@mapNotNull null
+                val held = doc.getLong("held") ?: return@mapNotNull null
+                network to held
+            }
+            .toMap()
+    }.getOrDefault(emptyMap())
+
+    /** The day of this rep's most recent count, or blank if they have never taken one. */
+    suspend fun lastStockCountDate(uid: String): String = runCatching {
+        db.collection("stockCounts")
+            .whereEqualTo("uid", uid)
+            .get().await()
+            .documents
+            .mapNotNull { it.getString("countedOn") }
+            .maxOrNull() ?: ""
+    }.getOrDefault("")
 
     suspend fun saveSettings(settings: AppSettings) {
         // merge() matters: the attendance Cloud Function stores lastAttendanceAlertDate
