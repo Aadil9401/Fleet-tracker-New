@@ -188,15 +188,33 @@ service cloud.firestore {
     // permitted, one asking for everybody's is refused. Somebody's debt is their own
     // business, and a colleague's balance is none of theirs.
     /*
-     * WHAT A BRANCH PHYSICALLY HOLDS.
+     * WHAT A REP PHYSICALLY HOLDS.
      *
-     * Admin only, read and write, because nothing outside the portal touches it yet. The
-     * phone app does not write counts — when it does, this opens to a rep writing their
-     * own team's row and no other, which is a rule that needs the team on the request and
-     * cannot be bolted on afterwards without re-reading every document.
+     * A rep may write their OWN count and read it back; they may read nothing else here,
+     * because what another branch is carrying is not theirs to see.
+     *
+     * FILED ON THE UID, AND THE RULE CHECKS THE ID ITSELF. A rule can compare a uid
+     * exactly; it cannot normalise a team name — "Capetown CC" and "CAPE TOWN CELLC 1"
+     * are the same branch to this app and different strings to a rule. Filing on the team
+     * would therefore mean trusting whatever a phone sent. Binding the document id to
+     * request.auth.uid means a rep cannot write a row that reads as somebody else's, and
+     * cannot reach another rep's row at all.
+     *
+     * The team stored on the row is a LABEL for an admin reading the raw collection; the
+     * portal looks the person's current team up rather than trusting it, so a phone
+     * sending a different team changes nothing.
+     *
+     * NO DELETE for an employee. A count is a fact about a day, and removing one is an
+     * admin's decision — a rep who could delete could quietly undo a bad week.
      */
     match /stockCounts/{countId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create, update: if isAdmin()
+        || (isSignedIn()
+          && request.resource.data.uid == request.auth.uid
+          && countId.matches(request.auth.uid + '_.*'));
+      allow delete: if isAdmin();
     }
 
     match /debtLines/{lineId} {

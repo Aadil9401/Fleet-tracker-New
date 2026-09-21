@@ -9014,14 +9014,42 @@ const stockTemplateRows = () => [STOCK_COLUMNS, ...STOCK_SAMPLE];
  * is two things that are true without any apportioning: the CHANGE since the previous
  * count, and how many months of that branch's own recent allocation the count represents.
  */
+/**
+ * Which branch a stored count belongs to.
+ *
+ * A COUNT FROM A PHONE IS FILED UNDER THE PERSON, so the branch is looked up from them
+ * rather than read off the row. Two reasons, and both matter:
+ *
+ *   - A rep moved to another branch takes their counts with them, which is what a rep
+ *     moving branches means. The team written on an old row is where they used to be.
+ *   - A phone could send any team it liked. A security rule can compare a uid exactly
+ *     but cannot normalise a team name, so the uid is the only part of the row worth
+ *     trusting — and this is where that trust is cashed in.
+ *
+ * A count UPLOADED BY AN ADMIN carries no uid and is filed under the team on the row,
+ * which is the only thing it has.
+ */
+function stockCountTeam(row) {
+  if (row.uid) {
+    const person = data.employees.find(e => e.id === row.uid);
+    if (person && teamKey(person.teamName)) {
+      return { key: teamKey(person.teamName), name: person.teamName };
+    }
+  }
+  const key = row.teamKey || teamKey(row.team);
+  return key ? { key, name: row.team || key } : null;
+}
+
 function stockOnHandRows(today = todayString()) {
   const byTeam = {};
 
   // Newest last, so the last one written for an address is the newest one.
   [...data.stockCounts].sort((a, b) =>
-    String(a.countedOn).localeCompare(String(b.countedOn))).forEach(r => {
-    const key = r.teamKey || teamKey(r.team);
-    if (!key) return;
+    String(a.countedOn).localeCompare(String(b.countedOn))).forEach(raw => {
+    const whose = stockCountTeam(raw);
+    if (!whose) return;
+    const r = { ...raw, team: whose.name, teamKey: whose.key };
+    const key = whose.key;
     const team = byTeam[key] || (byTeam[key] = { team: r.team || key, teamKey: key, networks: {} });
     const was = team.networks[r.network];
     team.networks[r.network] = {
