@@ -15,6 +15,8 @@ data class StockCountUiState(
     val saving: Boolean = false,
     /** What is in each of the four boxes, keyed on the network. */
     val typed: Map<String, String> = emptyMap(),
+    /** The day being counted for, yyyy-MM-dd. Starts on today. */
+    val countedOn: String = "",
     /** The day of their last count, or blank if they have never taken one. */
     val lastCountedOn: String = "",
     /** What they held on that day, per network. */
@@ -49,9 +51,16 @@ class StockCountViewModel(
                 loading = false,
                 lastCountedOn = on,
                 lastHeld = held,
+                // Today, because that is the answer nearly every time. A rep who counted
+                // on Friday and is typing it on Monday changes it; nobody else has to.
+                countedOn = FleetRepository.todayString(),
                 typed = StockCount.NETWORKS.associateWith { "" }
             )
         }
+    }
+
+    fun dateChosen(date: String) {
+        state = state.copy(countedOn = date, message = null, saved = false)
     }
 
     fun typed(network: String, text: String) {
@@ -65,7 +74,9 @@ class StockCountViewModel(
     }
 
     fun save(profile: UserProfile) {
-        when (val verdict = StockCount.verdict(state.typed)) {
+        when (val verdict = StockCount.verdict(
+            state.typed, state.countedOn, FleetRepository.todayString()
+        )) {
             is StockCount.Verdict.Refused ->
                 state = state.copy(message = verdict.why, saved = false)
 
@@ -77,6 +88,7 @@ class StockCountViewModel(
                             uid = profile.uid,
                             employeeName = profile.fullName,
                             teamName = profile.teamName,
+                            countedOn = verdict.countedOn,
                             rows = verdict.rows
                         )
                     }.onSuccess {
@@ -84,9 +96,9 @@ class StockCountViewModel(
                         state = state.copy(
                             saving = false,
                             saved = true,
-                            message = "Counted $total units. Thank you.",
+                            message = "Counted $total units for ${verdict.countedOn}. Thank you.",
                             typed = StockCount.NETWORKS.associateWith { "" },
-                            lastCountedOn = FleetRepository.todayString(),
+                            lastCountedOn = verdict.countedOn,
                             lastHeld = verdict.rows.associate { it.network to it.held }
                         )
                     }.onFailure { err ->

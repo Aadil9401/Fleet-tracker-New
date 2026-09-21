@@ -66,12 +66,51 @@ object StockCount {
         return Typed.Held(value)
     }
 
+    /**
+     * The day the counting happened, which is not always the day it is typed in.
+     *
+     * A rep counts on Friday afternoon and gets to it on Monday; forcing today's date on
+     * that would file Friday's shelf under Monday and make the gap to the next count read
+     * as three days when it was six. So the day is theirs to set.
+     *
+     * NOT THE FUTURE, though. A count is a statement about a shelf somebody has looked
+     * at, and there is no shelf to look at tomorrow. A future date is a mistyped one, and
+     * it would sit at the top of every "latest count" list until the day caught up.
+     *
+     * Bounded at the other end too: a year back is further than any count worth entering,
+     * and a date that old is a typo in the year.
+     */
+    fun readDate(typed: String?, today: String): Typed2 {
+        val text = (typed ?: "").trim()
+        if (text.isEmpty()) return Typed2.Rejected("Choose the day you counted")
+        if (!Regex("""\d{4}-\d{2}-\d{2}""").matches(text)) {
+            return Typed2.Rejected("The date must look like 2026-09-21")
+        }
+        if (text > today) return Typed2.Rejected("That day has not happened yet")
+        if (text < aYearBefore(today)) {
+            return Typed2.Rejected("That is more than a year ago — check the year")
+        }
+        return Typed2.Accepted(text)
+    }
+
+    /** Same shape as [Typed], for the one field that is not a figure. */
+    sealed interface Typed2 {
+        data class Accepted(val date: String) : Typed2
+        data class Rejected(val why: String) : Typed2
+    }
+
+    /** yyyy-MM-dd arithmetic on the string, so nothing here needs a calendar. */
+    internal fun aYearBefore(today: String): String {
+        val year = today.take(4).toIntOrNull() ?: return today
+        return (year - 1).toString() + today.drop(4)
+    }
+
     /** One row ready to be written. */
     data class Row(val network: String, val held: Long)
 
     /** Everything a submission can be. */
     sealed interface Verdict {
-        data class Ready(val rows: List<Row>) : Verdict
+        data class Ready(val countedOn: String, val rows: List<Row>) : Verdict
         data class Refused(val why: String) : Verdict
     }
 
@@ -86,7 +125,13 @@ object StockCount {
      * The first bad box is named rather than the count of them: a rep fixes one thing at
      * a time, and "three fields are wrong" is not a thing anybody can act on.
      */
-    fun verdict(typed: Map<String, String?>): Verdict {
+    fun verdict(typed: Map<String, String?>, date: String?, today: String): Verdict {
+        // The date first: a count on the wrong day is wrong however good the figures
+        // are, and it is the field somebody is least likely to look at twice.
+        val countedOn = when (val d = readDate(date, today)) {
+            is Typed2.Rejected -> return Verdict.Refused(d.why)
+            is Typed2.Accepted -> d.date
+        }
         val rows = mutableListOf<Row>()
         for (network in NETWORKS) {
             when (val one = read(network, typed[network])) {
@@ -98,7 +143,7 @@ object StockCount {
         if (rows.isEmpty()) {
             return Verdict.Refused("Type at least one figure — an empty count says nothing.")
         }
-        return Verdict.Ready(rows)
+        return Verdict.Ready(countedOn, rows)
     }
 
     /**

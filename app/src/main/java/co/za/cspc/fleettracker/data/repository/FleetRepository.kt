@@ -885,9 +885,9 @@ class FleetRepository(
         uid: String,
         employeeName: String,
         teamName: String,
+        countedOn: String,
         rows: List<StockCount.Row>
     ) {
-        val countedOn = todayString()
         val batch = db.batch()
         rows.forEach { row ->
             val ref = db.collection("stockCounts")

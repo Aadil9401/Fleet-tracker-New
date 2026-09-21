@@ -15,6 +15,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.StockCount
 import co.za.cspc.fleettracker.data.model.UserProfile
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * What is said above the boxes.
@@ -25,6 +29,20 @@ import co.za.cspc.fleettracker.data.model.UserProfile
 const val STOCK_COUNT_NOTE =
     "Count what you physically have with you right now. Leave a network empty if you " +
         "do not carry it. Type 0 if you carry it and have run out."
+
+/**
+ * The picker's millis as yyyy-MM-dd.
+ *
+ * UTC, because that is what the picker hands back — it reports the midnight of the day
+ * the user tapped, in UTC. Reading it in Africa/Johannesburg would land two hours into
+ * the same day, which is harmless, but reading it anywhere west of Greenwich would land
+ * on the day before. Formatting in the same zone the number was made in is the only
+ * reading that cannot slip.
+ */
+private fun isoDate(utcMillis: Long): String =
+    SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        .apply { timeZone = TimeZone.getTimeZone("UTC") }
+        .format(Date(utcMillis))
 
 /** How the four networks are labelled on the phone, matching the portal. */
 private val NETWORK_LABELS = mapOf(
@@ -47,6 +65,35 @@ fun StockCountScreen(
     LaunchedEffect(profile.uid) { viewModel.load(profile) }
     LaunchedEffect(state.message) {
         state.message?.let { snackbarHost.showSnackbar(it) }
+    }
+
+    var pickingDate by remember { mutableStateOf(false) }
+
+    if (pickingDate) {
+        // Nothing after today can be selected: a count is a statement about a shelf
+        // somebody has looked at, and there is no shelf to look at tomorrow.
+        val pickerState = rememberDatePickerState(
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                    utcTimeMillis <= System.currentTimeMillis()
+            }
+        )
+        DatePickerDialog(
+            onDismissRequest = { pickingDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        viewModel.dateChosen(isoDate(millis))
+                    }
+                    pickingDate = false
+                }) { Text("Use this day") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickingDate = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = pickerState)
+        }
     }
 
     Scaffold(
@@ -105,6 +152,26 @@ fun StockCountScreen(
                 Text("You have not counted before.",
                     style = MaterialTheme.typography.bodySmall)
             }
+
+            /*
+             * THE DAY, above the figures, because it frames them. It starts on today,
+             * which is the answer nearly every time — a rep who counted on Friday and is
+             * typing it on Monday changes it, and nobody else has to think about it.
+             *
+             * Picked rather than typed. A date typed on a phone keyboard is a date
+             * somebody gets wrong, and the picker cannot produce a day that does not
+             * exist or a format the parser refuses.
+             */
+            OutlinedTextField(
+                value = state.countedOn,
+                onValueChange = { },
+                readOnly = true,
+                label = { Text("Day counted") },
+                trailingIcon = {
+                    TextButton(onClick = { pickingDate = true }) { Text("Change") }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
 
             StockCount.NETWORKS.forEach { network ->
                 OutlinedTextField(
