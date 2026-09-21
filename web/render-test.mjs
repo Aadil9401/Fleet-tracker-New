@@ -18,11 +18,11 @@ import { loadPortal, writes, setValue, dataset, classesOf } from './portal-harne
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'fyRepeats',
-  'stockOnHandRows', 'stockNotCounted', 'stockMonthsOfCover', 'renderStock',
-  'knownStockTeams', 'renderStockAdd', 'stockCoverMonths', 'stockCountTeam',
+  'stockOnHandRows', 'stockNotCounted', 'renderStock',
+  'knownStockTeams', 'renderStockAdd', 'stockCountTeam',
   'visibleStockRows', 'renderStockFilters', 'stockTeamProvince',
   'perfMonthsLoaded',
-  'stockExportRows', 'stockFilters', 'STOCK_COVER_MONTHS',
+  'stockExportRows', 'stockFilters',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
   'setPerfPeriod',
   'perfByMonthExportRows', 'renderPerformance', 'droppableTeams', 'renderPerfDrop',
@@ -3107,29 +3107,58 @@ check('a month a team missed exports empty, not nought', rngGridCsv[2], ['TEMBIS
 /* Counted, not calculated. What makes the tab readable is knowing how OLD each figure is
    and which branches have not been counted at all. */
 portal.data.stockCounts = [
-  // Soweto counted twice, so it has a change to show.
+  // An uploaded count: no person on it, so the row is the team.
   { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-01', network: 'MTN', held: 10000 },
   { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-01', network: 'TELKOM', held: 4000 },
   { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-15', network: 'MTN', held: 12000 },
   { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-15', network: 'TELKOM', held: 3000 },
-  // Tembisa counted MTN last week and Cell C a month ago: two facts of different ages.
+  // Two facts of different ages, which is what dates the row.
   { teamKey: 'TEMBISA', team: 'TEMBISA', countedOn: '2026-09-14', network: 'MTN', held: 5000 },
   { teamKey: 'TEMBISA', team: 'TEMBISA', countedOn: '2026-08-10', network: 'CELLC', held: 900 }
 ];
 
 const onHand = portal.stockOnHandRows('2026-09-16');
-check('one row per branch, biggest holding first',
+check('one row per counter, biggest holding first',
   onHand.map(r => [r.team, r.held]), [['SOWETO', 15000], ['TEMBISA', 5900]]);
-// The newest count for each network wins; the one it replaced is what change measures from.
 check('the latest count for each network is the one shown',
   onHand[0].networks.MTN.held, 12000);
-check('and the change is against the previous count', onHand[0].change, 1000);
+// An uploaded count has nobody to name, and says so rather than inventing one.
+check('an uploaded count has no person on it', onHand[0].who, '');
 /* A ROW IS AS OLD AS ITS OLDEST NETWORK. Dating it by the newest would read a month-old
    Cell C figure as current because MTN was counted yesterday. */
 check('a row is dated by its oldest network', onHand[1].countedOn, '2026-08-10');
 check('and says how many days that is', onHand[1].daysOld, 37);
-// Change needs every network on the row counted twice, or it is comparing halves.
-check('a branch counted only once has no change to show', onHand[1].change, null);
+
+/* TWO REPS ON ONE TEAM ARE TWO ROWS, because they carry their own stock. Grouped by team
+   the newest count replaced the other one, so the team held both and the tab showed one
+   — Aadil: "keep it per employee as some teams share stock". */
+portal.data.employees = [
+  { id: 'p1', employeeNumber: 'T030', name: 'Allen', surname: 'C', teamName: 'SPRINGS' },
+  { id: 'p2', employeeNumber: 'T072', name: 'Douglas', surname: 'T', teamName: 'SPRINGS' }
+];
+portal.data.stockCounts = [
+  { uid: 'p1', countedOn: '2026-09-15', network: 'MTN', held: 4000 },
+  { uid: 'p2', countedOn: '2026-09-15', network: 'MTN', held: 6000 }
+];
+const sharedTeam = portal.stockOnHandRows('2026-09-16');
+check('two reps on one team are two rows',
+  sharedTeam.map(r => [r.who, r.held]), [['Douglas T', 6000], ['Allen C', 4000]]);
+check('and both say which team they are on',
+  [...new Set(sharedTeam.map(r => r.team))], ['SPRINGS']);
+// One rep counting again replaces their own row, and nobody else's.
+portal.data.stockCounts.push(
+  { uid: 'p1', countedOn: '2026-09-16', network: 'MTN', held: 4500 });
+const after = portal.stockOnHandRows('2026-09-16');
+check('counting again replaces that person and leaves the other alone',
+  after.map(r => [r.who, r.held]).sort(), [['Allen C', 4500], ['Douglas T', 6000]]);
+
+// The chase list is about TEAMS with figures, so the fixtures go back to the two teams
+// the counts above were taken for.
+portal.data.employees = [];
+portal.data.stockCounts = [
+  { teamKey: 'SOWETO', team: 'SOWETO', countedOn: '2026-09-15', network: 'MTN', held: 12000 },
+  { teamKey: 'TEMBISA', team: 'TEMBISA', countedOn: '2026-08-10', network: 'CELLC', held: 900 }
+];
 
 /* WHO TO CHASE — built from the teams in the FIGURES, not the staff list, because a
    branch nobody is posted to still holds stock and is the one nobody thinks to ask. */
@@ -3150,31 +3179,6 @@ check('and the allocation is beside it, so the biggest gap is obvious',
 check('a fresh count is not chased',
   chase.some(r => r.team === 'SOWETO'), false);
 
-/* COVER: the count against that branch's own average monthly allocation. Averaged over a
-   quarter so one big month cannot set it. */
-check('cover is the count over the average month',
-  portal.stockMonthsOfCover('SOWETO', 20000, ['2026-09']), 1);
-check('a branch with no allocation has no cover to report',
-  portal.stockMonthsOfCover('NOWHERE', 500, ['2026-09']), null);
-
-/* THIS MONTH IS NOT ONE OF THE MONTHS COVER IS AVERAGED OVER, and that is the bug this is
-   here for. On the eighteenth a month has had about sixty per cent of its allocation, so
-   averaging it in drags the average down and makes the same holding look like more months
-   of cover than it is — worst early in the month, which is when the figure gets read. */
-check('cover looks at three months', portal.stockCoverMonths('2026-09-18').length,
-  portal.STOCK_COVER_MONTHS);
-check('and none of them is this one',
-  portal.stockCoverMonths('2026-09-18').includes('2026-09'), false);
-check('it is the three complete months before it',
-  portal.stockCoverMonths('2026-09-18'), ['2026-08', '2026-07', '2026-06']);
-// And it steps over a year end without landing on month zero.
-check('stepping back over a year end still works',
-  portal.stockCoverMonths('2027-01-05'), ['2026-12', '2026-11', '2026-10']);
-// Every month it will divide by has to be fetched, or the divisor is whatever happened to
-// be in memory — which made the same screen give different answers.
-check('the tab fetches every month cover needs',
-  portal.stockCoverMonths('2026-09-18').every(m =>
-    src.includes('...stockCoverMonths()')), true);
 
 // Built from today, because renderStock() reads the clock rather than being handed a
 // date — fixed months here would stop being "this month" the moment the calendar moved.
@@ -3528,12 +3532,16 @@ portal.data.stockCounts = [
   { teamKey: 'HAZYVIEW', team: 'HAZYVIEW', countedOn: '2026-09-21', network: 'MTN', held: 40 }
 ];
 const phoneRows = portal.stockOnHandRows('2026-09-21');
-check('phone counts land on the right branch',
-  phoneRows.map(r => r.team).sort(), ['HAZYVIEW', 'SOWETO']);
-/* Two reps on one branch each counting is ONE branch holding, and the newest wins for
-   that network — the tab is about what the branch has, not who typed it. */
-check('and the newest count for a network is the one shown',
-  phoneRows.find(r => r.team === 'SOWETO').networks.MTN.held, 1200);
+check('phone counts land on the right team',
+  phoneRows.map(r => r.team).sort(), ['HAZYVIEW', 'SOWETO', 'SOWETO']);
+/* TWO REPS ON ONE TEAM ARE TWO ROWS, each with their own holding. Rolled into one the
+   newer count replaced the older, so the team held 2 100 and the tab showed 1 200. */
+check('each rep on a team keeps their own count',
+  phoneRows.filter(r => r.team === 'SOWETO').map(r => r.held).sort((a, b) => a - b),
+  [900, 1200]);
+check('and each row says who took it',
+  phoneRows.filter(r => r.team === 'SOWETO').map(r => r.who).sort(),
+  ['Ayanda K', 'Bongi N']);
 
 
 

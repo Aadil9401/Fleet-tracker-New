@@ -1351,14 +1351,14 @@
           long before anybody activates it. The difference is stock in the channel, not
           stock in a boot, and a holding cannot be worked out from either number.
           <br><br>
-          <b>A row is as old as its oldest network.</b> A team that counts MTN weekly
+          <b>One row per person</b>, because that is who carries the stock. Ten teams
+          have two reps on them, each with their own — grouping by team would show one
+          of the two and call it the team's. A row with no name is a count you uploaded
+          yourself rather than one a rep took on their phone.
+          <br>
+          <b>A row is as old as its oldest network.</b> Somebody who counts MTN weekly
           and Cell C once a month holds two facts of different ages, and dating the row by
           the newest would read a month-old figure as current.
-          <br>
-          <b>Change</b> is against that team's previous count, and is shown only once
-          every network on the row has been counted twice. <b>Cover</b> is the count
-          against that team's own average monthly allocation — roughly how long what
-          they are holding would last them.
           <br><br>
           A blank in the file is a network that team does not carry and gets no row; a
           typed <b>0</b> is a real stockout and is stored.
@@ -9077,15 +9077,26 @@ function stockOnHandRows(today = todayString(), network = '') {
     if (!whose) return;
     if (wanted && networkKey(raw.network) !== wanted) return;
     const r = { ...raw, team: whose.name, teamKey: whose.key };
-    const key = whose.key;
-    const team = byTeam[key] || (byTeam[key] = { team: r.team || key, teamKey: key, networks: {} });
+    /*
+     * KEYED ON THE PERSON where a phone took the count, on the team where the portal
+     * did. Ten teams have two reps, each carrying their own stock — keyed on the team,
+     * the newer count replaced the older one, so the team held both and the tab showed
+     * one. Aadil: "keep it per employee as some teams share stock".
+     */
+    const person = raw.uid ? data.employees.find(e => e.id === raw.uid) : null;
+    const key = raw.uid || whose.key;
+    const team = byTeam[key] || (byTeam[key] = {
+      team: r.team || whose.key,
+      teamKey: whose.key,
+      uid: raw.uid || '',
+      who: person ? fullName(person) : (raw.employeeName || ''),
+      networks: {}
+    });
     const was = team.networks[r.network];
     team.networks[r.network] = {
       network: r.network,
       held: Number(r.held),
-      countedOn: r.countedOn,
-      // The one it replaced, which is what "change since last count" is measured from.
-      previous: was ? { held: was.held, countedOn: was.countedOn } : null
+      countedOn: r.countedOn
     };
   });
 
@@ -9096,11 +9107,11 @@ function stockOnHandRows(today = todayString(), network = '') {
     // call a month-old Cell C figure current because MTN was counted yesterday.
     const oldest = counts.reduce((worst, c) =>
       !worst || c.countedOn < worst ? c.countedOn : worst, '');
-    const previousTotal = counts.every(c => c.previous)
-      ? counts.reduce((sum, c) => sum + c.previous.held, 0) : null;
     return {
       team: team.team,
       teamKey: team.teamKey,
+      uid: team.uid,
+      who: team.who,
       province: stockTeamProvince(team.teamKey),
       networks: team.networks,
       held,
@@ -9109,10 +9120,10 @@ function stockOnHandRows(today = todayString(), network = '') {
       // age. It was negated here, which made every count read as days in the future and
       // told the chase list that a five-week-old figure was fresh.
       daysOld: daysBetween(oldest, today),
-      change: previousTotal === null ? null : held - previousTotal,
       counted: counts.length
     };
-  }).sort((a, b) => b.held - a.held || String(a.team).localeCompare(String(b.team)));
+  }).sort((a, b) => b.held - a.held
+    || String(a.who || a.team).localeCompare(String(b.who || b.team)));
 }
 
 /**
@@ -9143,23 +9154,7 @@ function stockNotCounted(month, staleAfterDays = 14, today = todayString()) {
     || (b.allocated ?? 0) - (a.allocated ?? 0));
 }
 
-/** How many months of a team's own recent allocation its count would cover. */
-function stockMonthsOfCover(teamKeyed, held, months) {
-  const each = months.map(month => {
-    const row = teamFiguresFor(month, '')[teamKeyed];
-    const value = row ? row.stock : null;
-    return value === null || value === undefined ? null : Number(value);
-  }).filter(v => v !== null);
-  if (each.length === 0) return null;
-  const average = each.reduce((a, b) => a + b, 0) / each.length;
-  if (!average) return null;
-  return held / average;
-}
-
 const stockFilters = { province: '', team: '', network: '', query: '' };
-
-/** The months the cover figure is averaged over — a quarter, so one big month cannot set it. */
-const STOCK_COVER_MONTHS = 3;
 
 /** Rows on screen, after the pickers and the search box. */
 function visibleStockRows() {
@@ -9173,43 +9168,15 @@ function visibleStockRows() {
 }
 
 /** The last few months, newest first, for the cover average. */
-/**
- * The months the cover figure is averaged over: the last three COMPLETE ones.
- *
- * THIS MONTH IS DELIBERATELY NOT AMONG THEM. On the eighteenth a month has had about
- * sixty per cent of its allocation, and averaging that in drags the average down — which
- * makes the same holding look like more months of cover than it is. The error grows the
- * earlier in the month somebody looks, which is exactly when the figure gets read.
- *
- * Three, so one heavy month cannot set it on its own.
- */
-function stockCoverMonths(today = todayString()) {
-  const months = [];
-  let [y, m] = today.slice(0, 7).split('-').map(Number);
-  // Step back one before collecting: the current month is partial by definition.
-  m -= 1;
-  if (m < 1) { m = 12; y -= 1; }
-  for (let i = 0; i < STOCK_COVER_MONTHS; i++) {
-    months.push(`${y}-${String(m).padStart(2, '0')}`);
-    m -= 1;
-    if (m < 1) { m = 12; y -= 1; }
-  }
-  return months;
-}
-
 /** Stock on hand as CSV rows, header first — the same columns as the table. */
 function stockExportRows() {
-  const months = stockCoverMonths();
-  const header = ['Team', ...NETWORKS.map(n => NETWORK_LABELS[n]), 'Total held',
-    'Counted on', 'Days old', 'Change since last count', 'Months of cover'];
-  return [header, ...visibleStockRows().map(r => {
-    const cover = stockMonthsOfCover(r.teamKey, r.held, months);
-    return [r.team,
-      ...NETWORKS.map(n => r.networks[n] ? r.networks[n].held : ''),
-      r.held, r.countedOn, r.daysOld ?? '',
-      r.change === null ? '' : r.change,
-      cover === null ? '' : cover.toFixed(1)];
-  })];
+  const header = ['Employee', 'Team', 'Province',
+    ...NETWORKS.map(n => NETWORK_LABELS[n]), 'Total held', 'Counted on', 'Days old'];
+  return [header, ...visibleStockRows().map(r => [
+    r.who, r.team, r.province,
+    ...NETWORKS.map(n => r.networks[n] ? r.networks[n].held : ''),
+    r.held, r.countedOn, r.daysOld ?? ''
+  ])];
 }
 
 /**
@@ -9251,7 +9218,6 @@ function renderStock() {
   $('stockFormat').textContent = STOCK_COLUMNS.join(', ');
   renderStockFilters();
 
-  const months = stockCoverMonths();
   const rows = visibleStockRows();
   const all = stockOnHandRows();
 
@@ -9263,7 +9229,7 @@ function renderStock() {
   const uncounted = stockNotCounted(month).length;
 
   $('stockTiles').innerHTML = [
-    ['Teams counted', rows.length === 0 ? '—' : num(rows.length), ''],
+    ['People counted', rows.length === 0 ? '—' : num(rows.length), ''],
     ['On hand', rows.length === 0 ? '—' : num(held), ''],
     ['Oldest count', oldest === null ? '—' : `${num(oldest)} days`,
       oldest !== null && oldest > 14 ? 'warn' : ''],
@@ -9280,24 +9246,25 @@ function renderStock() {
   // columns of noise, and the total beside them would read as four times the holding.
   const columns = stockFilters.network
     ? [networkKey(stockFilters.network)] : NETWORKS;
-  $('stockHead').innerHTML = '<th>Team</th>'
+  $('stockHead').innerHTML = '<th>Employee</th><th>Team</th>'
     + columns.map(n => `<th>${esc(NETWORK_LABELS[n])}</th>`).join('')
-    + '<th>On hand</th><th>Counted</th><th>Change</th><th>Cover</th>';
+    + '<th>On hand</th><th>Counted</th>';
 
   const cell = (v) => v === null || v === undefined
     ? '<span class="meta">—</span>' : num(v);
 
   $('stockRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="${columns.length + 5}" class="empty">`
+    ? `<tr><td colspan="${columns.length + 4}" class="empty">`
       + (all.length === 0
         ? 'No counts uploaded yet. The figures cannot tell you this one — it has to be counted.'
         : 'No team matches that search.')
       + '</td></tr>'
     : rows.map(r => {
-      const cover = stockMonthsOfCover(r.teamKey, r.held, months);
       // A count nobody has refreshed for a fortnight is not a current holding.
       const stale = r.daysOld !== null && r.daysOld > 14;
       return `<tr>
+        <td><div class="nm">${esc(r.who || '—')}</div>${
+          r.who ? '' : '<div class="meta">uploaded, not counted on a phone</div>'}</td>
         <td><div class="nm">${esc(r.team)}</div>${
           r.province ? `<div class="meta">${esc(r.province)}</div>` : ''}</td>
         ${columns.map(n => `<td>${r.networks[n]
@@ -9306,12 +9273,6 @@ function renderStock() {
         <td>${esc(prettyDate(r.countedOn))}<div class="meta${stale ? ' due' : ''}">${
           r.daysOld === null ? '' : esc(`${r.daysOld} day${r.daysOld === 1 ? '' : 's'} ago`)
         }</div></td>
-        <td>${r.change === null
-          ? '<span class="meta">—</span>'
-          : `${r.change > 0 ? '+' : ''}${num(r.change)}`}</td>
-        <td>${cover === null
-          ? '<span class="meta">—</span>'
-          : esc(`${cover.toFixed(1)} months`)}</td>
       </tr>`;
     }).join('');
 
@@ -9384,19 +9345,9 @@ function renderStockNotCounted(month) {
 async function showStock() {
   $('appView').classList.add('busy');
   try {
-    /*
-     * THE MONTH THE CHASE LIST IS ABOUT, AND THE MONTHS COVER IS AVERAGED OVER.
-     *
-     * Only the first was fetched before, so cover was divided by whichever of the three
-     * months happened to be in memory — usually one, and usually the partial current one.
-     * The same screen gave a different answer depending on whether somebody had visited
-     * the Performance tab first, and neither answer said which it was.
-     *
-     * Each is fetched once per session, so this costs nothing on the second visit.
-     */
-    for (const month of [todayString().slice(0, 7), ...stockCoverMonths()]) {
-      await loadPerfMonth(month);
-    }
+    // Only the month the chase list is about. Cover was the only thing that wanted the
+    // months before it, and cover is gone — Aadil: "there is no need for change, cover".
+    await loadPerfMonth(todayString().slice(0, 7));
   } catch (err) {
     // Drawn anyway: the counts themselves came down with the bulk load and are worth
     // seeing. renderStock says the chase list could not be built rather than saying
