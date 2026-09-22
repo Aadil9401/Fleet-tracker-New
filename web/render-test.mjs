@@ -21,6 +21,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'stockOnHandRows', 'stockNotCounted', 'renderStock',
   'knownStockTeams', 'renderStockAdd', 'stockCountTeam',
   'visibleStockRows', 'renderStockFilters', 'stockTeamProvince',
+  'stockCountsUnder',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -3681,5 +3682,97 @@ check('with nothing booked there is nothing to show',
   portal.leaveAhead(portal.LEAVE_AHEAD_DAYS, leaveFrom), []);
 
 
+/* ---------------- removing a count ---------------- */
+/* Aadil: "on stock, give me option to delete". A count typed with a digit too many is
+   otherwise permanent, and the figure it produces is the one somebody orders against. */
+portal.data.employees = [
+  { id: 'd1', employeeNumber: 'T001', name: 'Dumi', surname: 'M',
+    teamName: 'SOWETO', province: 'Gauteng' }
+];
+portal.data.stockCounts = [
+  { id: 'd1_2026-09-10_MTN', uid: 'd1', countedOn: '2026-09-10', network: 'MTN', held: 800 },
+  { id: 'd1_2026-09-20_MTN', uid: 'd1', countedOn: '2026-09-20', network: 'MTN', held: 90000 },
+  { id: 'd1_2026-09-20_TELKOM', uid: 'd1', countedOn: '2026-09-20',
+    network: 'TELKOM', held: 120 },
+  { id: 'RICHARDS BAY_2026-09-20_MTN', teamKey: 'RICHARDS BAY', team: 'RICHARDS BAY',
+    countedOn: '2026-09-20', network: 'MTN', held: 40 }
+];
+
+/* THE ROW CARRIES THE DOCUMENTS IT WAS DRAWN FROM. Rebuilding the address from the team
+   and the date at click time would miss a count filed under a uid and delete nothing,
+   while telling the admin it had worked. */
+const delRows = portal.stockOnHandRows('2026-09-21');
+const dumi = delRows.find(r => r.who === 'Dumi M');
+check('a row names the documents behind it',
+  [...dumi.ids].sort(), ['d1_2026-09-20_MTN', 'd1_2026-09-20_TELKOM']);
+check('and not the older count it replaced',
+  dumi.ids.includes('d1_2026-09-10_MTN'), false);
+check('an uploaded row names its own document',
+  delRows.find(r => r.team === 'RICHARDS BAY').ids, ['RICHARDS BAY_2026-09-20_MTN']);
+
+/* WHAT WOULD SURFACE IS SAID BEFORE THE DELETE, not discovered after it. The table shows
+   each counter's latest figure, so removing it uncovers the one before — the row stays
+   and shows an older number, which without warning reads as a broken button. */
+const under = portal.stockCountsUnder(dumi.ids);
+check('the earlier count that would take its place is named',
+  under.map(c => [c.network, c.held]), [['MTN', 800]]);
+check('a network with nothing under it surfaces nothing',
+  portal.stockCountsUnder(['d1_2026-09-20_TELKOM']), []);
+check('and neither does a row nobody counted twice',
+  portal.stockCountsUnder(['RICHARDS BAY_2026-09-20_MTN']), []);
+// Somebody else's count of the same network is not what surfaces on this row.
+portal.data.stockCounts.push(
+  { id: 'd2_2026-09-01_MTN', uid: 'd2', countedOn: '2026-09-01', network: 'MTN', held: 7 });
+check(`another person's older count is not underneath this one`,
+  portal.stockCountsUnder(['d1_2026-09-20_MTN']).map(c => c.held), [800]);
+portal.data.stockCounts.pop();
+
+/* ONE NETWORK CHOSEN REMOVES THAT NETWORK ALONE. The row is about that network, and a
+   Remove that quietly took the other three with it would be the opposite of the filter. */
+const delMtnOnly = portal.stockOnHandRows('2026-09-21', 'MTN')
+  .find(r => r.who === 'Dumi M');
+check('with a network chosen the row is that network alone',
+  delMtnOnly.ids, ['d1_2026-09-20_MTN']);
+
+/* The button carries who, which day and how much — the confirm has to name them, because
+   there is no undo and a Remove that says only "this count" is one misread row away from
+   deleting somebody else's. */
+setValue('stockMonth', '2026-09');
+portal.perfMonthsLoaded.add('2026-09');
+portal.stockFilters.province = '';
+portal.stockFilters.team = '';
+portal.stockFilters.network = '';
+portal.stockFilters.query = '';
+portal.renderStock();
+const stockDrawn = writes()['stockRows'] || '';
+check('every row has a Remove button',
+  (stockDrawn.match(/data-stock-remove=/g) || []).length, delRows.length);
+check('carrying the documents', stockDrawn.includes('d1_2026-09-20_MTN,d1_2026-09-20_TELKOM'),
+  true);
+check('and who it belongs to', stockDrawn.includes('data-stock-who="Dumi M"'), true);
+check('and the day it was counted',
+  stockDrawn.includes('data-stock-date="2026-09-20"'), true);
+check('and what it comes to', stockDrawn.includes('data-stock-held="90120"'), true);
+// The header gained a column; a row that spans the table has to have gained one too.
+check('the empty row still spans the whole table', (() => {
+  portal.data.stockCounts = [];
+  portal.renderStock();
+  const head = (writes()['stockHead'] || '').split('<th>').length - 1;
+  const span = /colspan="(\d+)"/.exec(writes()['stockRows'] || '');
+  return span && Number(span[1]) === head;
+})(), true);
+
+/* A FILE-READ INVARIANT. The delete must aim at the ids the row was drawn from; building
+   the address again from the team and the date is the mistake that silently deletes
+   nothing for every count taken on a phone. */
+const stockSrc = portalHtml;
+const removeBody = stockSrc.slice(stockSrc.indexOf('async function removeStockCount'),
+  stockSrc.indexOf('/** The four boxes'));
+check('the delete aims at the ids the row carried',
+  removeBody.includes("batch.delete(doc(db, 'stockCounts', id))"), true);
+check('and never rebuilds the address', removeBody.includes('countedOn}_'), false);
+
+
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);
+

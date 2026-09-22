@@ -9181,7 +9181,11 @@ function stockOnHandRows(today = todayString(), network = '') {
     team.networks[r.network] = {
       network: r.network,
       held: Number(r.held),
-      countedOn: r.countedOn
+      countedOn: r.countedOn,
+      // Carried so a row can be removed without working out its address again — the id
+      // is what Firestore was given, and rebuilding it from parts is how a delete ends
+      // up aimed at a document that does not exist.
+      id: r.id
     };
   });
 
@@ -9199,6 +9203,10 @@ function stockOnHandRows(today = todayString(), network = '') {
       who: team.who,
       province: stockTeamProvince(team.teamKey),
       networks: team.networks,
+      // Every document behind this row, so Remove takes the whole count away rather
+      // than the network that happens to be first.
+      ids: NETWORKS.map(n => team.networks[n]).filter(Boolean)
+        .map(c => c.id).filter(Boolean),
       held,
       countedOn: oldest,
       // daysBetween(from, to) counts FORWARD, so counted-on to today is already the
@@ -9333,13 +9341,13 @@ function renderStock() {
     ? [networkKey(stockFilters.network)] : NETWORKS;
   $('stockHead').innerHTML = '<th>Employee</th><th>Team</th>'
     + columns.map(n => `<th>${esc(NETWORK_LABELS[n])}</th>`).join('')
-    + '<th>On hand</th><th>Counted</th>';
+    + '<th>On hand</th><th>Counted</th><th></th>';
 
   const cell = (v) => v === null || v === undefined
     ? '<span class="meta">—</span>' : num(v);
 
   $('stockRows').innerHTML = rows.length === 0
-    ? `<tr><td colspan="${columns.length + 4}" class="empty">`
+    ? `<tr><td colspan="${columns.length + 5}" class="empty">`
       + (all.length === 0
         ? 'No counts uploaded yet. The figures cannot tell you this one — it has to be counted.'
         : 'No team matches that search.')
@@ -9358,8 +9366,41 @@ function renderStock() {
         <td>${esc(prettyDate(r.countedOn))}<div class="meta${stale ? ' due' : ''}">${
           r.daysOld === null ? '' : esc(`${r.daysOld} day${r.daysOld === 1 ? '' : 's'} ago`)
         }</div></td>
+        <td><button class="ghost danger" data-stock-remove="${esc(r.ids.join(','))}"
+          data-stock-who="${esc(r.who || r.team)}" data-stock-date="${esc(r.countedOn)}"
+          data-stock-held="${esc(r.held)}">Remove</button></td>
       </tr>`;
     }).join('');
+
+  $('stockRows').querySelectorAll('[data-stock-remove]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ids = String(btn.dataset.stockRemove || '').split(',').filter(Boolean);
+      const under = stockCountsUnder(ids);
+      // The confirm names WHO and WHICH DAY. There is no undo on this, and a Remove that
+      // only says "this count" is one misread row away from deleting the wrong person's.
+      const held = num(Number(btn.dataset.stockHeld || 0));
+      const asked = `Remove ${btn.dataset.stockWho}'s count from `
+        + `${prettyDate(btn.dataset.stockDate)}?\n\n`
+        + `${ids.length} network${ids.length === 1 ? '' : 's'}, ${held} on hand.`
+        + (under.length > 0
+          ? `\n\nAn earlier count takes its place, so the row stays — `
+            + under.map(c => `${NETWORK_LABELS[networkKey(c.network)]} `
+              + num(Number(c.held))).join(', ')
+            + ` from ${prettyDate(under.map(c => c.countedOn).sort()[0])}.`
+          : `\n\nNothing was counted before it, so the row goes.`)
+        + `\n\nThis cannot be undone.`;
+      if (!confirm(asked)) return;
+      btn.disabled = true;
+      try {
+        await removeStockCount(ids);
+        showMsg('Count removed.');
+        await loadAll();
+      } catch (err) {
+        btn.disabled = false;
+        showMsg('Could not remove: ' + err.message, 'err');
+      }
+    });
+  });
 
   renderStockNotCounted(month);
   renderStockAdd();
@@ -9494,6 +9535,52 @@ async function writeStockRows(rows) {
     });
     await batch.commit();
   }
+}
+
+/**
+ * What a row would fall back to if its count were taken off.
+ *
+ * A COUNT REMOVED IS NOT A PERSON REMOVED. The table shows each counter's LATEST figure
+ * per network, so deleting it uncovers whatever was counted before — the row stays and
+ * shows an older number. Said before the delete rather than discovered after it, because
+ * "I deleted it and it is still there" reads as a broken button.
+ */
+function stockCountsUnder(ids) {
+  const wanted = new Set(ids.filter(Boolean));
+  const going = data.stockCounts.filter(r => wanted.has(r.id));
+  const address = (r) => {
+    const whose = stockCountTeam(r);
+    return [r.uid || (whose ? whose.key : ''), networkKey(r.network)].join('|');
+  };
+  const under = {};
+  going.forEach(g => {
+    data.stockCounts.forEach(older => {
+      if (wanted.has(older.id)) return;
+      if (address(older) !== address(g)) return;
+      if (String(older.countedOn) >= String(g.countedOn)) return;
+      const seen = under[address(older)];
+      if (!seen || String(older.countedOn) > String(seen.countedOn)) {
+        under[address(older)] = older;
+      }
+    });
+  });
+  return Object.values(under);
+}
+
+/**
+ * Takes a count off.
+ *
+ * Deletes EXACTLY THE DOCUMENTS THE ROW IS MADE OF — the ids it was drawn from — so with
+ * a network chosen it removes that network alone, and with none chosen the whole count.
+ * Rebuilding the address from the team and the date instead would miss a count filed
+ * under a uid, and delete nothing while saying it had worked.
+ */
+async function removeStockCount(ids) {
+  const wanted = ids.filter(Boolean);
+  if (wanted.length === 0) { showMsg('Nothing to remove.', 'err'); return; }
+  const batch = writeBatch(db);
+  wanted.forEach(id => batch.delete(doc(db, 'stockCounts', id)));
+  await batch.commit();
 }
 
 /** The four boxes, generated so they cannot fall out of step with the networks. */
