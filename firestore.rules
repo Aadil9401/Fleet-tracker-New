@@ -23,15 +23,41 @@ service cloud.firestore {
     // Only an admin can edit a profile afterwards, so role can't be changed later.
     match /users/{uid} {
       allow read: if isOwner(uid) || isAdmin();
-      allow create: if isOwner(uid)
-        && request.resource.data.role == 'employee'
-        && request.resource.data.active == true
-        && request.resource.data.assignedVehicleId == '';
+      // An ADMIN MAY CREATE ONE TOO, which is what Restore needs: deleting a profile
+      // leaves the person's Auth login intact but with nothing attached, and only a
+      // document written under THAT SAME uid puts their hours, fuel, stock counts and
+      // figures back where they were. Without this the only way back was the Firebase
+      // console. It grants an admin nothing they did not already have — they can edit
+      // any profile and promote anyone — but the self-registration clause below still
+      // stands on its own, so a signing-up employee cannot make themselves an admin.
+      allow create: if isAdmin()
+        || (isOwner(uid)
+          && request.resource.data.role == 'employee'
+          && request.resource.data.active == true
+          && request.resource.data.assignedVehicleId == '');
       allow update: if isAdmin();
       // Admins can delete a profile — needed to clear duplicate sign-ups. This only
       // removes the Firestore record; the person's Firebase Auth login still exists
       // but becomes unusable, since the app refuses a login with no profile.
       allow delete: if isAdmin();
+    }
+
+    /*
+     * THE COPY TAKEN BEFORE A PROFILE IS DELETED.
+     *
+     * Removing an employee used to be final: the record went, and with it the only
+     * thing tying a person's uid to their name. Their work stayed — hours, fuel,
+     * stock counts, figures are all filed under the uid — but nothing could reach it
+     * again. Aadil deleted T084 and there was no way back short of the console.
+     *
+     * So the portal writes the profile here FIRST and deletes it second, and Restore
+     * reads it back. Admin-only in every direction: it holds staff details.
+     *
+     * No update — a copy that could be edited is not a copy of anything.
+     */
+    match /removedEmployees/{uid} {
+      allow read, create, delete: if isAdmin();
+      allow update: if false;
     }
 
     // Reserves an employee number so two people can't sign up with the same one.

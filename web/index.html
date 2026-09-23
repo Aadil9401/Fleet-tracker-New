@@ -691,6 +691,54 @@
       </div>
 
       <div class="card">
+        <h2 class="section">Removed employees</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          Removing somebody deletes their record but leaves their login and all their
+          work — hours, fuel, stock counts and figures are filed under the same id.
+          <b>Restore</b> puts the record back under that id, so everything reattaches.
+          <br>
+          Only people removed since this was added can be restored here. For anybody
+          removed before that, use <b>Bring back somebody removed earlier</b> below —
+          you will need their id from Firebase Console &rsaquo; Authentication.
+        </p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Employee</th><th>Team</th><th>Removed</th><th></th></tr></thead>
+          <tbody id="removedRows"></tbody>
+        </table></div>
+
+        <details style="margin-top:var(--s3)">
+          <summary style="cursor:pointer">Bring back somebody removed earlier</summary>
+          <p class="sub" style="font-size:.85rem;margin:var(--s2) 0">
+            Their id is the <b>User UID</b> on their row in Firebase Console &rsaquo;
+            Authentication. It has to be that exact id — a new one leaves their work
+            behind. Type the employee number and the rest fills in from the staff list
+            where it knows them; check it before you save.
+          </p>
+          <div class="grid">
+            <div class="field"><label for="rsUid">Firebase user id</label>
+              <input id="rsUid" type="text" placeholder="28 or so letters and digits"></div>
+            <div class="field"><label for="rsNumber">Employee number</label>
+              <input id="rsNumber" type="text" placeholder="T084"></div>
+            <div class="field"><label for="rsName">First name</label>
+              <input id="rsName" type="text"></div>
+            <div class="field"><label for="rsSurname">Surname</label>
+              <input id="rsSurname" type="text"></div>
+            <div class="field"><label for="rsProvince">Province</label>
+              <input id="rsProvince" type="text"></div>
+            <div class="field"><label for="rsTeam">Team</label>
+              <input id="rsTeam" type="text"></div>
+            <div class="field"><label for="rsCell">Cell number</label>
+              <input id="rsCell" type="tel" placeholder="082 123 4567"></div>
+            <div class="field"><label for="rsEmail">Login email</label>
+              <input id="rsEmail" type="email"></div>
+            <div class="field"><label for="rsReg">Vehicle registration</label>
+              <input id="rsReg" type="text"></div>
+          </div>
+          <button id="rsSave" style="margin-top:var(--s2)">Bring them back</button>
+        </details>
+      </div>
+
+      <div class="card">
         <h2 class="section">Staff list</h2>
         <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
           Upload your official list once. When people sign up, press
@@ -1780,7 +1828,7 @@ let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLog
   insuranceClaims: [],
   recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [], birthdays: null,
   perfMonthly: [], perfTeams: [], perfFy: [], debtLines: [], debtPayments: [],
-  stockCounts: [], leaveAhead: [] };
+  stockCounts: [], leaveAhead: [], removedEmployees: [] };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -2249,7 +2297,7 @@ async function loadAll() {
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
       activityWindow, fuelHistory, roster, birthdays, stockCounts, debtLines, debtPayments,
-      insuranceClaims] = await Promise.all([
+      insuranceClaims, removedEmployees] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -2278,7 +2326,11 @@ async function loadAll() {
         getDocs(collection(db, 'stockCounts')),
         getDocs(collection(db, 'debtLines')),
         getDocs(collection(db, 'debtPayments')),
-        getDocs(collection(db, 'insuranceClaims'))
+        getDocs(collection(db, 'insuranceClaims')),
+        // The profiles deleted from this tab. Small — it holds only what has been
+        // removed and not yet restored or forgotten — and read whole, because a
+        // restore has to have the whole record to write back.
+        getDocs(collection(db, 'removedEmployees'))
         // Performance figures are NOT loaded here — see loadPerfMonth. Both tabs show
         // one month at a time, and reading two years of them on every page load is the
         // single most expensive thing this portal could do.
@@ -2308,6 +2360,7 @@ async function loadAll() {
       debtLines: rows(debtLines),
       debtPayments: rows(debtPayments),
       insuranceClaims: rows(insuranceClaims),
+      removedEmployees: rows(removedEmployees),
       // Not part of the bulk load: fetched a month at a time by loadPerfMonth. Emptied
       // here so the month on screen is re-read rather than kept from the load before.
       perfMonthly: [],
@@ -3471,14 +3524,31 @@ function renderEmployees() {
         </tr>`;
       }).join('');
 
+  renderRemoved();
+
   $('empRows').querySelectorAll('[data-remove]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const emp = data.employees.find(x => x.id === btn.dataset.remove);
       if (!emp) return;
       if (!confirm(`Remove ${fullName(emp)}?\n\nTheir record is deleted and they can no `
-        + `longer sign in. Logged hours and fuel are kept.\n\nIf this is a real person `
-        + `rather than a duplicate, use Deactivate instead — that's reversible.`)) return;
+        + `longer sign in. Logged hours and fuel are kept.\n\nA copy is kept under `
+        + `Removed employees, so this can be undone — but Deactivate is still the `
+        + `better way to put somebody aside.`)) return;
       try {
+        /*
+         * THE COPY IS TAKEN FIRST, and a failed copy stops the delete.
+         *
+         * Deleting used to be final. The record went and with it the only thing tying
+         * the person's uid to their name — their hours, fuel, stock counts and figures
+         * all stayed, filed under that uid, with nothing left that could reach them.
+         * Deleting before the copy lands would put us straight back there, so the
+         * order matters more than it looks.
+         */
+        await setDoc(doc(db, 'removedEmployees', emp.id), {
+          ...profileOf(emp),
+          removedAtMillis: Date.now(),
+          removedBy: currentUid || ''
+        });
         await deleteDoc(doc(db, 'users', emp.id));
         // Release their employee number so the right person can register it.
         const key = numberKey(emp.employeeNumber);
@@ -3674,6 +3744,213 @@ $('editSave').addEventListener('click', async () => {
     $('editSave').disabled = false;
   }
 });
+
+/**
+ * The fields a profile is made of.
+ *
+ * Named rather than spread wholesale, so the id the portal hangs on a loaded row and the
+ * bookkeeping on a kept copy cannot be written back into the record as if they were part
+ * of the person.
+ */
+const PROFILE_FIELDS = ['name', 'surname', 'email', 'contactEmail', 'cellNumber',
+  'dateOfBirth', 'employeeNumber', 'province', 'teamName', 'vehicleRegistration',
+  'role', 'assignedVehicleId', 'active', 'createdAt'];
+
+/**
+ * One record, in the shape the phone app reads.
+ *
+ * The defaults matter on the way back in: a profile with no role is not an employee to
+ * anything that filters on it, and a restored person who is missing `active` does not
+ * show as working. Better a sound record with a default than a faithful copy of a gap.
+ */
+function profileOf(emp) {
+  const out = {};
+  PROFILE_FIELDS.forEach(f => { if (emp[f] !== undefined) out[f] = emp[f]; });
+  out.role = out.role || 'employee';
+  out.active = out.active === undefined ? true : !!out.active;
+  out.assignedVehicleId = out.assignedVehicleId || '';
+  out.createdAt = Number(out.createdAt) || Date.now();
+  return out;
+}
+
+/** Whoever holds an employee number now, restored people aside. */
+function numberHeldBy(number, exceptUid) {
+  const key = numberKey(number);
+  if (!key) return null;
+  return [...data.employees, ...data.admins]
+    .find(e => numberKey(e.employeeNumber) === key && e.id !== exceptUid) || null;
+}
+
+/**
+ * Puts a profile back under a GIVEN uid.
+ *
+ * THE UID IS THE WHOLE POINT. Every hour, fuel log, stock count and leave day is filed
+ * under it, and the person's Firebase Auth login still carries it — the delete could
+ * never touch that from a browser. Written under the same uid the record reattaches to
+ * all of it and the person signs in as though nothing happened. Written under a new one
+ * they come back a stranger, so nothing here invents an id.
+ */
+async function writeProfileBack(uid, profile) {
+  const clash = numberHeldBy(profile.employeeNumber, uid);
+  if (clash) {
+    throw new Error(`Employee number ${profile.employeeNumber} now belongs to `
+      + `${fullName(clash)}. Change one of them first.`);
+  }
+  await setDoc(doc(db, 'users', uid), profile);
+  /*
+   * The number is claimed again, best effort. Removing somebody RELEASES their number
+   * on purpose, so by now it may have been claimed back — and the rules forbid updating
+   * a claim, only creating one. A claim that will not take is not worth losing the
+   * restore over: the profile is the part that cannot be retyped.
+   */
+  const key = numberKey(profile.employeeNumber);
+  if (key) {
+    try { await setDoc(doc(db, 'employeeNumbers', key), { uid }); } catch (err) { /* already claimed */ }
+  }
+}
+
+/** One kept copy, put back and then let go of. */
+async function restoreRemoved(uid) {
+  const copy = data.removedEmployees.find(r => r.id === uid);
+  if (!copy) { showMsg('That copy is no longer here — refresh and try again.', 'err'); return; }
+  await writeProfileBack(uid, profileOf(copy));
+  // Only once the profile is safely back. Deleting the copy first would leave nothing
+  // to try again with if the write failed.
+  try { await deleteDoc(doc(db, 'removedEmployees', uid)); } catch (err) { /* harmless */ }
+}
+
+/** The list of people who can be brought back. */
+function renderRemoved() {
+  const asDate = (millis) => millis
+    ? prettyDate(new Date(millis).toISOString().slice(0, 10)) : '';
+  const rows = [...data.removedEmployees]
+    .sort((a, b) => (b.removedAtMillis || 0) - (a.removedAtMillis || 0));
+  $('removedRows').innerHTML = rows.length === 0
+    ? '<tr><td colspan="4" class="empty">Nobody has been removed since this was added.'
+      + '</td></tr>'
+    : rows.map(r => `<tr>
+        <td><div class="nm">${esc(fullName(r) || '—')}</div>
+          <div class="meta">${esc(r.employeeNumber || 'no number')}</div></td>
+        <td>${esc(r.teamName || '—')}${
+          r.province ? `<div class="meta">${esc(r.province)}</div>` : ''}</td>
+        <td>${esc(asDate(r.removedAtMillis))}</td>
+        <td>
+          <button data-restore="${esc(r.id)}">Restore</button>
+          <button class="ghost danger" data-forget="${esc(r.id)}">Forget</button>
+        </td>
+      </tr>`).join('');
+
+  $('removedRows').querySelectorAll('[data-restore]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const uid = btn.dataset.restore;
+      const copy = data.removedEmployees.find(r => r.id === uid);
+      if (!copy) return;
+      if (!confirm(`Bring ${fullName(copy)} back?\n\nTheir record goes back exactly as `
+        + `it was, and their hours, fuel, stock counts and figures reattach.`)) return;
+      btn.disabled = true;
+      try {
+        await restoreRemoved(uid);
+        showMsg(`${fullName(copy)} is back.`);
+        await loadAll();
+      } catch (err) {
+        btn.disabled = false;
+        showMsg('Could not restore: ' + err.message, 'err');
+      }
+    });
+  });
+
+  $('removedRows').querySelectorAll('[data-forget]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const uid = btn.dataset.forget;
+      const copy = data.removedEmployees.find(r => r.id === uid);
+      if (!copy) return;
+      // The one genuinely final button on this card, so it says so.
+      if (!confirm(`Forget ${fullName(copy)}?\n\nThe kept copy is deleted and they can `
+        + `no longer be restored here. Their hours and figures stay where they are, but `
+        + `nothing will be able to reach them again.\n\nThis cannot be undone.`)) return;
+      btn.disabled = true;
+      try {
+        await deleteDoc(doc(db, 'removedEmployees', uid));
+        showMsg('Copy forgotten.');
+        await loadAll();
+      } catch (err) {
+        btn.disabled = false;
+        showMsg('Could not forget: ' + err.message, 'err');
+      }
+    });
+  });
+}
+
+/**
+ * The staff list's answer for an employee number, for the form below.
+ *
+ * The roster is the portal's own idea of who works here and it survived the delete, so
+ * for anybody removed before the copies existed it is the nearest thing to a record.
+ * It fills BLANKS ONLY — anything already typed is the admin's and stands.
+ */
+function fillRestoreFromRoster() {
+  const key = numberKey($('rsNumber').value);
+  if (!key) return;
+  const person = data.roster.find(r => numberKey(r.employeeNumber) === key);
+  if (!person) return;
+  const put = (id, value) => { if (!$(id).value && value) $(id).value = value; };
+  put('rsName', person.name);
+  put('rsSurname', person.surname);
+  put('rsProvince', person.province);
+  put('rsTeam', person.teamName);
+  put('rsCell', person.cellNumber);
+  put('rsReg', person.vehicleRegistration);
+}
+
+/** Somebody removed before the copies existed, typed in by hand. */
+async function restoreByHand() {
+  const uid = $('rsUid').value.trim();
+  const number = $('rsNumber').value.trim();
+  if (!uid) { showMsg('Their Firebase user id is the one thing that cannot be guessed.', 'err'); return; }
+  if (!number) { showMsg('Give their employee number.', 'err'); return; }
+  if (data.employees.some(e => e.id === uid) || data.admins.some(e => e.id === uid)) {
+    showMsg('Somebody with that id is already on the portal.', 'err');
+    return;
+  }
+  // The staff list keeps a date of birth that this form has no box for. Carried across
+  // silently where it has one: it is only used for the greeting on their home screen,
+  // and a person brought back without it quietly stops having a birthday.
+  const known = data.roster.find(r => numberKey(r.employeeNumber) === numberKey(number));
+  const profile = profileOf({
+    name: $('rsName').value.trim(),
+    surname: $('rsSurname').value.trim(),
+    email: $('rsEmail').value.trim(),
+    contactEmail: $('rsEmail').value.trim(),
+    dateOfBirth: (known && known.dateOfBirth) || '',
+    // Excel eats the leading zero off a cell number, and the same fix the staff list
+    // upload uses puts it back — this form is fed by copy and paste like any other.
+    cellNumber: restoreCellZero($('rsCell').value.trim()),
+    employeeNumber: number,
+    province: $('rsProvince').value.trim(),
+    teamName: $('rsTeam').value.trim(),
+    vehicleRegistration: $('rsReg').value.trim().toUpperCase(),
+    role: 'employee',
+    active: true
+  });
+  if (!confirm(`Bring back ${profile.name} ${profile.surname} under id ${uid}?\n\n`
+    + `If that id is not the one on their Firebase login, their hours, fuel and `
+    + `figures will not come with them.`)) return;
+  $('rsSave').disabled = true;
+  try {
+    await writeProfileBack(uid, profile);
+    ['rsUid', 'rsNumber', 'rsName', 'rsSurname', 'rsProvince', 'rsTeam', 'rsCell',
+      'rsEmail', 'rsReg'].forEach(id => { $(id).value = ''; });
+    showMsg('Brought back. Check their details and assign their vehicle.');
+    await loadAll();
+  } catch (err) {
+    showMsg('Could not bring them back: ' + err.message, 'err');
+  } finally {
+    $('rsSave').disabled = false;
+  }
+}
+
+$('rsNumber').addEventListener('change', fillRestoreFromRoster);
+$('rsSave').addEventListener('click', restoreByHand);
 
 $('vehSearch').addEventListener('input', (e) => {
   vehFilters.query = e.target.value.trim();

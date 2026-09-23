@@ -22,6 +22,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'knownStockTeams', 'renderStockAdd', 'stockCountTeam',
   'visibleStockRows', 'renderStockFilters', 'stockTeamProvince',
   'stockCountsUnder',
+  'profileOf', 'numberHeldBy', 'renderRemoved',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -3771,6 +3772,126 @@ const removeBody = stockSrc.slice(stockSrc.indexOf('async function removeStockCo
 check('the delete aims at the ids the row carried',
   removeBody.includes("batch.delete(doc(db, 'stockCounts', id))"), true);
 check('and never rebuilds the address', removeBody.includes('countedOn}_'), false);
+
+
+
+/* ---------------- putting a removed employee back ---------------- */
+/* Aadil deleted T084 and there was no way back short of the Firebase console. Removing
+   somebody leaves their login and all their work — hours, fuel, stock counts, figures are
+   filed under the uid — but the record that tied the uid to a name was gone. */
+
+/* A PROFILE IS NAMED FIELDS, not whatever the row happens to carry. The id the portal
+   hangs on a loaded row and the bookkeeping on a kept copy are not part of the person,
+   and writing them back would put them in the record as though they were. */
+const kept = {
+  id: 'uid-84', name: 'COLLET', surname: 'BHEBHE', employeeNumber: 'T084',
+  province: 'GAUTENG', teamName: 'SOWETO VODACOM COLLET', role: 'employee',
+  active: true, createdAt: 1788127200000, assignedVehicleId: 'veh-9',
+  removedAtMillis: 1790000000000, removedBy: 'uid-admin'
+};
+const putBack = portal.profileOf(kept);
+check('the id is not written into the record', putBack.id, undefined);
+check('nor is the bookkeeping', [putBack.removedAtMillis, putBack.removedBy],
+  [undefined, undefined]);
+check('and the person is', [putBack.name, putBack.employeeNumber, putBack.teamName],
+  ['COLLET', 'T084', 'SOWETO VODACOM COLLET']);
+check('their vehicle comes back with them', putBack.assignedVehicleId, 'veh-9');
+check('and the day they signed up', putBack.createdAt, 1788127200000);
+
+/* THE DEFAULTS ARE SOUND RATHER THAN FAITHFUL. A profile with no role is not an employee
+   to anything that filters on one, and one missing active does not show as working —
+   better a working record with a default than an exact copy of a gap. */
+const thin = portal.profileOf({ name: 'A', surname: 'B', employeeNumber: 'T900' });
+check('somebody with no role comes back an employee', thin.role, 'employee');
+check('and active', thin.active, true);
+check('with no vehicle rather than no field', thin.assignedVehicleId, '');
+check('and a createdAt that is a number', typeof thin.createdAt, 'number');
+
+/* THE NUMBER MAY HAVE BEEN TAKEN. Removing somebody RELEASES their employee number on
+   purpose, so by the time anybody restores them it can belong to somebody else — and two
+   people on one number is how figures land on the wrong person. */
+portal.data.employees = [
+  { id: 'uid-new', name: 'NEW', surname: 'PERSON', employeeNumber: 'T084' },
+  { id: 'uid-84', name: 'COLLET', surname: 'BHEBHE', employeeNumber: 'T084' }
+];
+portal.data.admins = [{ id: 'uid-boss', name: 'BOSS', surname: 'X', employeeNumber: 'T001' }];
+check('somebody else on the number is found',
+  portal.numberHeldBy('T084', 'uid-84').id, 'uid-new');
+check('but the person themselves is not a clash',
+  portal.numberHeldBy('T001', 'uid-boss'), null);
+check('an admin holding it counts too', portal.numberHeldBy('T001', 'uid-84').id, 'uid-boss');
+check('and a number nobody holds is free', portal.numberHeldBy('T999', 'uid-84'), null);
+// Written differently is still the same number — T084, t-084 and T 084 are one person.
+check('the number is matched the way the app matches it',
+  portal.numberHeldBy('t-084', 'uid-84').id, 'uid-new');
+check('a blank number clashes with nobody', portal.numberHeldBy('', 'uid-84'), null);
+
+/* The card itself. */
+portal.data.admins = [];
+portal.data.removedEmployees = [
+  { id: 'uid-84', name: 'COLLET', surname: 'BHEBHE', employeeNumber: 'T084',
+    province: 'GAUTENG', teamName: 'SOWETO VODACOM COLLET', removedAtMillis: 1790000000000 },
+  { id: 'uid-12', name: 'OLDER', surname: 'ONE', employeeNumber: 'T012',
+    teamName: 'TEMBISA', removedAtMillis: 1780000000000 }
+];
+portal.renderRemoved();
+const removedDrawn = writes()['removedRows'] || '';
+check('one row per kept copy', (removedDrawn.match(/<tr>/g) || []).length, 2);
+check('the most recently removed is first',
+  removedDrawn.indexOf('COLLET') < removedDrawn.indexOf('OLDER'), true);
+check('each row offers Restore', (removedDrawn.match(/data-restore=/g) || []).length, 2);
+check('and Forget', (removedDrawn.match(/data-forget=/g) || []).length, 2);
+check('the row names their team', removedDrawn.includes('SOWETO VODACOM COLLET'), true);
+check('and their number', removedDrawn.includes('T084'), true);
+// Nothing removed is a sentence, not an empty table.
+portal.data.removedEmployees = [];
+portal.renderRemoved();
+check('with nothing removed it says so',
+  (writes()['removedRows'] || '').includes('Nobody has been removed'), true);
+
+/* ---- file-read invariants: the order of the writes ---- */
+/* THE COPY IS TAKEN BEFORE THE RECORD GOES. The other way round is the bug this whole
+   card exists to fix — a delete that lands and a copy that does not leaves the person
+   exactly as unreachable as before. */
+const removeAt = portalHtml.indexOf("data-remove]");
+const copyAt = portalHtml.indexOf("setDoc(doc(db, 'removedEmployees', emp.id)", removeAt);
+const killAt = portalHtml.indexOf("deleteDoc(doc(db, 'users', emp.id))", removeAt);
+check('the copy is written before the profile is deleted',
+  copyAt > removeAt && copyAt < killAt, true);
+
+/* AND THE COPY IS LET GO OF LAST. Deleting it before the profile is safely back would
+   leave nothing to try again with. */
+const restoreBody = portalHtml.slice(portalHtml.indexOf('async function restoreRemoved'),
+  portalHtml.indexOf('/** The list of people who can be brought back. */'));
+check('the profile is written back before the copy is dropped',
+  restoreBody.indexOf('writeProfileBack')
+    < restoreBody.indexOf("deleteDoc(doc(db, 'removedEmployees'"), true);
+
+/* NOTHING HERE INVENTS A UID. The uid is what every hour, fuel log and stock count is
+   filed under and what their Firebase login still carries; a generated one brings back a
+   stranger. Both paths take it from somewhere — the kept copy, or the admin. */
+const writeBack = portalHtml.slice(portalHtml.indexOf('async function writeProfileBack'),
+  portalHtml.indexOf('/** One kept copy, put back and then let go of. */'));
+check('the restore writes under the uid it was given',
+  writeBack.includes("setDoc(doc(db, 'users', uid), profile)"), true);
+check('and never makes one up', /crypto|randomUUID|Math\.random/.test(writeBack), false);
+
+/* The rules have to allow it, or the button is a button that fails. */
+const rulesSrc = readFileSync('firestore.rules', 'utf8');
+const usersRule = rulesSrc.slice(rulesSrc.indexOf('match /users/{uid}'),
+  rulesSrc.indexOf('match /removedEmployees/{uid}'));
+check('an admin may create a profile', /allow create: if isAdmin\(\)/.test(usersRule), true);
+/* AND SELF-REGISTRATION IS STILL PENNED IN. The clause that stops a signing-up employee
+   making themselves an admin has to survive the widening, or the restore button bought
+   itself a hole. */
+check('a self-registering employee still cannot arrive as an admin',
+  /isOwner\(uid\)[\s\S]*role == 'employee'/.test(usersRule), true);
+check('nor active false or a vehicle already assigned',
+  /active == true[\s\S]*assignedVehicleId == ''/.test(usersRule), true);
+const keptRule = rulesSrc.slice(rulesSrc.indexOf('match /removedEmployees/{uid}'));
+check('a kept copy cannot be edited', /allow update: if false/.test(keptRule), true);
+check('and only an admin can read one',
+  /allow read, create, delete: if isAdmin\(\)/.test(keptRule), true);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
