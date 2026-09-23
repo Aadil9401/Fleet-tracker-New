@@ -23,6 +23,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'visibleStockRows', 'renderStockFilters', 'stockTeamProvince',
   'stockCountsUnder',
   'profileOf', 'numberHeldBy', 'renderRemoved',
+  'orphanedUids', 'renderRestoreFound',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -3892,6 +3893,87 @@ const keptRule = rulesSrc.slice(rulesSrc.indexOf('match /removedEmployees/{uid}'
 check('a kept copy cannot be edited', /allow update: if false/.test(keptRule), true);
 check('and only an admin can read one',
   /allow read, create, delete: if isAdmin\(\)/.test(keptRule), true);
+
+
+
+/* ---------------- finding a deleted person's id in their own work ---------------- */
+/* The uid is the one thing that cannot be retyped, and deleting a profile takes away the
+   only record tying it to a name. But the WORK keeps both: every time log carries the uid
+   and the name of whoever made it. So the answer the Firebase console gives is already in
+   data the portal has read. */
+portal.data.employees = [
+  { id: 'uid-here', name: 'STILL', surname: 'WORKING', employeeNumber: 'T001' }
+];
+portal.data.admins = [{ id: 'uid-boss', name: 'BOSS', surname: 'X' }];
+portal.data.namesByUid = {
+  'uid-here': 'STILL WORKING',
+  'uid-84': 'COLLET BHEBHE',
+  'uid-older': 'LONG GONE'
+};
+portal.data.lastActive = {
+  'uid-here': '2026-09-22', 'uid-84': '2026-09-18', 'uid-older': '2026-08-02'
+};
+portal.data.stockCounts = [];
+portal.data.fuelLogs = [];
+
+const orphans = portal.orphanedUids();
+check('somebody who still has a record is not missing',
+  orphans.some(o => o.uid === 'uid-here'), false);
+check('nor is an admin', orphans.some(o => o.uid === 'uid-boss'), false);
+check('but a deleted person is found by the work they did',
+  orphans.map(o => [o.uid, o.name]),
+  [['uid-84', 'COLLET BHEBHE'], ['uid-older', 'LONG GONE']]);
+/* MOST RECENTLY SEEN FIRST. The person just deleted is the one being looked for, and
+   putting a uid from last year at the top makes the list something to search rather than
+   something to use. */
+check('the most recently seen is first', orphans[0].uid, 'uid-84');
+check('and it says when that was', orphans[0].last, '2026-09-18');
+
+/* A stock count or a fill is enough on its own — somebody who has not clocked in inside
+   the window the activity snapshot covers has still left their uid behind. */
+portal.data.namesByUid = {};
+portal.data.lastActive = {};
+portal.data.stockCounts = [
+  { uid: 'uid-stock', employeeName: 'ONLY COUNTED', countedOn: '2026-09-10', network: 'MTN', held: 5 }
+];
+portal.data.fuelLogs = [{ uid: 'uid-fuel', employeeName: 'ONLY FILLED', date: '2026-09-11' }];
+check('a stock count alone finds them',
+  portal.orphanedUids().find(o => o.uid === 'uid-stock').name, 'ONLY COUNTED');
+check('and so does a fill',
+  portal.orphanedUids().find(o => o.uid === 'uid-fuel').name, 'ONLY FILLED');
+
+/* A uid with no name anywhere is still offered. It is the id that matters, and refusing
+   to show one because nobody wrote a name beside it would hide the very record somebody
+   is trying to reach. */
+portal.data.stockCounts = [];
+portal.data.fuelLogs = [];
+portal.data.lastActive = { 'uid-nameless': '2026-09-01' };
+portal.data.namesByUid = {};
+check('an id with no name is still offered',
+  portal.orphanedUids().map(o => o.uid), ['uid-nameless']);
+portal.renderRestoreFound();
+check('and says so rather than showing a blank',
+  (writes()['rsFound'] || '').includes('name not recorded'), true);
+
+/* The foundPicker itself. */
+portal.data.lastActive = { 'uid-84': '2026-09-18' };
+portal.data.namesByUid = { 'uid-84': 'COLLET BHEBHE' };
+portal.renderRestoreFound();
+const foundPicker = writes()['rsFound'] || '';
+check('the picker offers the id', foundPicker.includes('value="uid-84"'), true);
+check('under the name on their old work', foundPicker.includes('COLLET BHEBHE'), true);
+check('with when they were last seen', foundPicker.includes('last seen'), true);
+// Nothing unclaimed is its own sentence: an empty foundPicker reads as a broken one.
+portal.data.lastActive = {};
+portal.data.namesByUid = {};
+portal.renderRestoreFound();
+check('with no unclaimed ids it says so',
+  (writes()['rsFound'] || '').includes('No unclaimed ids'), true);
+
+/* The window is read for lastActive anyway, so the names cost nothing extra. A second
+   read for them would be a page load spent on something already in hand. */
+check('the names come off the window already being read',
+  portalHtml.includes('namesByUid: rows(activityWindow)'), true);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);

@@ -714,6 +714,10 @@
             behind. Type the employee number and the rest fills in from the staff list
             where it knows them; check it before you save.
           </p>
+          <div class="field">
+            <label for="rsFound">Ids found in your own records</label>
+            <select id="rsFound"></select>
+          </div>
           <div class="grid">
             <div class="field"><label for="rsUid">Firebase user id</label>
               <input id="rsUid" type="text" placeholder="28 or so letters and digits"></div>
@@ -1828,7 +1832,8 @@ let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLog
   insuranceClaims: [],
   recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [], birthdays: null,
   perfMonthly: [], perfTeams: [], perfFy: [], debtLines: [], debtPayments: [],
-  stockCounts: [], leaveAhead: [], removedEmployees: [] };
+  stockCounts: [], leaveAhead: [], removedEmployees: [],
+  lastActive: {}, namesByUid: {} };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
 /**
@@ -2383,6 +2388,19 @@ async function loadAll() {
         l.notWorking && l.notWorkingReason === LEAVE_REASON),
       lastActive: rows(activityWindow).reduce((acc, l) => {
         if (l.uid && (!acc[l.uid] || l.date > acc[l.uid])) acc[l.uid] = l.date;
+        return acc;
+      }, {}),
+      /*
+       * WHO EACH UID BELONGED TO, from the rows already in hand.
+       *
+       * Costs nothing — the window is read for lastActive anyway — and it is the one
+       * thing that survives a deleted profile. Every time log carries the uid AND the
+       * name, so somebody whose record was removed can still be recognised by the work
+       * they did, which is what Restore needs and what the Firebase console was the
+       * only source of before.
+       */
+      namesByUid: rows(activityWindow).reduce((acc, l) => {
+        if (l.uid && l.employeeName && !acc[l.uid]) acc[l.uid] = l.employeeName;
         return acc;
       }, {})
     };
@@ -3821,6 +3839,7 @@ async function restoreRemoved(uid) {
 
 /** The list of people who can be brought back. */
 function renderRemoved() {
+  renderRestoreFound();
   const asDate = (millis) => millis
     ? prettyDate(new Date(millis).toISOString().slice(0, 10)) : '';
   const rows = [...data.removedEmployees]
@@ -3879,6 +3898,49 @@ function renderRemoved() {
       }
     });
   });
+}
+
+/**
+ * Ids that appear in the work but belong to nobody on the portal.
+ *
+ * A DELETED PROFILE LEAVES ITS WORK BEHIND. Every time log, fuel log and stock count
+ * carries the uid it was made under, and the time logs carry the name as well — so the
+ * person whose record was removed is still there in what they did. That is the same
+ * answer Firebase Console > Authentication gives, taken from data the portal has already
+ * read, and it is what makes Restore something an admin can finish on their own.
+ *
+ * Anybody with a profile is excluded, so this is a list of people who are missing rather
+ * than a list of everybody.
+ */
+function orphanedUids() {
+  const known = new Set([...data.employees, ...data.admins].map(e => e.id));
+  const seen = {};
+  const note = (uid, name, when) => {
+    if (!uid || known.has(uid)) return;
+    const row = seen[uid] || (seen[uid] = { uid, name: '', last: '' });
+    if (name && !row.name) row.name = name;
+    if (when && when > row.last) row.last = when;
+  };
+  Object.entries(data.namesByUid || {}).forEach(([uid, name]) =>
+    note(uid, name, (data.lastActive || {})[uid] || ''));
+  Object.entries(data.lastActive || {}).forEach(([uid, when]) => note(uid, '', when));
+  // The other two collections that carry both, for somebody who has not clocked in
+  // within the window the activity snapshot covers but has counted stock or filled up.
+  (data.stockCounts || []).forEach(r => note(r.uid, r.employeeName, r.countedOn));
+  (data.fuelLogs || []).forEach(r => note(r.uid, r.employeeName, r.date));
+  // Most recently seen first: the one just deleted is the one being looked for.
+  return Object.values(seen).sort((a, b) => String(b.last).localeCompare(String(a.last)));
+}
+
+/** The picker of ids, and what filling it in does. */
+function renderRestoreFound() {
+  const found = orphanedUids();
+  $('rsFound').innerHTML = found.length === 0
+    ? '<option value="">No unclaimed ids in your records</option>'
+    : ['<option value="">Choose, or type an id below</option>',
+      ...found.map(f => `<option value="${esc(f.uid)}">${
+        esc(f.name || 'name not recorded')}${
+        f.last ? ` · last seen ${esc(prettyDate(f.last))}` : ''}</option>`)].join('');
 }
 
 /**
@@ -3949,6 +4011,16 @@ async function restoreByHand() {
   }
 }
 
+$('rsFound').addEventListener('change', (e) => {
+  const chosen = orphanedUids().find(f => f.uid === e.target.value);
+  if (!chosen) return;
+  $('rsUid').value = chosen.uid;
+  // The name on their old time logs, split the way the record holds it. Blanks only:
+  // anything already typed is the admin's and stands.
+  const parts = String(chosen.name || '').trim().split(/\s+/);
+  if (!$('rsName').value && parts[0]) $('rsName').value = parts[0];
+  if (!$('rsSurname').value && parts.length > 1) $('rsSurname').value = parts.slice(1).join(' ');
+});
 $('rsNumber').addEventListener('change', fillRestoreFromRoster);
 $('rsSave').addEventListener('click', restoreByHand);
 
