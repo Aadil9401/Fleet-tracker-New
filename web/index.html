@@ -743,6 +743,36 @@
       </div>
 
       <div class="card">
+        <h2 class="section">Erase somebody completely</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          Deletes <b>everything</b> of one person's: their record, their work days, fuel
+          fills and stock counts, and their figures, salary, commission and debt. Their
+          employee number is released so it can be signed up again from scratch.
+          <br>
+          <b>There is no undo.</b> Finding them downloads a snapshot of every row first —
+          that file is the only way back, so keep it until you are sure.
+          <br>
+          Their team's own stock and connection figures are <b>not</b> touched: those
+          belong to the branch, and on a shared team they are somebody else's too.
+        </p>
+        <div class="grid">
+          <div class="field">
+            <label for="wipeWho">Person</label>
+            <select id="wipeWho"></select>
+          </div>
+        </div>
+        <button id="wipeFind" class="outline">Find everything of theirs</button>
+        <div class="count" id="wipeFound"></div>
+        <div class="grid">
+          <div class="field">
+            <label for="wipeConfirm">Type their employee number to confirm</label>
+            <input id="wipeConfirm" type="text" placeholder="T084">
+          </div>
+        </div>
+        <button id="wipeGo" class="danger">Erase everything</button>
+      </div>
+
+      <div class="card">
         <h2 class="section">Staff list</h2>
         <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
           Upload your official list once. When people sign up, press
@@ -3840,6 +3870,7 @@ async function restoreRemoved(uid) {
 /** The list of people who can be brought back. */
 function renderRemoved() {
   renderRestoreFound();
+  renderWipePicker();
   const asDate = (millis) => millis
     ? prettyDate(new Date(millis).toISOString().slice(0, 10)) : '';
   const rows = [...data.removedEmployees]
@@ -4023,6 +4054,205 @@ $('rsFound').addEventListener('change', (e) => {
 });
 $('rsNumber').addEventListener('change', fillRestoreFromRoster);
 $('rsSave').addEventListener('click', restoreByHand);
+
+/*
+ * EVERYTHING ONE PERSON OWNS, and how it is addressed.
+ *
+ * The split is the same one that runs through the whole portal: what the PHONE writes is
+ * filed under the uid, what the ADMIN uploads is filed under the employee number. Erasing
+ * somebody has to walk both or it leaves half of them behind — and the half it leaves is
+ * invisible, which is worse than not having started.
+ *
+ * perfTeams is deliberately ABSENT. A team's stock and connections belong to the branch,
+ * not to whoever is posted there, and ten teams have two reps — deleting one person's
+ * record must not take their colleague's figures with it.
+ */
+const WIPE_BY_UID = [
+  { collection: 'timeLogs', label: 'work days' },
+  { collection: 'fuelLogs', label: 'fuel fills' },
+  { collection: 'stockCounts', label: 'stock counts' }
+];
+const WIPE_BY_NUMBER = [
+  { collection: 'perfMonthly', label: 'basic salary and commission' },
+  { collection: 'perfFy', label: 'FY figures' },
+  { collection: 'debtLines', label: 'stock taken' },
+  { collection: 'debtPayments', label: 'payments' }
+];
+
+/** Who the picker is pointing at, whether they still have a record or not. */
+function wipeTarget() {
+  const uid = $('wipeWho').value;
+  if (!uid) return null;
+  const person = data.employees.find(e => e.id === uid);
+  const orphan = orphanedUids().find(o => o.uid === uid);
+  return {
+    uid,
+    employeeNumber: person ? (person.employeeNumber || '') : '',
+    name: person ? fullName(person) : ((orphan && orphan.name) || 'this id')
+  };
+}
+
+/** Everybody who could be erased: on the books, and left behind in the work. */
+function renderWipePicker() {
+  const chosen = $('wipeWho').value;
+  const people = [...data.employees]
+    .sort((a, b) => fullName(a).localeCompare(fullName(b)))
+    .map(e => ({ uid: e.id, label: `${fullName(e)} · ${e.employeeNumber || 'no number'}` }));
+  // Ids whose record has already gone. Without these the only people who could be
+  // erased are the ones still on the books, which is backwards.
+  const orphans = orphanedUids().map(o => ({
+    uid: o.uid, label: `${o.name || 'name not recorded'} · removed already`
+  }));
+  const all = [...people, ...orphans];
+  $('wipeWho').innerHTML = all.length === 0
+    ? '<option value="">Nobody to erase</option>'
+    : ['<option value="">Choose somebody</option>',
+      ...all.map(o => `<option value="${esc(o.uid)}" ${
+        o.uid === chosen ? 'selected' : ''}>${esc(o.label)}</option>`)].join('');
+}
+
+/**
+ * Every document that belongs to one person.
+ *
+ * Two equality queries per uploaded collection — the number AND the uid — because a row
+ * uploaded before somebody signed up carries only the number, and one written since
+ * carries both. Equality filters need no composite index, so this stays cheap however
+ * many months have built up.
+ */
+async function findEverythingFor(target) {
+  const key = numberKey(target.employeeNumber);
+  const found = [];
+  const seen = new Set();
+  const add = (collectionName, label, id, row) => {
+    const at = `${collectionName}/${id}`;
+    if (seen.has(at)) return;
+    seen.add(at);
+    found.push({ collection: collectionName, label, id, data: row });
+  };
+
+  for (const { collection: name, label } of WIPE_BY_UID) {
+    const snap = await getDocs(query(collection(db, name), where('uid', '==', target.uid)));
+    snap.docs.forEach(d => add(name, label, d.id, d.data()));
+  }
+  for (const { collection: name, label } of WIPE_BY_NUMBER) {
+    const byUid = await getDocs(query(collection(db, name), where('uid', '==', target.uid)));
+    byUid.docs.forEach(d => add(name, label, d.id, d.data()));
+    if (key) {
+      const byNumber = await getDocs(
+        query(collection(db, name), where('numberKey', '==', key)));
+      byNumber.docs.forEach(d => add(name, label, d.id, d.data()));
+    }
+  }
+  // The four single documents. Read rather than assumed, so the snapshot holds what was
+  // really there and the count is not one row out.
+  const singles = [
+    ['users', 'their record', target.uid],
+    ['removedEmployees', 'the kept copy', target.uid],
+    ['employeeNumbers', 'their number', key],
+    ['roster', 'their staff list row', key]
+  ];
+  for (const [name, label, id] of singles) {
+    if (!id) continue;
+    const snap = await getDoc(doc(db, name, id));
+    if (snap.exists()) add(name, label, id, snap.data());
+  }
+  return found;
+}
+
+/** What was found, in the order it will be deleted, as a file. */
+function wipeSnapshotRows(target, found) {
+  const rows = [['Collection', 'Document id', 'Belongs to', 'Fields']];
+  found.forEach(f => rows.push([f.collection, f.id,
+    `${target.name} (${target.employeeNumber || target.uid})`, JSON.stringify(f.data)]));
+  return rows;
+}
+
+/** What has been found and snapshotted, waiting to be erased. */
+let wipeFound = null;
+
+async function findForWipe() {
+  const target = wipeTarget();
+  if (!target) { showMsg('Choose somebody first.', 'err'); return; }
+  $('wipeFind').disabled = true;
+  $('wipeFound').textContent = 'Looking…';
+  try {
+    const found = await findEverythingFor(target);
+    wipeFound = { target, found };
+    if (found.length === 0) {
+      $('wipeFound').textContent = `Nothing found for ${target.name}.`;
+      return;
+    }
+    /*
+     * THE SNAPSHOT IS TAKEN BEFORE THE QUESTION IS ASKED, not after the answer. It is
+     * the only way back from this button, and a file offered after somebody has already
+     * decided is a file they will click past.
+     */
+    downloadCsv(`erased-${(target.employeeNumber || target.uid)}-${todayString()}.csv`,
+      wipeSnapshotRows(target, found));
+    const byLabel = {};
+    found.forEach(f => { byLabel[f.label] = (byLabel[f.label] || 0) + 1; });
+    $('wipeFound').textContent = `${found.length} row(s) for ${target.name} — `
+      + Object.entries(byLabel).map(([label, n]) => `${n} ${label}`).join(', ')
+      + '. A snapshot has downloaded; keep it.';
+  } catch (err) {
+    showMsg('Could not look: ' + err.message, 'err');
+    $('wipeFound').textContent = '';
+  } finally {
+    $('wipeFind').disabled = false;
+  }
+}
+
+async function eraseEverything() {
+  if (!wipeFound) { showMsg('Press Find everything of theirs first.', 'err'); return; }
+  const { target, found } = wipeFound;
+  const current = wipeTarget();
+  // The picker may have moved since the search. Erasing what was found for somebody
+  // else is the one mistake this button must not be able to make.
+  if (!current || current.uid !== target.uid) {
+    showMsg('The person changed since you looked. Press Find again.', 'err');
+    return;
+  }
+  const typed = $('wipeConfirm').value.trim();
+  const wanted = target.employeeNumber || 'ERASE';
+  if (numberKey(typed) !== numberKey(wanted)) {
+    showMsg(`Type ${wanted} in the box to confirm.`, 'err');
+    return;
+  }
+  if (!confirm(`Erase ${found.length} row(s) — everything for ${target.name}?\n\n`
+    + 'Their work days, fuel, stock counts, figures, salary and debt are deleted for '
+    + 'good, and past totals will change.\n\nTheir Firebase login is NOT deleted — that '
+    + 'has to be done in the Firebase console if they are to sign up on the same email '
+    + 'again.\n\nThis cannot be undone.')) return;
+
+  $('wipeGo').disabled = true;
+  try {
+    for (let start = 0; start < found.length; start += 400) {
+      const batch = writeBatch(db);
+      found.slice(start, start + 400)
+        .forEach(f => batch.delete(doc(db, f.collection, f.id)));
+      await batch.commit();
+    }
+    wipeFound = null;
+    $('wipeConfirm').value = '';
+    $('wipeFound').textContent = '';
+    showMsg(`${found.length} row(s) erased. Delete their login in the Firebase console `
+      + 'if they are signing up again on the same email address.');
+    await loadAll();
+  } catch (err) {
+    showMsg('Could not erase: ' + err.message, 'err');
+  } finally {
+    $('wipeGo').disabled = false;
+  }
+}
+
+$('wipeWho').addEventListener('change', () => {
+  // What was found belongs to whoever was chosen at the time, so changing the person
+  // throws it away rather than letting it be applied to the new one.
+  wipeFound = null;
+  $('wipeFound').textContent = '';
+});
+$('wipeFind').addEventListener('click', findForWipe);
+$('wipeGo').addEventListener('click', eraseEverything);
 
 $('vehSearch').addEventListener('input', (e) => {
   vehFilters.query = e.target.value.trim();

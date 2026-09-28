@@ -24,6 +24,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'stockCountsUnder',
   'profileOf', 'numberHeldBy', 'renderRemoved',
   'orphanedUids', 'renderRestoreFound',
+  'WIPE_BY_UID', 'WIPE_BY_NUMBER', 'wipeSnapshotRows', 'renderWipePicker', 'wipeTarget',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -3974,6 +3975,109 @@ check('with no unclaimed ids it says so',
    read for them would be a page load spent on something already in hand. */
 check('the names come off the window already being read',
   portalHtml.includes('namesByUid: rows(activityWindow)'), true);
+
+
+
+/* ---------------- erasing somebody completely ---------------- */
+/* Aadil, of T084: "delete all ... i want to start again". Permanent, so what it reaches
+   and what it leaves alone both matter more than usual. */
+
+/* THE TWO KEYS. What the phone writes is filed under the uid; what the admin uploads is
+   filed under the employee number. Walking only one leaves half the person behind, and
+   the half it leaves is invisible. */
+check('the phone side is erased by id',
+  portal.WIPE_BY_UID.map(c => c.collection).sort(),
+  ['fuelLogs', 'stockCounts', 'timeLogs']);
+check('and the uploaded side by employee number',
+  portal.WIPE_BY_NUMBER.map(c => c.collection).sort(),
+  ['debtLines', 'debtPayments', 'perfFy', 'perfMonthly']);
+
+/* PERFTEAMS IS NOT TOUCHED. A team's stock and connections belong to the branch, and ten
+   teams have two reps on them — erasing one person must not take their colleague's
+   figures, or the branch's, with it. */
+const wipeAll = [...portal.WIPE_BY_UID, ...portal.WIPE_BY_NUMBER].map(c => c.collection);
+check('a team\'s own figures are left alone', wipeAll.includes('perfTeams'), false);
+/* Nor insurance claims: those are about a VEHICLE and a team, and carry no uid and no
+   employee number — a claim outlives whoever was driving. */
+check('and so are insurance claims', wipeAll.includes('insuranceClaims'), false);
+
+/* The snapshot is the only way back, so it has to hold enough to retype a row: where it
+   lived, what it was called, and every field it had. */
+const wipeTargetRow = { uid: 'uid-84', employeeNumber: 'T084', name: 'COLLET BHEBHE' };
+const snapshot = portal.wipeSnapshotRows(wipeTargetRow, [
+  { collection: 'timeLogs', label: 'work days', id: 'uid-84_2026-09-18',
+    data: { uid: 'uid-84', date: '2026-09-18', startOdometerKm: 120345 } },
+  { collection: 'perfFy', label: 'FY figures', id: 'T084_2026-09_MTN',
+    data: { numberKey: 'T084', month: '2026-09', network: 'MTN', connections: 41 } }
+]);
+check('the snapshot names its columns', snapshot[0],
+  ['Collection', 'Document id', 'Belongs to', 'Fields']);
+check('one line per document', snapshot.length, 3);
+check('each says where it lived', [snapshot[1][0], snapshot[1][1]],
+  ['timeLogs', 'uid-84_2026-09-18']);
+check('and whose it was', snapshot[1][2], 'COLLET BHEBHE (T084)');
+// Every field, not a summary: a row that cannot be retyped is not a way back.
+check('and keeps every field', JSON.parse(snapshot[2][3]).connections, 41);
+check('including the ones that identify it', JSON.parse(snapshot[2][3]).month, '2026-09');
+
+/* The picker offers people on the books AND ids left behind by an earlier delete —
+   without the second, the only people who could be erased are the ones who still have a
+   record, which is backwards. */
+portal.data.employees = [
+  { id: 'uid-84', name: 'COLLET', surname: 'BHEBHE', employeeNumber: 'T084' },
+  { id: 'uid-01', name: 'AARON', surname: 'A', employeeNumber: 'T001' }
+];
+portal.data.admins = [];
+portal.data.lastActive = { 'uid-gone': '2026-09-02' };
+portal.data.namesByUid = { 'uid-gone': 'ALREADY REMOVED' };
+portal.data.stockCounts = [];
+portal.data.fuelLogs = [];
+portal.renderWipePicker();
+const wipePicker = writes()['wipeWho'] || '';
+check('somebody on the books can be erased', wipePicker.includes('value="uid-84"'), true);
+check('with their number beside them', wipePicker.includes('T084'), true);
+check('and so can an id left behind', wipePicker.includes('value="uid-gone"'), true);
+check('which says that is what it is', wipePicker.includes('removed already'), true);
+check('names in order', wipePicker.indexOf('AARON') < wipePicker.indexOf('COLLET'), true);
+
+/* What the picker is pointing at. The employee number comes from the record rather than
+   being typed, because it is what half the rows are filed under. */
+setValue('wipeWho', 'uid-84');
+check('the target carries both keys',
+  [portal.wipeTarget().uid, portal.wipeTarget().employeeNumber], ['uid-84', 'T084']);
+check('and the name to put in the question', portal.wipeTarget().name, 'COLLET BHEBHE');
+setValue('wipeWho', 'uid-gone');
+check('an id with no record still has a name to show',
+  portal.wipeTarget().name, 'ALREADY REMOVED');
+check('and no number, so nothing filed by number is swept up',
+  portal.wipeTarget().employeeNumber, '');
+setValue('wipeWho', '');
+check('and nothing chosen is nobody', portal.wipeTarget(), null);
+
+/* ---- file-read invariants ---- */
+const wipeSrc = portalHtml.slice(portalHtml.indexOf('async function findForWipe'),
+  portalHtml.indexOf("$('wipeWho').addEventListener"));
+
+/* THE SNAPSHOT DOWNLOADS BEFORE THE QUESTION IS ASKED. Offered after somebody has already
+   decided, it is a file they click past — and it is the only way back. */
+check('the snapshot is written during the search, not the erase',
+  wipeSrc.indexOf('downloadCsv(') < wipeSrc.indexOf('confirm('), true);
+check('and the erase cannot run without one',
+  /if \(!wipeFound\)/.test(wipeSrc), true);
+
+/* THE PERSON IS CHECKED AGAIN AT THE MOMENT OF DELETING. The picker can move between
+   finding and pressing, and applying one person's list to another is the one mistake
+   this button must not be able to make. */
+check('the target is re-checked against the picker',
+  /current\.uid !== target\.uid/.test(wipeSrc), true);
+check('and the number has to be typed out',
+  /numberKey\(typed\) !== numberKey\(wanted\)/.test(wipeSrc), true);
+
+/* The login is NOT deleted, and the message says so — a browser cannot delete somebody
+   else's Firebase account, and believing it had is how the same email fails to sign up
+   again with no explanation. */
+check('the admin is told the login survives',
+  /Firebase login is NOT deleted/.test(wipeSrc), true);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
