@@ -1110,6 +1110,14 @@
         <div class="toolbar">
           <h2 class="section" style="margin:0">Fleet (<span id="vehCount">0</span>)</h2>
           <div class="grow">
+            <label for="vehShow">Show</label>
+            <select id="vehShow">
+              <option value="active" selected>On the road</option>
+              <option value="sold">Sold</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <div class="grow">
             <label for="vehSearch">Search</label>
             <input id="vehSearch" type="search" placeholder="Registration, name, team or province">
           </div>
@@ -2688,7 +2696,7 @@ function renderToday() {
   const totalMins = data.todaysLogs.reduce((sum, l) => sum + minutesWorked(l), 0);
   const totalKm = data.todaysLogs.reduce((sum, l) => sum + kmOf(l), 0);
   const totalFuel = data.dayFuelLogs.reduce((sum, f) => sum + Number(f.amountSpentRands || 0), 0);
-  const servicesDue = data.vehicles.filter(isServiceDue).length;
+  const servicesDue = activeVehicles().filter(isServiceDue).length;
   /*
    * DISCS TO RENEW: expiring this month, plus anything already expired.
    *
@@ -2698,7 +2706,7 @@ function renderToday() {
    * record to fix rather than a queue to stand in, and it is chased on the Vehicles tab
    * where it can be fixed in the same breath.
    */
-  const discsToRenew = data.vehicles.filter(v => {
+  const discsToRenew = activeVehicles().filter(v => {
     const state = licenceStatus(v).state;
     return state === 'due' || state === 'expired';
   }).length;
@@ -3021,7 +3029,7 @@ function tileDetail(key) {
         const reg = normReg(e.vehicleRegistration);
         if (reg) holderByReg[reg] = e;
       });
-      const rows = data.vehicles
+      const rows = activeVehicles()
         .map(v => ({ v, status: licenceStatus(v) }))
         .filter(r => r.status.state === 'due' || r.status.state === 'expired')
         .sort((a, b) => a.status.days - b.status.days);
@@ -3053,7 +3061,7 @@ function tileDetail(key) {
         const reg = normReg(e.vehicleRegistration);
         if (reg) holderByReg[reg] = e;
       });
-      const rows = data.vehicles.filter(isServiceDue)
+      const rows = activeVehicles().filter(isServiceDue)
         .sort((a, b) => nextServiceAtKm(a) - nextServiceAtKm(b));
       return { title: 'Due for a service', columns: ['Vehicle', 'Next service', 'Assigned to'],
         empty: 'Nothing due.',
@@ -3527,8 +3535,11 @@ function renderEmployees() {
 
   const vehicleOptions = (selectedId) => [
     `<option value="">— none —</option>`,
-    ...data.vehicles.map(v =>
-      `<option value="${esc(v.id)}" ${v.id === selectedId ? 'selected' : ''}>${esc(v.name || v.registrationNumber)}</option>`)
+    // Sold vehicles are not offered — but one already assigned stays in the list, or
+    // selecting nothing would silently look like the right answer on that person's row.
+    ...data.vehicles.filter(v => !isSold(v) || v.id === selectedId).map(v =>
+      `<option value="${esc(v.id)}" ${v.id === selectedId ? 'selected' : ''}>${esc(v.name || v.registrationNumber)}${
+        isSold(v) ? ' · sold' : ''}</option>`)
   ].join('');
 
   $('empRows').innerHTML = filtered.length === 0
@@ -4254,6 +4265,10 @@ $('wipeWho').addEventListener('change', () => {
 $('wipeFind').addEventListener('click', findForWipe);
 $('wipeGo').addEventListener('click', eraseEverything);
 
+$('vehShow').addEventListener('change', (e) => {
+  vehFilters.show = e.target.value;
+  renderVehicles();
+});
 $('vehSearch').addEventListener('input', (e) => {
   vehFilters.query = e.target.value.trim();
   renderVehicles();
@@ -4780,7 +4795,7 @@ $('autoAssignBtn').addEventListener('click', async () => {
  * both driveable from a test — which is what the CSV export needs: the check that
  * matters most about it is that it covers exactly the fleet on screen.
  */
-const vehFilters = { query: '' };
+const vehFilters = { query: '', show: 'active' };
 
 /**
  * The tank-to-tank cost per kilometre for one vehicle, with what it rests on.
@@ -4818,7 +4833,15 @@ function vehicleCostCell(vehicle) {
  */
 function visibleVehicles() {
   const q = vehFilters.query;
-  if (!q) return data.vehicles;
+  /*
+   * ACTIVE BY DEFAULT, with the sold ones one pick away. Hiding them for good would
+   * make the Sold button feel like a delete, and a fleet list that cannot show what was
+   * sold cannot answer the question it gets asked at year end.
+   */
+  const base = vehFilters.show === 'sold' ? data.vehicles.filter(isSold)
+    : vehFilters.show === 'all' ? data.vehicles
+    : activeVehicles();
+  if (!q) return base;
   const needle = q.toLowerCase();
   /*
    * A VEHICLE CARRIES NO TEAM OR PROVINCE OF ITS OWN — both belong to whoever drives it,
@@ -4826,7 +4849,7 @@ function visibleVehicles() {
    * vehicles that team drives, and "gauteng" finds the ones posted there, without either
    * ever being stored on the vehicle and going stale when it changes hands.
    */
-  return data.vehicles.filter(v =>
+  return base.filter(v =>
     plateMatches(v.registrationNumber, q) ||
     [v.name, teamsForVehicle(v), provincesForVehicle(v)]
       .some(field => String(field || '').toLowerCase().includes(needle)));
@@ -4885,7 +4908,7 @@ function provincesForVehicle(vehicle) {
  */
 function vehicleExportRows() {
   const header = ['Registration', 'Team', 'Current odometer km',
-    'Licence expires', 'Days to licence expiry'];
+    'Licence expires', 'Days to licence expiry', 'Sold on'];
   const rows = visibleVehicles()
     .slice()
     .sort((a, b) => plate(a.registrationNumber).localeCompare(plate(b.registrationNumber)))
@@ -4899,7 +4922,8 @@ function vehicleExportRows() {
       // BLANK, NOT NOUGHT, where no disc date is recorded — and the day count is
       // negative once it has expired, so a sort brings the worst to the top.
       licenceStatus(v).expiry,
-      licenceStatus(v).days ?? ''
+      licenceStatus(v).days ?? '',
+      String(v.soldOn || '').trim()
     ]);
   return [header, ...rows];
 }
@@ -5022,17 +5046,33 @@ function renderVehicles() {
   renderIntervalWarning();
   const visible = visibleVehicles();
 
-  // The count follows the filter, so it always describes what is on screen.
+  /*
+   * The count follows the filter, so it always describes what is on screen — and it
+   * counts against the LIST BEING SHOWN, not the whole table. Against the whole table,
+   * "3 of 113" while looking at the sold ones would read as a fleet of 113 sold
+   * vehicles.
+   */
+  const sold = data.vehicles.filter(isSold).length;
+  const shownFrom = vehFilters.show === 'sold' ? sold
+    : vehFilters.show === 'all' ? data.vehicles.length
+    : data.vehicles.length - sold;
   $('vehCount').textContent = vehFilters.query
-    ? `${visible.length} of ${data.vehicles.length}`
-    : data.vehicles.length;
+    ? `${visible.length} of ${shownFrom}`
+    : `${shownFrom}${vehFilters.show === 'active' && sold
+      ? ` on the road · ${sold} sold` : ''}`;
 
   $('vehRows').innerHTML = visible.length === 0
     ? `<tr><td colspan="7" class="empty">${data.vehicles.length === 0
         ? 'No vehicles yet. Upload your list above.'
-        : 'No vehicle matches that search.'}</td></tr>`
+        : vehFilters.show === 'sold' && !vehFilters.query
+          ? 'No vehicle has been marked sold.'
+          : 'No vehicle matches that search.'}</td></tr>`
     : visible.map(v => {
-        const due = isServiceDue(v);
+        // SOLD STOPS EVERY REMINDER ON THE ROW. A disc or a service on something that
+        // is not ours any more is not a job, and a badge nobody can act on is what
+        // teaches somebody to stop reading the badges that matter.
+        const sold = isSold(v);
+        const due = !sold && isServiceDue(v);
         const pct = percentToNextService(v);
         const remaining = kmUntilService(v);
         const lastServiced = [
@@ -5045,11 +5085,14 @@ function renderVehicles() {
         return `<tr>
           <td><div class="nm">${esc(v.name || plate(v.registrationNumber))}</div>
               <div class="meta">${esc(plate(v.registrationNumber))}</div>
-              ${due ? '<span class="badge due">SERVICE DUE</span>' : ''}${licenceBadge(v)}
+              ${sold
+                ? `<span class="badge unknown">SOLD</span><div class="meta">sold ${
+                    esc(prettyDate(v.soldOn))}${v.soldNote ? ' · ' + esc(v.soldNote) : ''}</div>`
+                : (due ? '<span class="badge due">SERVICE DUE</span>' : '') + licenceBadge(v)}
               ${lastServiced ? `<div class="meta">Last: ${esc(lastServiced)}</div>` : ''}</td>
           <td>${km(v.currentOdometerKm || 0)}</td>
           <td>${vehicleCostCell(v)}</td>
-          <td>${licenceCell(v)}</td>
+          <td>${sold ? '<span class="meta">—</span>' : licenceCell(v)}</td>
           <td>Next at ${km(nextServiceAtKm(v))}<div class="meta">${
             pct === null ? '<span style="color:var(--secondary)">no service recorded</span>'
               : remaining >= 0 ? km(remaining) + ' to go'
@@ -5070,9 +5113,12 @@ function renderVehicles() {
                      encodeURIComponent(dealershipQuery(v))}"
                    target="_blank" rel="noopener">Find dealership</a>`
               : ''}
+            ${sold ? '' : `<button class="ghost" data-renewed="${esc(v.id)}">Disc renewed</button>
             <button class="ghost" data-lic="${esc(v.id)}">Licence disc</button>
             <button class="ghost" data-odo="${esc(v.id)}">Correct odometer</button>
-            <button class="ghost" data-serviced="${esc(v.id)}">Record service</button>
+            <button class="ghost" data-serviced="${esc(v.id)}">Record service</button>`}
+            <button class="ghost" data-sold="${esc(v.id)}">${
+              sold ? 'Back on the road' : 'Mark sold'}</button>
             <button class="ghost danger" data-del="${esc(v.id)}">Delete</button>
           </td>
         </tr>`;
@@ -5088,6 +5134,98 @@ function renderVehicles() {
       } catch (err) { showMsg('Could not delete: ' + err.message, 'err'); }
     });
   });
+  $('vehRows').querySelectorAll('[data-renewed]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const v = data.vehicles.find(x => x.id === btn.dataset.renewed);
+      if (!v) return;
+      const status = licenceStatus(v);
+      const next = nextLicenceYear(status.expiry);
+      /*
+       * RENEWING MOVES THE DATE, it does not silence the badge.
+       *
+       * Aadil: "an option to say the disks are renewed so it doesnt remind me all the
+       * time". A flag that just hushed the reminder would hush it for a disc that really
+       * had lapsed too, and the one thing this badge is for is not driving on an expired
+       * disc. A new expiry stops the reminder today and brings it back next year, which
+       * is the same thing said truthfully.
+       */
+      if (!confirm(`Disc renewed for ${v.name || plate(v.registrationNumber)}?\n\n`
+        + (status.expiry ? `It expired ${prettyDate(status.expiry)}.\n` : 'No date was recorded.\n')
+        + `The new expiry will be ${prettyDate(next)}, and nothing will be said about it `
+        + 'until then.\n\nUse "Licence disc" instead if the new date is a different one.')) return;
+      btn.disabled = true;
+      try {
+        await updateDoc(doc(db, 'vehicles', v.id), { licenceExpiry: next });
+        showMsg(`Disc renewed — next expiry ${prettyDate(next)}.`);
+        await loadAll();
+      } catch (err) {
+        btn.disabled = false;
+        showMsg('Could not save: ' + err.message, 'err');
+      }
+    });
+  });
+
+  $('vehRows').querySelectorAll('[data-sold]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const v = data.vehicles.find(x => x.id === btn.dataset.sold);
+      if (!v) return;
+      if (isSold(v)) {
+        if (!confirm(`Put ${v.name || plate(v.registrationNumber)} back on the road?\n\n`
+          + 'It returns to the fleet and starts being counted for services and discs '
+          + 'again.')) return;
+        btn.disabled = true;
+        try {
+          await updateDoc(doc(db, 'vehicles', v.id), { soldOn: '', soldNote: '' });
+          showMsg('Back on the road.');
+          await loadAll();
+        } catch (err) {
+          btn.disabled = false;
+          showMsg('Could not save: ' + err.message, 'err');
+        }
+        return;
+      }
+      const when = prompt('What date was it sold? (yyyy-mm-dd)', todayString());
+      if (when === null) return;
+      const soldOn = String(when).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(soldOn) || !isRealDate(soldOn)) {
+        showMsg('That date could not be read — use 2026-10-12.', 'err');
+        return;
+      }
+      const note = prompt('Anything to note? (who to, price — leave blank for none)', '');
+      if (note === null) return;
+      /*
+       * WHOEVER WAS DRIVING IT IS UNASSIGNED IN THE SAME BREATH.
+       *
+       * A sold vehicle still sitting on somebody's record is the kind of wrong that
+       * survives for months: their row looks right, the fleet list no longer shows it,
+       * and the first anybody knows is a fuel log against a vehicle we do not own.
+       */
+      const holders = data.employees.filter(e => e.assignedVehicleId === v.id);
+      if (holders.length && !confirm(`Mark ${v.name || plate(v.registrationNumber)} sold?\n\n`
+        + `${holders.map(fullName).join(', ')} ${holders.length === 1 ? 'is' : 'are'} `
+        + 'assigned to it and will be unassigned.\n\nIts fuel, services and claims are '
+        + 'kept, and you can put it back on the road at any time.')) return;
+      if (!holders.length && !confirm(`Mark ${v.name || plate(v.registrationNumber)} sold?\n\n`
+        + 'It leaves the fleet list and stops being counted for services and discs. Its '
+        + 'fuel, services and claims are kept, and you can put it back at any time.')) return;
+      btn.disabled = true;
+      try {
+        const batch = writeBatch(db);
+        batch.update(doc(db, 'vehicles', v.id), { soldOn, soldNote: note.trim() });
+        holders.forEach(e =>
+          batch.update(doc(db, 'users', e.id), { assignedVehicleId: '' }));
+        await batch.commit();
+        showMsg(holders.length
+          ? `Marked sold, and unassigned from ${holders.map(fullName).join(', ')}.`
+          : 'Marked sold.');
+        await loadAll();
+      } catch (err) {
+        btn.disabled = false;
+        showMsg('Could not save: ' + err.message, 'err');
+      }
+    });
+  });
+
   $('vehRows').querySelectorAll('[data-lic]').forEach(btn => {
     btn.addEventListener('click', () => openLicenceModal(btn.dataset.lic));
   });
@@ -5099,9 +5237,44 @@ function renderVehicles() {
   });
 }
 
+/**
+ * A VEHICLE THAT HAS BEEN SOLD.
+ *
+ * Marked rather than deleted. Deleting it takes its fuel, its services and its claims
+ * with it — the records are keyed on the vehicle, and the question "what did that bakkie
+ * cost us before we sold it" is one worth being able to answer afterwards. So a sale is
+ * a date written on the vehicle, and everything that asks "what are we running" leaves
+ * it out while everything that looks something up still finds it.
+ */
+const isSold = (vehicle) => !!String(vehicle?.soldOn ?? '').trim();
+
+/** The fleet as it stands today: what is still ours to run, service and license. */
+const activeVehicles = () => data.vehicles.filter(v => !isSold(v));
+
+/**
+ * The day a licence disc renewed today would next expire.
+ *
+ * A YEAR ON FROM THE DATE IT EXPIRES, not from today. A disc renewed a fortnight early
+ * still runs to its own anniversary, so counting from today would quietly shorten every
+ * disc by however long he was early and walk the whole fleet's dates backwards over the
+ * years. Where nothing is recorded there is no anniversary to keep, so a year from today
+ * is the only answer available.
+ *
+ * 29 February lands on the 28th: there is no 29th to renew onto, and a disc has to have
+ * a date.
+ */
+function nextLicenceYear(expiry, today = todayString()) {
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(expiry || '')) && isRealDate(expiry)
+    ? expiry : today;
+  const year = Number(from.slice(0, 4)) + 1;
+  const rest = from.slice(4);
+  const rolled = `${year}${rest}`;
+  return isRealDate(rolled) ? rolled : `${year}-02-28`;
+}
+
 /** Vehicles whose stored interval the upload would now refuse. */
 function vehiclesWithBadInterval() {
-  return data.vehicles.filter(v => !hasUsableInterval(v));
+  return activeVehicles().filter(v => !hasUsableInterval(v));
 }
 
 function renderIntervalWarning() {

@@ -25,6 +25,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'profileOf', 'numberHeldBy', 'renderRemoved',
   'orphanedUids', 'renderRestoreFound',
   'WIPE_BY_UID', 'WIPE_BY_NUMBER', 'wipeSnapshotRows', 'renderWipePicker', 'wipeTarget',
+  'isSold', 'activeVehicles', 'nextLicenceYear',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -300,7 +301,7 @@ check('the raw spelling is not what gets shown',
 // A vehicle with no name falls back to its plate, which should be the tidy one.
 check('an unnamed vehicle is titled by its formatted plate',
   /class="nm">BC 45 DF GP</.test(fleet), true);
-check('the fleet count is shown', writes()['vehCount'], 2);
+check('the fleet count is shown', writes()['vehCount'], '2');
 
 // The grid, checked the same way as the other two tables.
 const fleetTab = tabMarkup('vehicles');
@@ -630,7 +631,7 @@ check('the three columns that were asked for are still the first three',
   fleetExportHeader.slice(0, 3), ['Registration', 'Team', 'Current odometer km']);
 // And the disc rides along behind them rather than in among them.
 check('with the licence disc after them, not between them',
-  fleetExportHeader.slice(3), ['Licence expires', 'Days to licence expiry']);
+  fleetExportHeader.slice(3), ['Licence expires', 'Days to licence expiry', 'Sold on']);
 check('every row has as many fields as the header',
   fleetExport.slice(1).every(r => r.length === fleetExportHeader.length), true);
 
@@ -4078,6 +4079,129 @@ check('and the number has to be typed out',
    again with no explanation. */
 check('the admin is told the login survives',
   /Firebase login is NOT deleted/.test(wipeSrc), true);
+
+
+
+/* ---------------- sold vehicles, and a disc renewed ---------------- */
+/* Aadil: "i need an option for vehilces sold, also an option to say the disks are renewed
+   so it doesnt remind me all the time". */
+
+/* A SALE IS A DATE, NOT A DELETE. Deleting takes the vehicle's fuel, services and claims
+   with it, and "what did that bakkie cost us before we sold it" is a question worth being
+   able to answer afterwards. */
+check('a vehicle with a sale date is sold', portal.isSold({ soldOn: '2026-10-01' }), true);
+check('one without is not', portal.isSold({ soldOn: '' }), false);
+check('and neither is one that has never had the field',
+  portal.isSold({ registrationNumber: 'ABC123GP' }), false);
+check('blank space is not a sale', portal.isSold({ soldOn: '   ' }), false);
+
+/* THE DISCS EXPIRE THIS MONTH, whichever month that is. Typed as a fixed date these
+   read as "due" only in October 2026 and say nothing at all in any other month — which
+   is a fixture that passes today and quietly stops testing anything tomorrow. */
+const thisMonthDisc = portal.todayString().slice(0, 7) + '-15';
+portal.data.vehicles = [
+  { id: 'v1', registrationNumber: 'AA11AAGP', name: 'Running one',
+    licenceExpiry: thisMonthDisc, currentOdometerKm: 1000 },
+  { id: 'v2', registrationNumber: 'BB22BBGP', name: 'Gone one',
+    soldOn: portal.shiftDate(portal.todayString(), -20),
+    licenceExpiry: thisMonthDisc, currentOdometerKm: 2000 }
+];
+check('the fleet we run leaves the sold one out',
+  portal.activeVehicles().map(v => v.id), ['v1']);
+
+/* THE TAB SHOWS THEM ON A FILTER rather than losing them. A fleet list that cannot show
+   what was sold cannot answer the question it gets asked at year end — and hiding them
+   for good would make Mark sold feel like a delete. */
+portal.vehFilters.query = '';
+portal.vehFilters.show = 'active';
+check('on the road by default', portal.visibleVehicles().map(v => v.id), ['v1']);
+portal.vehFilters.show = 'sold';
+check('sold on its own', portal.visibleVehicles().map(v => v.id), ['v2']);
+portal.vehFilters.show = 'all';
+check('or both together', portal.visibleVehicles().map(v => v.id).sort(), ['v1', 'v2']);
+// The search runs over whichever list is showing, not over the whole table.
+portal.vehFilters.show = 'active';
+portal.vehFilters.query = 'Gone';
+check('a search cannot pull a sold vehicle back into the running list',
+  portal.visibleVehicles().map(v => v.id), []);
+portal.vehFilters.show = 'sold';
+check('but finds it under Sold', portal.visibleVehicles().map(v => v.id), ['v2']);
+portal.vehFilters.query = '';
+portal.vehFilters.show = 'active';
+
+/* A SOLD VEHICLE IS NOT CHASED FOR ANYTHING. Its disc expired five days ago, and a badge
+   nobody can act on is what teaches somebody to stop reading the badges that matter. */
+portal.vehFilters.show = 'all';
+portal.renderVehicles();
+const vehDrawn = writes()['vehRows'] || '';
+check('the sold row says so', vehDrawn.includes('SOLD'), true);
+check('and names the day', vehDrawn.includes('sold '), true);
+// Checked on the sold list alone: the running vehicle's disc expires this month and
+// SHOULD be reported, so counting badges across the whole table proves nothing.
+portal.vehFilters.show = 'sold';
+portal.renderVehicles();
+check('its disc is not reported',
+  ((writes()['vehRows'] || '').match(/EXPIRED|RENEW</g) || []).length, 0);
+portal.vehFilters.show = 'active';
+portal.renderVehicles();
+check('while the running one with a disc this month still is',
+  /EXPIRED|RENEW/.test(writes()['vehRows'] || ''), true);
+portal.vehFilters.show = 'all';
+portal.renderVehicles();
+check('it offers no disc button',
+  (vehDrawn.match(/data-renewed=/g) || []).length, 1);
+check('and can be put back on the road',
+  vehDrawn.includes('Back on the road'), true);
+check('while the running one can be sold', vehDrawn.includes('Mark sold'), true);
+
+/* ---- the disc rolled on a year ---- */
+/* A YEAR FROM THE DATE IT EXPIRES, not from today: a disc renewed a fortnight early still
+   runs to its own anniversary, and counting from today would shorten every disc by
+   however early he was and walk the fleet's dates backwards over the years. */
+check('a disc renewed early keeps its own anniversary',
+  portal.nextLicenceYear('2026-10-20', '2026-10-01'), '2027-10-20');
+check('and so does one renewed late',
+  portal.nextLicenceYear('2026-09-30', '2026-10-12'), '2027-09-30');
+check('with nothing recorded there is no anniversary, so it runs from today',
+  portal.nextLicenceYear('', '2026-10-12'), '2027-10-12');
+check('and a date that was never a date is treated the same way',
+  portal.nextLicenceYear('not a date', '2026-10-12'), '2027-10-12');
+/* 29 February has no anniversary. A disc has to have a date, so it lands on the 28th
+   rather than on a day that does not exist. */
+check('a leap day lands on the 28th',
+  portal.nextLicenceYear('2028-02-29', '2028-01-01'), '2029-02-28');
+check('and an ordinary February is untouched',
+  portal.nextLicenceYear('2026-02-28', '2026-02-01'), '2027-02-28');
+
+/* ---- file-read invariants ---- */
+const vehSrc = readFileSync(process.argv[2] ?? 'web/index.html', 'utf8');
+const renewBody = vehSrc.slice(vehSrc.indexOf("querySelectorAll('[data-renewed]')"),
+  vehSrc.indexOf("querySelectorAll('[data-sold]')"));
+/* RENEWING MOVES THE DATE, it does not silence the badge. A flag that just hushed the
+   reminder would hush it for a disc that really had lapsed, and not driving on an expired
+   disc is the only thing this badge is for. */
+check('renewing writes a new expiry',
+  /licenceExpiry: next/.test(renewBody), true);
+check('and sets no silencing flag of its own', (() => {
+  // The only field it writes is the new expiry: no snooze, no "seen", nothing that
+  // would hush a disc that really had lapsed.
+  const at = renewBody.indexOf('updateDoc(doc(db, ');
+  if (at < 0) return false;
+  const fields = renewBody.slice(renewBody.indexOf('{', at) + 1,
+    renewBody.indexOf('}', at)).trim();
+  return fields === 'licenceExpiry: next' && renewBody.indexOf('updateDoc(', at + 1) === -1;
+})(), true);
+
+const soldBody = vehSrc.slice(vehSrc.indexOf("querySelectorAll('[data-sold]')"),
+  vehSrc.indexOf("querySelectorAll('[data-lic]')"));
+/* WHOEVER WAS DRIVING IT IS UNASSIGNED IN THE SAME BREATH — a sold vehicle still sitting
+   on somebody's record survives for months, and the first anybody knows is a fuel log
+   against something we do not own. */
+check('selling unassigns whoever held it',
+  /assignedVehicleId: ''/.test(soldBody), true);
+check('and does both in one batch, so neither can land without the other',
+  /writeBatch\(db\)/.test(soldBody), true);
+check('selling never deletes the vehicle', /deleteDoc/.test(soldBody), false);
 
 
 console.log(failures === 0 ? '\nRENDER TESTS OK' : `\nRENDER TESTS FAILED — ${failures} case(s)`);
