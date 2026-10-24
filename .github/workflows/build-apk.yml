@@ -197,10 +197,18 @@ jobs:
       # Deliberately AFTER the tests, unlike the artifact: something failing its own
       # tests should not become the build that staff install.
       #
-      # Only on a push — a pull request from a fork has no write permission, and this
-      # would be the step that fails.
+      # ONLY FROM main, and only on a push.
+      #
+      # A pull request from a fork has no write permission, so this would be the step
+      # that fails — that is what the push test was always for.
+      #
+      # The branch test was added after a verify branch replaced this file: verify/** is
+      # pushed to on purpose, to compile something that is NOT ready to go near main, and
+      # every one of those pushes was quietly swapping the APK that staff install. The
+      # whole point of a verify branch is to try a change without consequences, and this
+      # was the consequence.
       - name: Publish the APK to one fixed download link
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
