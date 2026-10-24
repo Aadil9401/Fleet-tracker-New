@@ -31,6 +31,41 @@ android {
         }
     }
 
+    /*
+     * ONE SIGNING KEY, SO AN UPDATE INSTALLS OVER THE LAST ONE.
+     *
+     * Android refuses to replace an installed app with one signed by a different key, and
+     * there is no flag that overrides it. Without this block every build was signed by
+     * whatever debug key the CI runner generated for itself that morning, so each APK was
+     * a different app as far as a phone was concerned: "App not installed", every time,
+     * and the only way on was to uninstall first and lose the rep's session.
+     *
+     * The key is NOT in this repository and must never be — the repository is public, and
+     * anyone holding it could sign an APK that a phone would accept as an update to the
+     * real app. CI decodes it from a secret, exactly the way google-services.json arrives.
+     *
+     * ABSENT IS NOT AN ERROR. A build with no keystore — a local one, or a pull request
+     * from a fork, which gets no secrets — falls back to Gradle's own debug signing and
+     * still compiles. It just produces an APK that will not install over a CI build, which
+     * is correct: it is not the same app.
+     */
+    val keystore = rootProject.file("app/debug.keystore")
+    val keystoreReady = keystore.exists()
+
+    signingConfigs {
+        if (keystoreReady) {
+            create("shared") {
+                storeFile = keystore
+                // The standard debug credentials. These are not a secret and are the same
+                // on every Android install in the world — the FILE is the secret, and it
+                // is the file that is kept out of the repository.
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -38,6 +73,9 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            if (keystoreReady) {
+                signingConfig = signingConfigs.getByName("shared")
+            }
         }
     }
 

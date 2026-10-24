@@ -43,6 +43,35 @@ jobs:
           fi
           echo "google-services.json decoded OK"
 
+      # THE SIGNING KEY, so an update installs over the build before it.
+      #
+      # Without this the runner generated its own debug key on first build, so every APK
+      # was signed by a different one and no phone would accept it as an update to the
+      # last — "App not installed", with an uninstall as the only way past it.
+      #
+      # Missing secret is a WARNING, not a failure: a pull request from a fork gets no
+      # secrets, and refusing to build one would be worse than building an APK that only
+      # cannot be installed over a release. app/build.gradle.kts falls back to Gradle's
+      # own debug signing when the file is not there.
+      - name: Decode the signing key
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "::warning::No DEBUG_KEYSTORE_BASE64 secret — this APK is signed with a throwaway key and will NOT install over an existing build."
+            exit 0
+          fi
+          echo "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > app/debug.keystore
+          # A keystore is a PKCS#12/JKS file; an empty or mangled secret decodes to
+          # something tiny, and Gradle's error for that names a password, not the secret.
+          size=$(wc -c < app/debug.keystore)
+          if [ "$size" -lt 1000 ]; then
+            echo "::error::DEBUG_KEYSTORE_BASE64 decoded to ${size} bytes, which is not a keystore."
+            echo "::error::Re-generate it with: [Convert]::ToBase64String([IO.File]::ReadAllBytes('debug.keystore'))"
+            exit 1
+          fi
+          echo "signing key decoded OK (${size} bytes)"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
@@ -52,6 +81,42 @@ jobs:
         env:
           BUILD_NUMBER: ${{ github.run_number }}
         run: gradle assembleDebug --no-daemon
+
+      # WHICH KEY THIS APK WAS SIGNED WITH, on the run page where anybody can read it.
+      #
+      # The whole point of the shared key is that two builds carry the same one, and
+      # "App not installed" is the only way to find out otherwise — on a phone, with a
+      # rep waiting. This prints the fingerprint so two runs can be compared in a glance.
+      # A fingerprint identifies a key; it does not unlock it.
+      #
+      # Never fails the build: it is a report, and a missing apksigner is not a reason to
+      # throw away an APK that compiled and passed its tests.
+      - name: Which key signed it
+        if: always()
+        run: |
+          set +e
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          [ -f "$apk" ] || { echo "no APK to check"; exit 0; }
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$signer" ]; then
+            echo "::warning::apksigner not found — cannot report the signing fingerprint."
+            exit 0
+          fi
+          out=$("$signer" verify --print-certs "$apk" 2>&1)
+          sha=$(echo "$out" | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}')
+          echo "$out" | grep -iE 'SHA-1 digest|SHA-256 digest'
+          {
+            echo "### Signing key"
+            if [ -n "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" ]; then
+              echo "The shared key, so this installs over the build before it."
+            else
+              echo "**A throwaway key** — no \`DEBUG_KEYSTORE_BASE64\` secret is set, so this APK will NOT install over an existing build."
+            fi
+            echo
+            echo "SHA-256: \`${sha:-unknown}\`"
+            echo
+            echo "Same fingerprint as the last build means an update installs over the top."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
