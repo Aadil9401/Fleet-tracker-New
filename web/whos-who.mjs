@@ -27,15 +27,33 @@ if (!WANTED) { console.error('usage: node web/whos-who.mjs T084'); process.exit(
 const CLIENT_ID = '563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com';
 const CLIENT_SECRET = 'j9iVZfS8kkCEFUPaAeJV0sAi';
 
-const cfgPath = join(process.env.APPDATA || '', 'configstore', 'firebase-tools.json');
+/*
+ * THE LOGIN IS IN ONE OF TWO PLACES, AND THE EMPTY ONE COMES FIRST.
+ *
+ * firebase-tools used to keep its login in %APPDATA%\configstore and now keeps it in
+ * ~/.config/configstore. The old file is still on this machine — 21 bytes, no token —
+ * so reading only the first path found reported "not logged in" while a perfectly good
+ * login sat in the other, and this script could not be run at all.
+ *
+ * Every path is tried and the first one carrying a refresh token wins. A failure names
+ * all of them, so the next person can see which were looked in.
+ */
+const cfgPaths = [
+  join(process.env.USERPROFILE || process.env.HOME || '', '.config', 'configstore', 'firebase-tools.json'),
+  join(process.env.APPDATA || '', 'configstore', 'firebase-tools.json')
+];
 let refresh;
-try {
-  refresh = JSON.parse(readFileSync(cfgPath, 'utf8')).tokens?.refresh_token;
-} catch {
-  console.error(`Could not read ${cfgPath}. Run: npx firebase-tools login`);
+for (const p of cfgPaths) {
+  try {
+    const token = JSON.parse(readFileSync(p, 'utf8')).tokens?.refresh_token;
+    if (token) { refresh = token; break; }
+  } catch { /* try the next one — a missing file here is normal, not a fault */ }
+}
+if (!refresh) {
+  console.error('No stored login found in:\n  ' + cfgPaths.join('\n  ')
+    + '\nRun: npx firebase-tools login');
   process.exit(1);
 }
-if (!refresh) { console.error('No stored login. Run: npx firebase-tools login'); process.exit(1); }
 
 const res = await fetch('https://oauth2.googleapis.com/token', {
   method: 'POST',
