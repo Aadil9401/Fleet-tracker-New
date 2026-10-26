@@ -43,54 +43,77 @@
    * The green itself went one step deeper for contrast on white, and the shadows lost
    * their green cast: a tinted shadow reads as a colour wash rather than as depth.
    */
+  /*
+   * A restrained, neutral-led scheme: slate blue leads, amber is the only accent.
+   *
+   * This replaced a sage-and-terracotta set. Two soft hues competing meant nothing on
+   * screen looked more important than anything else, and a tinted background dragged
+   * every figure sitting on it towards the same colour.
+   *
+   * Colour carries MEANING here. Slate is chrome and primary actions. Amber means
+   * attention and is used nowhere else, so it still means something when it appears.
+   * Red means refused. Everything else is neutral grey.
+   */
   :root {
-    --primary: #2F6B5C;
+    --primary: #1F3A5F;
     --on-primary: #ffffff;
-    --primary-container: #CFE8DF;
-    --on-primary-container: #14342C;
-    --secondary: #B06E4E;
-    --secondary-container: #F9E0CE;
-    --on-secondary-container: #44230F;
-    --bg: #F6F7F8;
+    --primary-container: #DCE4EF;
+    --on-primary-container: #13263F;
+    --secondary: #4A5A6A;
+    --secondary-container: #E2E6EA;
+    --on-secondary-container: #1E262E;
+    /* Attention, and nothing else: a service due, a disc expiring, a figure that needs
+       looking at. Rare on purpose — a warning colour used for decoration stops working. */
+    --warn: #8A5A00;
+    --warn-container: #FCE9C8;
+    --on-warn-container: #2E1D00;
+    --bg: #F4F5F7;
     --surface: #ffffff;
-    --on-surface: #14181A;
-    --muted: #5B6469;
-    --surface-variant: #EEF0F1;
-    --outline: #D3D7DA;
-    --error: #B0564B;
-    --error-container: #FADED9;
-    --on-error-container: #44150F;
-    --radius: 16px;
-    --shadow: 0 1px 2px rgba(16,20,22,.05), 0 6px 20px rgba(16,20,22,.06);
-    --shadow-lift: 0 2px 4px rgba(16,20,22,.06), 0 12px 32px rgba(16,20,22,.10);
-    --ring: rgba(47,107,92,.28);
+    --on-surface: #14171A;
+    --muted: #4C535A;
+    --surface-variant: #ECEEF1;
+    --outline: #C3C8CE;
+    --error: #B3261E;
+    --error-container: #F9DEDC;
+    --on-error-container: #410E0B;
+    /* 10px, not 16. A form-heavy working page with heavily rounded cards reads as a
+       consumer app; the tighter radius is what makes a dense table look deliberate. */
+    --radius: 10px;
+    /* Shadows one step lighter, so a card is separated from the page rather than
+       floating above it. Depth on every card is depth nowhere. */
+    --shadow: 0 1px 2px rgba(16,20,22,.06), 0 2px 8px rgba(16,20,22,.05);
+    --shadow-lift: 0 2px 4px rgba(16,20,22,.08), 0 8px 24px rgba(16,20,22,.09);
+    --ring: rgba(31,58,95,.30);
     /* One spacing rhythm, so nothing is 13px because it looked about right. */
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
     --ease: cubic-bezier(.4, 0, .2, 1);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --primary: #A9D6C8;
-      --on-primary: #10332A;
-      --primary-container: #2F5349;
-      --on-primary-container: #C6EADE;
-      --secondary: #F0BC9A;
-      --secondary-container: #6A4429;
-      --on-secondary-container: #FBDDC7;
+      --primary: #A8C4E8;
+      --on-primary: #10243E;
+      --primary-container: #2B4466;
+      --on-primary-container: #D6E3F7;
+      --secondary: #B4C1CE;
+      --secondary-container: #353E47;
+      --on-secondary-container: #D6DEE6;
+      --warn: #F2C06B;
+      --warn-container: #5E4100;
+      --on-warn-container: #FCE9C8;
       /* Neutral greys here too, for the same reason: after dark a tinted surface reads
          as a colour cast over everything rather than as a surface. */
-      --bg: #131618;
-      --surface: #1B1F21;
-      --on-surface: #E6E9EB;
-      --muted: #A9B2B7;
-      --surface-variant: #2C3134;
-      --outline: #3C4246;
-      --error: #F0B3AA;
-      --error-container: #78332B;
-      --on-error-container: #FADED9;
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.3);
-      --shadow-lift: 0 2px 6px rgba(0,0,0,.5), 0 14px 36px rgba(0,0,0,.4);
-      --ring: rgba(169,214,200,.35);
+      --bg: #111315;
+      --surface: #191C1F;
+      --on-surface: #E4E7EA;
+      --muted: #B6BDC4;
+      --surface-variant: #2A2E33;
+      --outline: #3A4046;
+      --error: #F2B8B5;
+      --error-container: #8C1D18;
+      --on-error-container: #F9DEDC;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 2px 10px rgba(0,0,0,.3);
+      --shadow-lift: 0 2px 6px rgba(0,0,0,.5), 0 10px 28px rgba(0,0,0,.4);
+      --ring: rgba(168,196,232,.38);
     }
   }
   * { box-sizing: border-box; }
@@ -1336,6 +1359,35 @@
           same month again corrects it rather than adding to it, and uploading one figure
           never wipes another.
         </p>
+        <!--
+          ONE BOX, instead of knowing which of twelve to use.
+
+          Every one of these files is the same shape — a key column, a month, sometimes
+          a network, then a figure — so the only thing that says which upload a file IS
+          is its heading row. The portal already reads that heading, but only to refuse
+          a file loaded in the wrong box. This points the same knowledge the other way:
+          read the heading, say what the file is, and put it in the right box itself.
+
+          The per-figure boxes below still work and are still the override. This is the
+          front door, not a replacement.
+        -->
+        <div class="card" style="margin-bottom:var(--s4)">
+          <h2 class="section">Drop your files here</h2>
+          <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+            Pick any of the performance files — one or several at once — and each is
+            matched to the right upload by its heading row. Check what it found, change
+            anything it got wrong, then save the lot in one go.
+          </p>
+          <input id="dropFiles" type="file" multiple accept=".csv,text/csv,text/plain">
+          <textarea id="dropText" rows="3" style="margin-top:var(--s2)"
+            placeholder="…or paste one file&apos;s rows here, heading row included"></textarea>
+          <div class="toolbar" style="margin-top:var(--s2)">
+            <button id="dropSave" disabled>Save all</button>
+            <button id="dropClear" class="outline">Clear</button>
+          </div>
+          <div id="dropQueue"></div>
+          <div class="count" id="dropStatus"></div>
+        </div>
         <div id="perfUploads"></div>
         <div class="count" id="perfUploadStatus"></div>
       </div>
@@ -8776,6 +8828,182 @@ async function clearPerformanceMonth(kind) {
     showMsg('Could not remove: ' + err.message, 'err');
   }
 }
+
+/* ---------- One box: work out which upload a file is ---------- */
+
+/** The uploads that have a box of their own. */
+const droppableKinds = () =>
+  Object.keys(PERF_UPLOADS).filter(k => !PERF_UPLOADS[k].hidden);
+
+/**
+ * Which upload a file is, read off its heading row.
+ *
+ * These files are all the same shape, and the parser takes the figure by POSITION — so
+ * the only thing distinguishing them is what the headings say. figureOwners() already
+ * maps a heading to the uploads claiming it; wrongBox() uses that to refuse a file in
+ * the wrong box, and this uses the same map to find the right box instead.
+ *
+ * SCORED BY COMPLETENESS, not by how many headings matched.
+ *
+ * A full FY file carries six figure headings; the FY-stock-only file carries two of
+ * those same six. On raw matches the wide file wins both, so an FY-stock file would be
+ * filed as a full FY upload with four figures silently missing. Completeness — matched
+ * over how many that upload expects — gives the stock-only file 2/2 against the wide
+ * file's 2/6, so the narrow file wins when it IS the narrow file. Raw matches then break
+ * the tie the other way for a genuinely full file, which scores 6/6 against 2/2.
+ *
+ * Returns the best, plus anything scoring as well, so a real ambiguity is reported
+ * rather than settled by whichever kind happened to come first.
+ */
+function detectUploadKind(text) {
+  const norm = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const header = (String(text ?? '').split(/\r?\n/).find(l => l.trim()) || '');
+  if (!header.trim()) return { kind: '', why: 'the file is empty' };
+
+  const cells = header.split(perfDelimiter(text)).map(c => c.trim());
+  const owners = figureOwners();
+  const hits = {};
+  cells.forEach(cell => {
+    const key = norm(cell);
+    if (!key) return;
+    (owners[key] || []).forEach(kind => {
+      hits[kind] = hits[kind] || new Set();
+      hits[kind].add(key);
+    });
+  });
+
+  const ranked = droppableKinds()
+    .map(kind => {
+      const expected = new Set(perfFigureHeadingKeys(kind));
+      const matched = hits[kind] ? hits[kind].size : 0;
+      return { kind, matched, completeness: expected.size ? matched / expected.size : 0 };
+    })
+    .filter(r => r.matched > 0)
+    .sort((a, b) => b.completeness - a.completeness || b.matched - a.matched);
+
+  if (ranked.length === 0) {
+    return { kind: '', why: 'nothing in the heading row names a figure this portal knows' };
+  }
+  const best = ranked[0];
+  const tied = ranked.filter(r =>
+    r.completeness === best.completeness && r.matched === best.matched);
+  if (tied.length > 1) {
+    return {
+      kind: '',
+      why: 'the heading could be ' + tied.map(t => PERF_UPLOADS[t.kind].label).join(' or ')
+    };
+  }
+  return { kind: best.kind, matched: best.matched, why: '' };
+}
+
+/** Rows in a file, not counting the heading, so a short file gets noticed. */
+function droppedRowCount(text) {
+  const lines = String(text ?? '').split(/\r?\n/).filter(l => l.trim());
+  return Math.max(0, lines.length - 1);
+}
+
+// What is waiting to be saved: one entry per file chosen or pasted.
+let dropQueue = [];
+
+/** Adds one file's text to the queue, already matched to an upload. */
+function queueDropped(name, text) {
+  if (!String(text ?? '').trim()) return;
+  const found = detectUploadKind(text);
+  dropQueue.push({
+    name, text, kind: found.kind, why: found.why, rows: droppedRowCount(text)
+  });
+}
+
+function renderDropQueue() {
+  const box = $('dropQueue');
+  if (!box) return;
+  if (dropQueue.length === 0) {
+    box.innerHTML = '';
+    $('dropSave').disabled = true;
+    return;
+  }
+  const options = (selected) => droppableKinds().map(k =>
+    '<option value="' + esc(k) + '"' + (k === selected ? ' selected' : '') + '>'
+    + esc(PERF_UPLOADS[k].label) + '</option>').join('');
+
+  box.innerHTML = '<table style="margin-top:var(--s3)"><thead><tr>'
+    + '<th>File</th><th>Rows</th><th>Goes to</th></tr></thead><tbody>'
+    + dropQueue.map((item, i) =>
+      '<tr><td>' + esc(item.name) + '</td>'
+      + '<td style="text-align:right">' + item.rows + '</td>'
+      + '<td><select data-drop="' + i + '">'
+      + '<option value="">— not recognised —</option>'
+      + options(item.kind) + '</select>'
+      + (item.why ? '<div class="meta">' + esc(item.why) + '</div>' : '')
+      + '</td></tr>').join('')
+    + '</tbody></table>';
+
+  box.querySelectorAll('[data-drop]').forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      const at = Number(e.target.dataset.drop);
+      // Chosen by hand, so what was guessed no longer needs explaining.
+      dropQueue[at].kind = e.target.value;
+      dropQueue[at].why = '';
+      renderDropQueue();
+    });
+  });
+  $('dropSave').disabled = !dropQueue.some(i => i.kind);
+}
+
+/**
+ * Saves every queued file through the box it belongs to.
+ *
+ * Routed through savePerformance rather than writing here: that function validates,
+ * reports bad lines, resolves employee numbers to login ids and writes in batches, and
+ * a second copy of all that would drift from it. The queue decides WHICH box; the box
+ * still does the work.
+ */
+async function saveDropped() {
+  // Both sets of boxes have to exist before one can be written to — the FY boxes are
+  // built when its tab is first opened, and a file may be destined for one of them.
+  renderPerformanceUploads('perfUploads');
+  renderPerformanceUploads('fyUploads');
+
+  const ready = dropQueue.filter(i => i.kind);
+  if (ready.length === 0) return;
+  $('dropSave').disabled = true;
+
+  const done = [];
+  for (const item of ready) {
+    const box = $('perfText-' + item.kind);
+    if (!box) { done.push(esc(item.name) + ': no box for ' + esc(item.kind)); continue; }
+    box.value = item.text;
+    await savePerformance(item.kind);
+    done.push(esc(item.name) + ' to ' + esc(PERF_UPLOADS[item.kind].label));
+  }
+
+  $('dropStatus').innerHTML = '<span style="color:var(--primary)">Saved ' + done.length
+    + ' file(s): ' + done.join('; ') + '. Check the figures above.</span>';
+  // Anything still unrecognised stays in the queue, so it is not silently dropped.
+  dropQueue = dropQueue.filter(i => !i.kind);
+  renderDropQueue();
+}
+
+$('dropFiles').addEventListener('change', async (e) => {
+  for (const file of [...(e.target.files || [])]) queueDropped(file.name, await file.text());
+  renderDropQueue();
+  $('dropStatus').innerHTML = '';
+});
+$('dropText').addEventListener('change', () => {
+  const text = $('dropText').value;
+  if (!text.trim()) return;
+  queueDropped('pasted', text);
+  $('dropText').value = '';
+  renderDropQueue();
+});
+$('dropClear').addEventListener('click', () => {
+  dropQueue = [];
+  $('dropText').value = '';
+  $('dropFiles').value = '';
+  $('dropStatus').innerHTML = '';
+  renderDropQueue();
+});
+$('dropSave').addEventListener('click', saveDropped);
 
 /* ---------- Remove a whole upload, by the day it landed ---------- */
 
