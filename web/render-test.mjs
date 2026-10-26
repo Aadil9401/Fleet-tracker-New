@@ -25,7 +25,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'profileOf', 'numberHeldBy', 'renderRemoved',
   'orphanedUids', 'renderRestoreFound',
   'WIPE_BY_UID', 'WIPE_BY_NUMBER', 'wipeSnapshotRows', 'renderWipePicker', 'wipeTarget',
-  'isSold', 'activeVehicles', 'nextLicenceYear',
+  'isSold', 'activeVehicles',
   'perfMonthsLoaded',
   'stockExportRows', 'stockFilters',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
@@ -381,17 +381,19 @@ portal.renderToday();
 
 const discTile = (writes()['todayTiles'] || '')
   .match(/data-tile="discs"[^>]*><div class="big">([^<]*)</);
-check('the tile counts the expired and this month, and nothing else', discTile && discTile[1], '2');
+/* THIS MONTH ONLY. The 40-days-gone disc is last month's and does not carry: Aadil,
+   26 Oct 2026, "jan to only display disks expiring end of jan, do not carry jan into
+   feb". A queue that never clears stops being a queue. */
+check('the tile counts this month and nothing else', discTile && discTile[1], '1');
 
 portal.openTileModal('discs');
 const discBody = writes()['tileBody'] || '';
-check('the list tells the two apart',
-  [discBody.includes('EXPIRED'), discBody.includes('THIS MONTH')], [true, true]);
-// Worst first: somebody has to stand in a queue, so the order is the order to do them in.
-check('and puts the expired one first',
-  discBody.indexOf('EXPIRED') < discBody.indexOf('THIS MONTH'), true);
+check('the list is this month', discBody.includes('THIS MONTH'), true);
+check('and a disc from a month gone is not carried into it',
+  discBody.includes('Magnite'), false);
 // Who drives it matters more than the vehicle alone — somebody has to be told to go.
-check('and names who drives it', discBody.includes('Zanele'), true);
+check('and names who drives this month\'s one',
+  discBody.includes('Bakkie 2'), true);
 check('a vehicle with no date is not in the queue', discBody.includes('Spare'), false);
 check('and neither is one with months left', discBody.includes('Fine'), false);
 
@@ -455,8 +457,15 @@ const disc = (d) => portal.licenceStatus({ licenceExpiry: d }, discDay);
 
 check('a disc expiring today is due, not expired', disc('2026-09-14').state, 'due');
 check('and reads as such', portal.licenceLabel(disc('2026-09-14')), 'expires today');
-check('yesterday is expired', [disc('2026-09-13').state, disc('2026-09-13').days], ['expired', -1]);
+/* YESTERDAY IS STILL THIS MONTH'S JOB. A disc that went on the 13th is September work
+   on the 14th, so it stays 'due' — the month decides, not the day count. */
+check('yesterday is still due, because it is still this month',
+  [disc('2026-09-13').state, disc('2026-09-13').days], ['due', -1]);
 check('and says how long ago', portal.licenceLabel(disc('2026-09-13')), 'expired 1 day ago');
+/* A MONTH THAT HAS PASSED DOES NOT CARRY. August's disc is not September's problem. */
+check('last month is lapsed, not due', disc('2026-08-31').state, 'lapsed');
+check('and so is one from last year', disc('2025-12-01').state, 'lapsed');
+check('the first of this month is still due', disc('2026-09-01').state, 'due');
 
 /* THE WINDOW IS THE CALENDAR MONTH, not a count of days. A disc is renewed in the month
    it expires, so warning in August about a September disc is noise — and noise on a badge
@@ -521,7 +530,11 @@ check('and the same vehicle twice is refused rather than last-one-wins',
 portal.renderVehicles();
 const fleetHtml = writes()['vehRows'] || '';
 check('each state badges the vehicle itself',
-  ['DISC EXPIRED', 'DISC RENEWAL', 'NO DISC DATE'].every(b => fleetHtml.includes(b)), true);
+  ['DISC RENEWAL', 'NO DISC DATE'].every(b => fleetHtml.includes(b)), true);
+/* NO BADGE FOR A LAPSED DISC. Its month has gone, so it is not dressed up as this
+   month's work — the date and "expired N days ago" are still in the Disc column. */
+check('and a disc from a month gone is not badged',
+  portal.licenceBadge({ licenceExpiry: '2020-01-01' }), '');
 // A disc with months left says nothing at all. A badge on every row is a badge nobody reads.
 check('and a disc with months left is not badged',
   portal.licenceBadge({ licenceExpiry: inDays(400) }), '');
@@ -4131,49 +4144,17 @@ check('while the running one with a disc this month still is',
   /EXPIRED|RENEW/.test(writes()['vehRows'] || ''), true);
 portal.vehFilters.show = 'all';
 portal.renderVehicles();
-check('it offers no disc button',
-  (vehDrawn.match(/data-renewed=/g) || []).length, 1);
 check('and can be put back on the road',
   vehDrawn.includes('Back on the road'), true);
 check('while the running one can be sold', vehDrawn.includes('Mark sold'), true);
 
 /* ---- the disc rolled on a year ---- */
-/* A YEAR FROM THE DATE IT EXPIRES, not from today: a disc renewed a fortnight early still
-   runs to its own anniversary, and counting from today would shorten every disc by
-   however early he was and walk the fleet's dates backwards over the years. */
-check('a disc renewed early keeps its own anniversary',
-  portal.nextLicenceYear('2026-10-20', '2026-10-01'), '2027-10-20');
-check('and so does one renewed late',
-  portal.nextLicenceYear('2026-09-30', '2026-10-12'), '2027-09-30');
-check('with nothing recorded there is no anniversary, so it runs from today',
-  portal.nextLicenceYear('', '2026-10-12'), '2027-10-12');
-check('and a date that was never a date is treated the same way',
-  portal.nextLicenceYear('not a date', '2026-10-12'), '2027-10-12');
-/* 29 February has no anniversary. A disc has to have a date, so it lands on the 28th
-   rather than on a day that does not exist. */
-check('a leap day lands on the 28th',
-  portal.nextLicenceYear('2028-02-29', '2028-01-01'), '2029-02-28');
-check('and an ordinary February is untouched',
-  portal.nextLicenceYear('2026-02-28', '2026-02-01'), '2027-02-28');
+/* GONE, along with nextLicenceYear and the "Disc renewed" button it served. Aadil had
+   the one-click renewal taken off on 26 Oct 2026. A new expiry is still set by hand
+   through the "Licence disc" button, which has its own tests. */
 
 /* ---- file-read invariants ---- */
 const vehSrc = readFileSync(process.argv[2] ?? 'web/index.html', 'utf8');
-const renewBody = vehSrc.slice(vehSrc.indexOf("querySelectorAll('[data-renewed]')"),
-  vehSrc.indexOf("querySelectorAll('[data-sold]')"));
-/* RENEWING MOVES THE DATE, it does not silence the badge. A flag that just hushed the
-   reminder would hush it for a disc that really had lapsed, and not driving on an expired
-   disc is the only thing this badge is for. */
-check('renewing writes a new expiry',
-  /licenceExpiry: next/.test(renewBody), true);
-check('and sets no silencing flag of its own', (() => {
-  // The only field it writes is the new expiry: no snooze, no "seen", nothing that
-  // would hush a disc that really had lapsed.
-  const at = renewBody.indexOf('updateDoc(doc(db, ');
-  if (at < 0) return false;
-  const fields = renewBody.slice(renewBody.indexOf('{', at) + 1,
-    renewBody.indexOf('}', at)).trim();
-  return fields === 'licenceExpiry: next' && renewBody.indexOf('updateDoc(', at + 1) === -1;
-})(), true);
 
 const soldBody = vehSrc.slice(vehSrc.indexOf("querySelectorAll('[data-sold]')"),
   vehSrc.indexOf("querySelectorAll('[data-lic]')"));
