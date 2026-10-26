@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -58,6 +59,7 @@ fun EmployeeHomeScreen(
     onDebtClick: () -> Unit,
     onStockClick: () -> Unit,
     onLeaveClick: () -> Unit,
+    onNotesClick: () -> Unit,
     onLogout: () -> Unit,
     viewModel: EmployeeViewModel = viewModel()
 ) {
@@ -180,6 +182,20 @@ fun EmployeeHomeScreen(
                     Icon(Icons.Filled.EventBusy, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("My leave")
+                }
+            }
+
+            // What was said, written down by whoever said it. Nothing else in this app
+            // records a conversation, and "we both remember it differently" is the one
+            // thing none of the figures can settle.
+            item {
+                OutlinedButton(
+                    onClick = onNotesClick,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.EditNote, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("My notes")
                 }
             }
 

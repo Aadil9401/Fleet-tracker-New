@@ -243,6 +243,40 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    /*
+     * NOTES OF A DISCUSSION, written by the person who had it.
+     *
+     * Aadil: "when an employee discusses something with me, they can use their apps to
+     * make notes of the discussion and if ever needed we can both trace it back".
+     *
+     * TRACING IT BACK IS THE WHOLE POINT, so a note CANNOT BE CHANGED once written.
+     * There is no update rule here for anybody, the admin included. A record both sides
+     * rely on is worth nothing if either side can quietly edit it afterwards — and the
+     * moment it can be, the first argument about what was agreed is also an argument
+     * about whether the note still says what it said.
+     *
+     * A correction is a new note, which is why they carry the moment they were written.
+     *
+     * FILED ON THE UID, AND THE RULE CHECKS THE ID ITSELF, the same way a stock count
+     * is: binding the document id to request.auth.uid means a rep cannot write a note
+     * that reads as somebody else's, and cannot reach a colleague's at all.
+     *
+     * DELETE IS THE ADMIN'S ALONE. A rep who could delete could unsay something.
+     */
+    match /notes/{noteId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create: if isAdmin()
+        || (isSignedIn()
+          && request.resource.data.uid == request.auth.uid
+          && noteId.matches(request.auth.uid + '_.*')
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 4000);
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
     match /debtLines/{lineId} {
       allow get: if isAdmin() ||
         (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));

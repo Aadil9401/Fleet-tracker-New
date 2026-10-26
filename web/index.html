@@ -93,7 +93,13 @@
       --ring: rgba(169,214,200,.35);
     }
   }
-  * { box-sizing: border-box; }
+.note-text {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-width: 60ch;
+      line-height: 1.5;
+    }
+    * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
@@ -552,6 +558,7 @@
     <button data-tab="fy">FY</button>
     <button data-tab="stock">Stock</button>
     <button data-tab="debt">Debt</button>
+    <button data-tab="notes">Notes</button>
     <button data-tab="insurance">Insurance</button>
     <button data-tab="logs">Logs</button>
   </nav>
@@ -1663,6 +1670,61 @@
     </section>
 
     <!-- INSURANCE -->
+    <!--
+      NOTES OF A DISCUSSION, written by the person who had it.
+
+      Aadil: "when an employee discusses something with me, they can use their apps to
+      make notes of the discussion and if ever needed we can both trace it back".
+
+      Read-only here, deliberately. The rules refuse an update from anybody, this
+      side included — a record both people rely on is worth nothing if either can
+      quietly edit it afterwards. A correction is a new note.
+    -->
+    <section id="tab-notes" class="hidden">
+      <div class="card">
+        <div class="toolbar">
+          <h2 class="section grow" style="margin:0">Notes</h2>
+          <div>
+            <label for="noteProvince">Province</label>
+            <select id="noteProvince"></select>
+          </div>
+          <div>
+            <label for="noteTeam">Team</label>
+            <select id="noteTeam"></select>
+          </div>
+          <div>
+            <label for="noteFrom">From</label>
+            <input id="noteFrom" type="date">
+          </div>
+          <div>
+            <label for="noteTo">To</label>
+            <input id="noteTo" type="date">
+          </div>
+          <div class="grow">
+            <label for="noteSearch">Search</label>
+            <input id="noteSearch" type="search" placeholder="Name, team or any word in the note">
+          </div>
+          <button id="exportNotes" class="outline">Export CSV</button>
+        </div>
+        <div class="count" id="noteShowing"></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>When</th><th>Who</th><th>Note</th></tr></thead>
+          <tbody id="noteRows"></tbody>
+        </table></div>
+        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
+          Written on the phone by the person who had the conversation, and shown here
+          exactly as they typed it. <b>Nobody can edit a note once it is saved</b> — not
+          the rep and not this tab. That is the point of it: a record both sides can
+          look up is only worth something if neither side can change it afterwards. A
+          correction is a new note.
+          <br>
+          <b>The name and team are the ones they had when they wrote it</b>, not their
+          current ones. Somebody who has since moved branch still has their old notes
+          filed under where they were, because that is part of what is being traced back.
+        </p>
+      </div>
+    </section>
+
     <section id="tab-insurance" class="hidden">
       <div class="card">
         <h2 class="section">Record a claim</h2>
@@ -1879,7 +1941,7 @@ let data = { employees: [], admins: [], vehicles: [], todaysLogs: [], dayFuelLog
   insuranceClaims: [],
   recentTimeLogs: [], fuelLogs: [], fuelByVehicle: {}, roster: [], birthdays: null,
   perfMonthly: [], perfTeams: [], perfFy: [], debtLines: [], debtPayments: [],
-  stockCounts: [], leaveAhead: [], removedEmployees: [],
+  stockCounts: [], leaveAhead: [], removedEmployees: [], notes: [],
   lastActive: {}, namesByUid: {} };
 let filters = { query: '', province: ALL_PROVINCES };
 let currentUid = null;
@@ -2349,7 +2411,7 @@ async function loadAll() {
   try {
     const [employees, admins, vehicles, todaysLogs, dayFuel, recentTimeLogs, fuelLogs,
       activityWindow, fuelHistory, roster, birthdays, stockCounts, debtLines, debtPayments,
-      insuranceClaims, removedEmployees] = await Promise.all([
+      insuranceClaims, notes, removedEmployees] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('role', '==', 'employee'))),
         getDocs(query(collection(db, 'users'), where('role', '==', 'admin'))),
         getDocs(collection(db, 'vehicles')),
@@ -2379,6 +2441,7 @@ async function loadAll() {
         getDocs(collection(db, 'debtLines')),
         getDocs(collection(db, 'debtPayments')),
         getDocs(collection(db, 'insuranceClaims')),
+        getDocs(collection(db, 'notes')),
         // The profiles deleted from this tab. Small — it holds only what has been
         // removed and not yet restored or forgotten — and read whole, because a
         // restore has to have the whole record to write back.
@@ -2412,6 +2475,7 @@ async function loadAll() {
       debtLines: rows(debtLines),
       debtPayments: rows(debtPayments),
       insuranceClaims: rows(insuranceClaims),
+      notes: rows(notes),
       removedEmployees: rows(removedEmployees),
       // Not part of the bulk load: fetched a month at a time by loadPerfMonth. Emptied
       // here so the month on screen is re-read rather than kept from the load before.
@@ -2661,6 +2725,7 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
     if (btn.dataset.tab === 'fy') showFy();
     if (btn.dataset.tab === 'stock') showStock();
     if (btn.dataset.tab === 'debt') renderDebt();
+    if (btn.dataset.tab === 'notes') renderNotes();
     if (btn.dataset.tab === 'logs' && !$('lbMonth').value) {
       $('lbMonth').value = todayString().slice(0, 7);
     }
@@ -2680,6 +2745,7 @@ function renderAll() {
   renderPerformance();
   renderFy();
   renderDebt();
+  renderNotes();
   renderInsurance();
   renderLeaderboard();
   renderLogs();
@@ -4385,6 +4451,22 @@ async function relinkPayAndDebt() {
 }
 
 $('relinkPay').addEventListener('click', relinkPayAndDebt);
+
+/* ---- notes ---- */
+['noteProvince', 'noteTeam', 'noteFrom', 'noteTo'].forEach(id => {
+  $(id).addEventListener('change', (e) => {
+    noteFilters[id.replace('note', '').toLowerCase()] = e.target.value;
+    renderNotes();
+  });
+});
+$('noteSearch').addEventListener('input', (e) => {
+  noteFilters.query = e.target.value;
+  renderNotes();
+});
+$('exportNotes').addEventListener('click', () => {
+  downloadCsv('notes.csv', noteExportRows());
+});
+
 
 /* ---------------- staff list (roster) ---------------- */
 $('rosterFile').addEventListener('change', async (e) => {
@@ -9266,6 +9348,102 @@ const listedInvoices = () => debtInvoices()
 const shownInvoices = () => listedInvoices()
   .filter(inv => !debtFilters.person || inv.numberKey === debtFilters.person)
   .filter(matchesDebt);
+
+/* ---------------- notes of a discussion ---------------- */
+
+const noteFilters = { province: '', team: '', from: '', to: '', query: '' };
+
+/**
+ * Every note, newest first.
+ *
+ * Sorted on the millisecond rather than the day, so two notes written on one afternoon
+ * stay in the order they happened — which is the order the conversation went in.
+ *
+ * The name, team and province come OFF THE NOTE rather than off the person's current
+ * record. Everything else on this portal does the opposite: a stock count's team is
+ * looked up, because what matters is where somebody is now. A note is the other case —
+ * it records a conversation on a day, and re-labelling an old note with a new branch
+ * would quietly rewrite what it says.
+ */
+function allNotes() {
+  return [...(data.notes || [])]
+    .map(n => ({
+      id: n.id,
+      uid: n.uid || '',
+      who: n.employeeName || '',
+      number: n.employeeNumber || '',
+      team: n.team || '',
+      province: n.province || '',
+      text: n.text || '',
+      writtenOn: n.writtenOn || '',
+      millis: Number(n.writtenAtMillis || 0)
+    }))
+    .sort((a, b) => b.millis - a.millis);
+}
+
+/** The notes the filters leave. */
+function visibleNotes() {
+  const q = noteFilters.query.trim().toLowerCase();
+  return allNotes().filter(n => {
+    if (noteFilters.province && canonicalProvince(n.province) !== noteFilters.province) return false;
+    if (noteFilters.team && n.team !== noteFilters.team) return false;
+    // Inclusive at both ends: somebody asking for the 3rd to the 5th means those days.
+    if (noteFilters.from && n.writtenOn && n.writtenOn < noteFilters.from) return false;
+    if (noteFilters.to && n.writtenOn && n.writtenOn > noteFilters.to) return false;
+    if (!q) return true;
+    // The note's own words are searched too — "what did we say about the Magnite" is
+    // the question somebody actually arrives with.
+    return [n.who, n.team, n.province, n.number, n.text]
+      .some(v => String(v).toLowerCase().includes(q));
+  });
+}
+
+/** "14 Sep 2026, 09:35" in SAST — the same clock as everything else here. */
+function noteStamp(n) {
+  if (!n.millis) return n.writtenOn ? prettyDate(n.writtenOn) : '—';
+  const d = new Date(n.millis + 2 * 60 * 60 * 1000);
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${prettyDate(d.toISOString().slice(0, 10))}, ${hh}:${mm}`;
+}
+
+function noteExportRows() {
+  return [['When', 'Employee', 'Employee number', 'Team', 'Province', 'Note'],
+    ...visibleNotes().map(n =>
+      [noteStamp(n), n.who, n.number, n.team, n.province, n.text])];
+}
+
+function renderNotes() {
+  const every = allNotes();
+
+  // Pickers built off every note rather than off the filtered list, so choosing a
+  // province does not empty the team picker it sits next to.
+  const provinces = [...new Set(every.map(n => canonicalProvince(n.province)).filter(Boolean))].sort();
+  $('noteProvince').innerHTML = [`<option value="">${ALL_PROVINCES}</option>`,
+    ...provinces.map(p =>
+      `<option value="${esc(p)}" ${p === noteFilters.province ? 'selected' : ''}>${esc(p)}</option>`)
+  ].join('');
+  const teams = [...new Set(every.map(n => n.team).filter(Boolean))].sort();
+  $('noteTeam').innerHTML = ['<option value="">All teams</option>',
+    ...teams.map(t =>
+      `<option value="${esc(t)}" ${t === noteFilters.team ? 'selected' : ''}>${esc(t)}</option>`)
+  ].join('');
+
+  const shown = visibleNotes();
+  $('noteShowing').textContent = every.length === 0
+    ? 'No notes have been written yet.'
+    : `${shown.length} of ${every.length} note(s)`;
+
+  $('noteRows').innerHTML = shown.length === 0
+    ? '<tr><td colspan="3" class="meta">Nothing matches those filters.</td></tr>'
+    : shown.map(n => `<tr>
+        <td style="white-space:nowrap">${esc(noteStamp(n))}</td>
+        <td><div class="nm">${esc(n.who || 'unknown')}</div>${
+          esc(personTail(n.province, n.team, ''))}${
+          n.number ? `<div class="meta">${esc(n.number)}</div>` : ''}</td>
+        <td><div class="note-text">${esc(n.text)}</div></td>
+      </tr>`).join('');
+}
 
 function renderDebt() {
   /*

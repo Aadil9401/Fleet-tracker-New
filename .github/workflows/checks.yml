@@ -31,6 +31,12 @@ jobs:
       - name: Portal still renders correctly
         run: node web/render-test.mjs web/index.html
 
+      # A note is a record both the rep and the office rely on, and the rules refuse an
+      # update from anybody. This fails if a write against notes is ever added to the
+      # portal, or if the rule that forbids it is relaxed.
+      - name: Notes are shown as written, and cannot be edited
+        run: node web/notes-test.mjs web/index.html
+
       - name: Portal matches the service schedule spec
         run: node web/service-schedule-test.mjs web/index.html service-schedule-cases.csv
 
@@ -93,6 +99,7 @@ jobs:
             "web/smoke-test.mjs web/index.html"
             "web/parser-test.mjs web/index.html"
             "web/render-test.mjs web/index.html"
+            "web/notes-test.mjs web/index.html"
             "web/service-schedule-test.mjs web/index.html service-schedule-cases.csv"
             "functions/service-schedule-test.mjs service-schedule-cases.csv"
             "web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv"

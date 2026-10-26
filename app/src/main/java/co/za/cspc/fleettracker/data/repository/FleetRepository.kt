@@ -5,6 +5,7 @@ import co.za.cspc.fleettracker.data.model.Debt
 import co.za.cspc.fleettracker.data.model.Birthday
 import co.za.cspc.fleettracker.data.model.FuelLog
 import co.za.cspc.fleettracker.data.model.Leave
+import co.za.cspc.fleettracker.data.model.Note
 import co.za.cspc.fleettracker.data.model.Performance
 import co.za.cspc.fleettracker.data.model.Role
 import co.za.cspc.fleettracker.data.model.StockCount
@@ -1029,6 +1030,72 @@ class FleetRepository(
         db.collection("timeLogs").document("${uid}_${date}").update(
             mapOf("notWorking" to false, "notWorkingReason" to "")
         ).await()
+    }
+
+    // ---------- Notes ----------
+
+    /**
+     * Writes one note. Never overwrites: the id carries the millisecond it was written,
+     * and the rules refuse an update outright, so a second note is a second document.
+     *
+     * The person's name and team are stored ON THE NOTE rather than looked up when it is
+     * read. Everything else in this app does the opposite, and deliberately — a stock
+     * count's team is a label and the portal looks the current one up instead, because
+     * what matters is where somebody is now. A note is the other case. It is a record of
+     * a conversation on a day, and who they were that day is part of what is being
+     * traced back; re-labelling an old note with a new team would quietly rewrite it.
+     */
+    suspend fun addNote(
+        uid: String,
+        employeeName: String,
+        employeeNumber: String,
+        teamName: String,
+        province: String,
+        text: String
+    ): String {
+        val now = System.currentTimeMillis()
+        val id = Note.documentId(uid, now)
+        db.collection("notes").document(id).set(
+            mapOf(
+                "uid" to uid,
+                "employeeName" to employeeName,
+                "employeeNumber" to employeeNumber,
+                "numberKey" to employeeNumberKey(employeeNumber),
+                "team" to teamName,
+                "province" to province,
+                "text" to text,
+                "writtenOn" to dayFormat.format(java.util.Date(now)),
+                "writtenAtMillis" to now
+            )
+        ).await()
+        return id
+    }
+
+    /**
+     * This person's own notes.
+     *
+     * Queried on the uid, like their pay and their debt are, and for the same reason:
+     * the rules permit a query provably restricted to the caller's own uid and refuse
+     * one asking for everybody's.
+     *
+     * Sorted in Kotlin rather than by Firestore, so no composite index is needed and a
+     * note missing its timestamp cannot drop out of the result.
+     */
+    suspend fun listMyNotes(uid: String): List<Note.Entry> {
+        if (uid.isEmpty()) return emptyList()
+        val snap = db.collection("notes")
+            .whereEqualTo("uid", uid)
+            .get().await()
+        return Note.inOrder(
+            snap.documents.map {
+                Note.Entry(
+                    id = it.id,
+                    text = it.getString("text") ?: "",
+                    writtenOn = it.getString("writtenOn") ?: "",
+                    writtenAtMillis = it.getLong("writtenAtMillis") ?: 0L
+                )
+            }
+        )
     }
 
     suspend fun saveSettings(settings: AppSettings) {

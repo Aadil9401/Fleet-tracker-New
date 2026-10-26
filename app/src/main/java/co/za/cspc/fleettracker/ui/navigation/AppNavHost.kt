@@ -22,6 +22,7 @@ import co.za.cspc.fleettracker.ui.employee.EmployeeHomeScreen
 import co.za.cspc.fleettracker.ui.employee.DebtScreen
 import co.za.cspc.fleettracker.ui.employee.PerformanceScreen
 import co.za.cspc.fleettracker.ui.employee.LeaveScreen
+import co.za.cspc.fleettracker.ui.employee.NotesScreen
 import co.za.cspc.fleettracker.ui.employee.StockCountScreen
 import co.za.cspc.fleettracker.ui.login.LoginScreen
 import co.za.cspc.fleettracker.ui.login.SignUpScreen
@@ -34,6 +35,7 @@ private object Routes {
     const val DEBT = "debt"
     const val STOCK = "stock"
     const val LEAVE = "leave"
+    const val NOTES = "notes"
     const val ADMIN = "admin"
 }
 
@@ -102,6 +104,7 @@ fun AppNavHost(repo: FleetRepository = FleetRepository()) {
                     onDebtClick = { navController.navigate(Routes.DEBT) },
                     onStockClick = { navController.navigate(Routes.STOCK) },
                     onLeaveClick = { navController.navigate(Routes.LEAVE) },
+                    onNotesClick = { navController.navigate(Routes.NOTES) },
                     onLogout = {
                         repo.logout()
                         profile = null
@@ -147,6 +150,16 @@ fun AppNavHost(repo: FleetRepository = FleetRepository()) {
             // stack would otherwise recompose it against a null profile.
             profile?.let { p ->
                 LeaveScreen(
+                    profile = p,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+        composable(Routes.NOTES) {
+            // Guarded rather than assumed: a logout while this screen is on the back
+            // stack would otherwise recompose it against a null profile.
+            profile?.let { p ->
+                NotesScreen(
                     profile = p,
                     onBack = { navController.popBackStack() }
                 )
