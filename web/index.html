@@ -43,77 +43,54 @@
    * The green itself went one step deeper for contrast on white, and the shadows lost
    * their green cast: a tinted shadow reads as a colour wash rather than as depth.
    */
-  /*
-   * A restrained, neutral-led scheme: slate blue leads, amber is the only accent.
-   *
-   * This replaced a sage-and-terracotta set. Two soft hues competing meant nothing on
-   * screen looked more important than anything else, and a tinted background dragged
-   * every figure sitting on it towards the same colour.
-   *
-   * Colour carries MEANING here. Slate is chrome and primary actions. Amber means
-   * attention and is used nowhere else, so it still means something when it appears.
-   * Red means refused. Everything else is neutral grey.
-   */
   :root {
-    --primary: #1F3A5F;
+    --primary: #2F6B5C;
     --on-primary: #ffffff;
-    --primary-container: #DCE4EF;
-    --on-primary-container: #13263F;
-    --secondary: #4A5A6A;
-    --secondary-container: #E2E6EA;
-    --on-secondary-container: #1E262E;
-    /* Attention, and nothing else: a service due, a disc expiring, a figure that needs
-       looking at. Rare on purpose — a warning colour used for decoration stops working. */
-    --warn: #8A5A00;
-    --warn-container: #FCE9C8;
-    --on-warn-container: #2E1D00;
-    --bg: #F4F5F7;
+    --primary-container: #CFE8DF;
+    --on-primary-container: #14342C;
+    --secondary: #B06E4E;
+    --secondary-container: #F9E0CE;
+    --on-secondary-container: #44230F;
+    --bg: #F6F7F8;
     --surface: #ffffff;
-    --on-surface: #14171A;
-    --muted: #4C535A;
-    --surface-variant: #ECEEF1;
-    --outline: #C3C8CE;
-    --error: #B3261E;
-    --error-container: #F9DEDC;
-    --on-error-container: #410E0B;
-    /* 10px, not 16. A form-heavy working page with heavily rounded cards reads as a
-       consumer app; the tighter radius is what makes a dense table look deliberate. */
-    --radius: 10px;
-    /* Shadows one step lighter, so a card is separated from the page rather than
-       floating above it. Depth on every card is depth nowhere. */
-    --shadow: 0 1px 2px rgba(16,20,22,.06), 0 2px 8px rgba(16,20,22,.05);
-    --shadow-lift: 0 2px 4px rgba(16,20,22,.08), 0 8px 24px rgba(16,20,22,.09);
-    --ring: rgba(31,58,95,.30);
+    --on-surface: #14181A;
+    --muted: #5B6469;
+    --surface-variant: #EEF0F1;
+    --outline: #D3D7DA;
+    --error: #B0564B;
+    --error-container: #FADED9;
+    --on-error-container: #44150F;
+    --radius: 16px;
+    --shadow: 0 1px 2px rgba(16,20,22,.05), 0 6px 20px rgba(16,20,22,.06);
+    --shadow-lift: 0 2px 4px rgba(16,20,22,.06), 0 12px 32px rgba(16,20,22,.10);
+    --ring: rgba(47,107,92,.28);
     /* One spacing rhythm, so nothing is 13px because it looked about right. */
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
     --ease: cubic-bezier(.4, 0, .2, 1);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --primary: #A8C4E8;
-      --on-primary: #10243E;
-      --primary-container: #2B4466;
-      --on-primary-container: #D6E3F7;
-      --secondary: #B4C1CE;
-      --secondary-container: #353E47;
-      --on-secondary-container: #D6DEE6;
-      --warn: #F2C06B;
-      --warn-container: #5E4100;
-      --on-warn-container: #FCE9C8;
+      --primary: #A9D6C8;
+      --on-primary: #10332A;
+      --primary-container: #2F5349;
+      --on-primary-container: #C6EADE;
+      --secondary: #F0BC9A;
+      --secondary-container: #6A4429;
+      --on-secondary-container: #FBDDC7;
       /* Neutral greys here too, for the same reason: after dark a tinted surface reads
          as a colour cast over everything rather than as a surface. */
-      --bg: #111315;
-      --surface: #191C1F;
-      --on-surface: #E4E7EA;
-      --muted: #B6BDC4;
-      --surface-variant: #2A2E33;
-      --outline: #3A4046;
-      --error: #F2B8B5;
-      --error-container: #8C1D18;
-      --on-error-container: #F9DEDC;
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 2px 10px rgba(0,0,0,.3);
-      --shadow-lift: 0 2px 6px rgba(0,0,0,.5), 0 10px 28px rgba(0,0,0,.4);
-      --ring: rgba(168,196,232,.38);
+      --bg: #131618;
+      --surface: #1B1F21;
+      --on-surface: #E6E9EB;
+      --muted: #A9B2B7;
+      --surface-variant: #2C3134;
+      --outline: #3C4246;
+      --error: #F0B3AA;
+      --error-container: #78332B;
+      --on-error-container: #FADED9;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.3);
+      --shadow-lift: 0 2px 6px rgba(0,0,0,.5), 0 14px 36px rgba(0,0,0,.4);
+      --ring: rgba(169,214,200,.35);
     }
   }
   * { box-sizing: border-box; }
@@ -1316,27 +1293,6 @@
         </p>
       </div>
 
-      <div class="card">
-        <h2 class="section">Remove a team's figures</h2>
-        <div class="toolbar">
-          <div class="grow">
-            <label for="perfDropTeam">Team</label>
-            <select id="perfDropTeam"></select>
-          </div>
-          <button id="perfDropGo" class="outline danger">Remove every month</button>
-        </div>
-        <div id="perfDropStatus" class="meta" style="margin-top:var(--s2)"></div>
-        <p class="sub" style="font-size:.82rem;margin:var(--s3) 0 0">
-          Clears <b>every month and every network</b> of stock, connections and
-          activations stored against that team name. Pay and FY are not touched — those
-          are filed against a person, not a team.
-          <br>
-          The list is built from the months currently loaded, so widen the range if the
-          team you want is not in it. <b>There is no undo</b>; the figures would have to
-          be uploaded again.
-        </p>
-      </div>
-
       <div class="card" id="perfUnmatchedCard"></div>
 
       <div class="card">
@@ -1392,55 +1348,6 @@
         <div class="count" id="perfUploadStatus"></div>
       </div>
 
-      <!--
-        REMOVE A WHOLE UPLOAD, by the day it landed.
-
-        "Remove a month" above clears one figure for one month, which is the right tool
-        for correcting a figure. It is the wrong tool for undoing a session at the
-        keyboard: a dummy batch loaded across ten months is twenty-one of those presses,
-        and each one takes the whole month with it — including rows that were loaded
-        properly weeks earlier and happen to share the figure and the month.
-
-        This removes exactly what arrived on one day, across team figures, pay and FY,
-        and leaves every other row alone.
-      -->
-      <div class="card">
-        <h2 class="section">Remove an upload</h2>
-        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
-          Undoes <b>one day's uploading</b> — every figure that landed on the day you
-          pick, across stock, connections, activations, basic salary, commission and FY.
-          Anything loaded on another day is left exactly as it is, even in the same month.
-          <br>
-          Check first, then remove: the day is listed figure by figure and month by month
-          before anything goes.
-          <br>
-          <b>A row is stamped with the last upload that wrote it.</b> If a later file
-          corrected a row, that row counts as belonging to the later day — so correcting
-          September on Tuesday means those rows go with Tuesday, not with the day they
-          first arrived.
-        </p>
-        <div class="toolbar">
-          <div>
-            <label for="uploadDay">Day uploaded</label>
-            <input id="uploadDay" type="date">
-          </div>
-          <label class="checkline">
-            <input id="uploadArea-perfTeams" type="checkbox" checked>
-            <span>Team figures</span>
-          </label>
-          <label class="checkline">
-            <input id="uploadArea-perfMonthly" type="checkbox" checked>
-            <span>Pay</span>
-          </label>
-          <label class="checkline">
-            <input id="uploadArea-perfFy" type="checkbox" checked>
-            <span>FY</span>
-          </label>
-          <button id="uploadDayCheck" class="outline">See what landed</button>
-          <button id="uploadDayRemove" class="outline danger" disabled>Remove that day</button>
-        </div>
-        <div class="count" id="uploadDayStatus"></div>
-      </div>
     </section>
 
     <!-- FY -->
@@ -8282,7 +8189,6 @@ function renderPerformance() {
   const figure = (value, format) => value === null ? '<span class="meta">—</span>' : format(value);
 
   renderPerfByMonth(months, rows, all);
-  renderPerfDrop();
   renderPerfMerge();
 
   $('perfRows').innerHTML = rows.length === 0
@@ -8469,15 +8375,6 @@ function droppableTeams(months = perfRange()) {
     .map(t => ({ ...t, onStaff: onStaff.has(t.key) }));
 }
 
-function renderPerfDrop() {
-  const teams = droppableTeams();
-  const chosen = $('perfDropTeam').value;
-  $('perfDropTeam').innerHTML = teams.length === 0
-    ? '<option value="">No figures loaded</option>'
-    : ['<option value="">Choose a team</option>', ...teams.map(t =>
-      `<option value="${esc(t.key)}" ${t.key === chosen ? 'selected' : ''}>`
-      + `${esc(t.team)}${t.onStaff ? '' : ' · nobody on it'}</option>`)].join('');
-}
 
 function renderPerfMerge() {
   const teams = droppableTeams();
@@ -8589,55 +8486,6 @@ async function mergeTeamFigures() {
  * PAY AND FY ARE NOT TOUCHED. Those are filed against a person; retiring a branch name
  * says nothing about what somebody was paid.
  */
-async function dropTeamFigures() {
-  const key = $('perfDropTeam').value;
-  if (!key) { showMsg('Choose a team first.', 'err'); return; }
-  const chosen = droppableTeams().find(t => t.key === key);
-  const name = chosen ? chosen.team : key;
-
-  $('perfDropGo').disabled = true;
-  try {
-    const snap = await getDocs(query(collection(db, 'perfTeams'),
-      where('teamKey', '==', key)));
-    if (snap.empty) {
-      $('perfDropStatus').innerHTML =
-        `<span class="meta">Nothing stored against ${esc(name)}.</span>`;
-      return;
-    }
-    const months = [...new Set(snap.docs.map(d => d.data().month))].sort();
-    // Typed out in full, because this cannot be undone and a team name is easy to
-    // mis-click in a list where several look alike.
-    const typed = prompt(
-      `Remove every figure for ${name}?\n\n`
-      + `${snap.size} figure(s) across ${months.length} month(s): `
-      + `${months[0]} to ${months[months.length - 1]}.\n\n`
-      + 'Stock, connections and activations, every network. Pay and FY are not touched.\n'
-      + 'This cannot be undone.\n\n'
-      + `Type the team name to confirm:\n${name}`);
-    if (typed === null) return;
-    if (teamKey(typed) !== key) {
-      $('perfDropStatus').innerHTML =
-        `<span style="color:var(--error)">That did not match ${esc(name)} — nothing removed.</span>`;
-      return;
-    }
-
-    for (let start = 0; start < snap.docs.length; start += 400) {
-      const batch = writeBatch(db);
-      snap.docs.slice(start, start + 400).forEach(d => batch.delete(d.ref));
-      await batch.commit();
-    }
-    $('perfDropStatus').innerHTML =
-      `<span style="color:var(--primary)">Removed ${snap.size} figure(s) for ${esc(name)}, `
-      + `${months.length} month(s).</span>`;
-    perfMonthsLoaded.clear();
-    await showPerformance();
-  } catch (err) {
-    showMsg('Could not remove the figures: ' + err.message, 'err');
-  } finally {
-    $('perfDropGo').disabled = false;
-  }
-}
-
 function renderPerformanceUploads(container = 'perfUploads') {
   if ($(container).dataset.built === 'yes') return;
   $(container).innerHTML = perfUploadKinds(container).map(kind => {
@@ -9005,254 +8853,6 @@ $('dropClear').addEventListener('click', () => {
 });
 $('dropSave').addEventListener('click', saveDropped);
 
-/* ---------- Remove a whole upload, by the day it landed ---------- */
-
-/**
- * Every figure field, by the collection holding it, and how it is written on screen.
- *
- * DISPLAY ONLY. PERF_UPLOADS is the authority on what figures exist; this map exists
- * because the removal works per collection rather than per upload file, and because a
- * dialog about deleting somebody's pay has to name what it is deleting in words.
- *
- * uploadFieldsMissing() is tested to prove this still covers everything PERF_UPLOADS
- * knows about. A figure added there and forgotten here would be removed by the button
- * without ever being named in the confirmation, which is the one thing this must not do.
- */
-const UPLOAD_FIELDS = {
-  perfTeams: { stock: 'Stock', connections: 'Connections', activations: 'Activations' },
-  perfMonthly: { commissionRands: 'Commission', basicSalaryRands: 'Basic salary' },
-  perfFy: { fyStock: 'FY stock', fyConnections: 'FY connections', fyAmountRands: 'FY payable' }
-};
-
-/** Any figure PERF_UPLOADS carries that UPLOAD_FIELDS has not been told about. */
-function uploadFieldsMissing() {
-  const missing = [];
-  Object.keys(PERF_UPLOADS).forEach(kind => {
-    const spec = PERF_UPLOADS[kind];
-    const name = perfOnFy(kind) ? 'perfFy'
-      : spec.keyedOn === 'team' ? 'perfTeams' : 'perfMonthly';
-    perfFigures(kind).forEach(f => {
-      if (!UPLOAD_FIELDS[name]?.[f.field]) missing.push(`${name}.${f.field}`);
-    });
-  });
-  return [...new Set(missing)];
-}
-
-/**
- * The millisecond range covering one SAST day, or null if the date will not parse.
- *
- * South Africa is UTC+2 all year with no daylight saving, so a day is exactly 24 hours
- * from 00:00+02:00 and no timezone database is needed. Doing it on the browser's own
- * clock would put the boundary wherever the admin happens to be sitting, and an upload
- * made at eight in the morning in Johannesburg would fall on the day before for anybody
- * looking from London.
- */
-function uploadDayRange(day) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return null;
-  const start = Date.parse(`${day}T00:00:00+02:00`);
-  if (Number.isNaN(start)) return null;
-  return { start, end: start + 24 * 60 * 60 * 1000 };
-}
-
-/** True when a row carries a figure in that field — absent and blank are not figures. */
-function uploadHasFigure(row, field) {
-  const v = row[field];
-  return v !== undefined && v !== null && v !== '';
-}
-
-/**
- * What a day's upload consists of: one line per collection per month, naming each figure
- * and how many rows carry it.
- *
- * Pure, and separate from both the query and the render, so the thing that decides what
- * is about to be deleted can be tested against rows made up on the spot. The counts in
- * the confirmation come from here, and a confirmation that undercounts is worse than no
- * confirmation at all.
- */
-function summariseUploadBatch(found) {
-  const lines = [];
-  let documents = 0;
-  Object.keys(UPLOAD_FIELDS).forEach(name => {
-    const rows = found[name] ?? [];
-    documents += rows.length;
-    [...new Set(rows.map(r => r.month || '(no month)'))].sort().forEach(month => {
-      const inMonth = rows.filter(r => (r.month || '(no month)') === month);
-      const figures = Object.entries(UPLOAD_FIELDS[name])
-        .map(([field, label]) => ({
-          label, count: inMonth.filter(r => uploadHasFigure(r, field)).length
-        }))
-        .filter(f => f.count > 0);
-      lines.push({ collection: name, month, rows: inMonth.length, figures });
-    });
-  });
-  return { documents, lines };
-}
-
-/** The summary as markup, or a plain sentence when the day holds nothing. */
-function uploadBatchMarkup(day, summary) {
-  if (summary.documents === 0) {
-    return `<span class="meta">Nothing was uploaded on ${esc(day)}.</span>`;
-  }
-  const names = { perfTeams: 'Team figures', perfMonthly: 'Pay', perfFy: 'FY' };
-  const rows = summary.lines.map(l =>
-    `<tr><td>${esc(names[l.collection] ?? l.collection)}</td><td>${esc(l.month)}</td>`
-    + `<td style="text-align:right">${l.rows}</td>`
-    + `<td>${esc(l.figures.map(f => `${f.label} ${f.count}`).join(', ')) || '—'}</td></tr>`
-  ).join('');
-  return `<p><b>${summary.documents} row(s)</b> were uploaded on ${esc(day)}.</p>`
-    + '<table><thead><tr><th>Where</th><th>Month</th><th>Rows</th>'
-    + '<th>Figures</th></tr></thead><tbody>' + rows + '</tbody></table>';
-}
-
-/** How each area is written on screen, and the order the tick-boxes are in. */
-const UPLOAD_AREAS = {
-  perfTeams: 'team figures',
-  perfMonthly: 'pay',
-  perfFy: 'FY'
-};
-
-/**
- * Which areas the tick-boxes have selected.
- *
- * One day's uploading is not always one kind of thing. The 23rd of October carried both
- * the team figures and the pay, and only the pay turned out to be a dummy file — so a
- * control that could only take the whole day was no use for it.
- */
-function uploadAreasChosen() {
-  return Object.keys(UPLOAD_AREAS).filter(name => $('uploadArea-' + name)?.checked);
-}
-
-/** "team figures and pay", "pay", "team figures, pay and FY" — for the confirmation. */
-function uploadAreaLabel(areas) {
-  const names = areas.map(a => UPLOAD_AREAS[a]).filter(Boolean);
-  if (names.length === 0) return 'nothing';
-  if (names.length === 1) return names[0];
-  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-}
-
-// Held between the check and the removal, so the button can only ever delete the rows
-// that were actually shown. Cleared whenever the date or the tick-boxes change.
-let uploadBatchFound = null;
-
-/** Every row in the chosen areas stamped with an upload time inside that SAST day. */
-async function findUploadBatch(range, areas) {
-  const found = {};
-  for (const name of areas) {
-    // A range on one field needs no composite index, and rows predating
-    // uploadedAtMillis simply do not match — which is right, nothing knows their day.
-    const snap = await getDocs(query(collection(db, name),
-      where('uploadedAtMillis', '>=', range.start),
-      where('uploadedAtMillis', '<', range.end)));
-    found[name] = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
-  }
-  return found;
-}
-
-async function checkUploadDay() {
-  const day = $('uploadDay').value;
-  const range = uploadDayRange(day);
-  uploadBatchFound = null;
-  $('uploadDayRemove').disabled = true;
-  if (!range) {
-    $('uploadDayStatus').innerHTML =
-      '<span style="color:var(--error)">Pick a day first.</span>';
-    return;
-  }
-  const areas = uploadAreasChosen();
-  if (areas.length === 0) {
-    $('uploadDayStatus').innerHTML =
-      '<span style="color:var(--error)">Tick at least one of team figures, pay or FY.</span>';
-    return;
-  }
-  $('uploadDayStatus').innerHTML = '<span class="meta">Looking…</span>';
-  try {
-    const found = await findUploadBatch(range, areas);
-    const summary = summariseUploadBatch(found);
-    $('uploadDayStatus').innerHTML = uploadBatchMarkup(day, summary)
-      + `<p class="meta">Looking at ${esc(uploadAreaLabel(areas))} only.</p>`;
-    if (summary.documents > 0) {
-      uploadBatchFound = { day, found, summary, areas };
-      $('uploadDayRemove').disabled = false;
-    }
-  } catch (err) {
-    $('uploadDayStatus').innerHTML =
-      `<span style="color:var(--error)">Could not read: ${esc(err.message)}</span>`;
-  }
-}
-
-/**
- * Deletes the rows that were just listed, and only those.
- *
- * Works off the documents the check found rather than querying again, so what is removed
- * is exactly what was shown and agreed to. The whole document goes: a row's figures all
- * arrived on the day that stamped it, and clearing fields one at a time would leave
- * empty shells behind.
- *
- * Confirmed by typing the date, like removing a month is confirmed by typing the month.
- * This is the more dangerous of the two — it spans every month at once — so a yes/no box
- * is not enough.
- */
-async function removeUploadDay() {
-  if (!uploadBatchFound) return;
-  const { day, found, summary, areas } = uploadBatchFound;
-
-  const typed = prompt(
-    `Remove the ${uploadAreaLabel(areas)} uploaded on ${day}?\n\n`
-    + `${summary.documents} row(s) will be deleted, across `
-    + `${summary.lines.length} figure/month group(s). Rows uploaded on any other day are `
-    + `left alone, including in the same months`
-    + (areas.length < Object.keys(UPLOAD_AREAS).length
-      ? `, and so is everything outside ${uploadAreaLabel(areas)}` : '')
-    + `.\n\n`
-    + `There is no undo. Type the date (${day}) to confirm.`);
-  if (typed === null) return;
-  if (typed.trim() !== day) {
-    $('uploadDayStatus').innerHTML =
-      `<span style="color:var(--error)">That did not match ${esc(day)} — nothing removed.</span>`;
-    return;
-  }
-
-  try {
-    let removed = 0;
-    for (const name of Object.keys(UPLOAD_FIELDS)) {
-      const rows = found[name] ?? [];
-      for (let start = 0; start < rows.length; start += 400) {
-        const batch = writeBatch(db);
-        rows.slice(start, start + 400).forEach(r => {
-          batch.delete(doc(db, name, r._id));
-          removed++;
-        });
-        await batch.commit();
-      }
-    }
-    $('uploadDayStatus').innerHTML = `<span style="color:var(--primary)">Removed ${
-      removed} row(s) uploaded on ${esc(day)}. Every other day is untouched.</span>`;
-    // Every month this touched has to be re-read, not just the one in the picker.
-    summary.lines.forEach(l => perfMonthsLoaded.delete(l.month));
-    uploadBatchFound = null;
-    $('uploadDayRemove').disabled = true;
-    await loadAll();
-  } catch (err) {
-    showMsg('Could not remove: ' + err.message, 'err');
-  }
-}
-
-$('uploadDayCheck').addEventListener('click', checkUploadDay);
-$('uploadDayRemove').addEventListener('click', removeUploadDay);
-// A changed date makes the listing above it stale, and a Remove button that acts on a
-// day other than the one in the box is exactly the accident this control exists to stop.
-// The tick-boxes stale the listing for the same reason the date does: a Remove button
-// acting on a different set of areas from the one just read is the accident this exists
-// to stop.
-['uploadDay', ...Object.keys(UPLOAD_AREAS).map(n => 'uploadArea-' + n)].forEach(id => {
-  $(id).addEventListener('change', () => {
-    uploadBatchFound = null;
-    $('uploadDayRemove').disabled = true;
-    $('uploadDayStatus').innerHTML =
-      '<span class="meta">Press "See what landed" to check this day.</span>';
-  });
-});
-
 /**
  * Writes one uploaded file.
  *
@@ -9403,7 +9003,6 @@ function setPerfPeriod(mode) {
 $('perfOneMonth').addEventListener('click', () => setPerfPeriod('month'));
 $('perfRange').addEventListener('click', () => setPerfPeriod('range'));
 $('perfByMonthFigure').addEventListener('change', renderPerformance);
-$('perfDropGo').addEventListener('click', dropTeamFigures);
 $('perfMergeGo').addEventListener('click', mergeTeamFigures);
 $('exportPerfByMonth').addEventListener('click', () => {
   const months = perfRange();

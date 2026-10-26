@@ -30,7 +30,7 @@ const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'stockExportRows', 'stockFilters',
   'perfMonthsInRange', 'perfRange', 'teamFiguresAcross', 'perfByMonthRows',
   'setPerfPeriod',
-  'perfByMonthExportRows', 'renderPerformance', 'droppableTeams', 'renderPerfDrop',
+  'perfByMonthExportRows', 'renderPerformance', 'droppableTeams',
   'planTeamMerge', 'renderPerfMerge',
   'renderToday', 'data', 'PARK_BY', 'openTileModal', 'renderVehicles',
   'employeeExportRows', 'filteredEmployees', 'filters', 'ALL_PROVINCES',
@@ -3408,26 +3408,9 @@ check('a live branch is marked as having somebody',
 check('it knows which months a team spans',
   [...droppable.find(t => t.team === 'SOWETO').months].sort(), ['2026-08', '2026-09']);
 
-setValue('perfDropTeam', '');
-portal.renderPerfDrop();
-const dropList = writes()['perfDropTeam'] || '';
-check('the picker asks rather than assuming', dropList.includes('Choose a team'), true);
-check('and says which teams have nobody on them',
-  dropList.includes('MTN - TM - FY24 · nobody on it'), true);
-check('while a live branch is offered plainly',
-  dropList.includes('>SOWETO</option>'), true);
-
-/* IT DELETES BY TEAM KEY, NOT BY A LIST OF MONTHS. A book running since January has
-   documents this page has never loaded, and deleting only the months on screen leaves
-   half a book behind — which reads as a branch that suddenly stopped rather than one
-   that was removed. */
-check('the removal queries on the team, not the month',
-  src.includes("where('teamKey', '==', key)"), true);
-// Pay and FY are filed against a person; retiring a branch says nothing about wages.
-check('and only touches the team figures',
-  [/perfFy/, /perfMonthly/].some(rx =>
-    rx.test(src.slice(src.indexOf('async function dropTeamFigures'),
-      src.indexOf('async function dropTeamFigures') + 2000))), false);
+/* "Remove a team's figures" WAS HERE, and its tests with it. Aadil had it taken off the
+   tab on 26 Oct 2026. droppableTeams survives because the merge picker below is built
+   from it — it is no longer the list behind a delete button. */
 
 
 
