@@ -31,6 +31,13 @@ jobs:
       - name: Portal still renders correctly
         run: node web/render-test.mjs web/index.html
 
+      # "Remove an upload" deletes across every month and all three performance
+      # collections at once, and decides what goes by arithmetic on a timestamp rather
+      # than by anything visible on the tab. The day boundary is SAST, and the counts in
+      # the confirmation have to match what is actually about to be deleted.
+      - name: Removing an upload still removes the right day
+        run: node web/upload-day-test.mjs web/index.html
+
       # The service rules are implemented three times and cannot share code across two
       # languages and three deploy roots, so all three answer to one table of cases.
       # The phone app's copy is checked by gradle test in the build-apk workflow.

@@ -1339,6 +1339,44 @@
         <div id="perfUploads"></div>
         <div class="count" id="perfUploadStatus"></div>
       </div>
+
+      <!--
+        REMOVE A WHOLE UPLOAD, by the day it landed.
+
+        "Remove a month" above clears one figure for one month, which is the right tool
+        for correcting a figure. It is the wrong tool for undoing a session at the
+        keyboard: a dummy batch loaded across ten months is twenty-one of those presses,
+        and each one takes the whole month with it — including rows that were loaded
+        properly weeks earlier and happen to share the figure and the month.
+
+        This removes exactly what arrived on one day, across team figures, pay and FY,
+        and leaves every other row alone.
+      -->
+      <div class="card">
+        <h2 class="section">Remove an upload</h2>
+        <p class="sub" style="font-size:.85rem;margin:0 0 var(--s3)">
+          Undoes <b>one day's uploading</b> — every figure that landed on the day you
+          pick, across stock, connections, activations, basic salary, commission and FY.
+          Anything loaded on another day is left exactly as it is, even in the same month.
+          <br>
+          Check first, then remove: the day is listed figure by figure and month by month
+          before anything goes.
+          <br>
+          <b>A row is stamped with the last upload that wrote it.</b> If a later file
+          corrected a row, that row counts as belonging to the later day — so correcting
+          September on Tuesday means those rows go with Tuesday, not with the day they
+          first arrived.
+        </p>
+        <div class="toolbar">
+          <div>
+            <label for="uploadDay">Day uploaded</label>
+            <input id="uploadDay" type="date">
+          </div>
+          <button id="uploadDayCheck" class="outline">See what landed</button>
+          <button id="uploadDayRemove" class="outline danger" disabled>Remove that day</button>
+        </div>
+        <div class="count" id="uploadDayStatus"></div>
+      </div>
     </section>
 
     <!-- FY -->
@@ -8726,6 +8764,213 @@ async function clearPerformanceMonth(kind) {
     showMsg('Could not remove: ' + err.message, 'err');
   }
 }
+
+/* ---------- Remove a whole upload, by the day it landed ---------- */
+
+/**
+ * Every figure field, by the collection holding it, and how it is written on screen.
+ *
+ * DISPLAY ONLY. PERF_UPLOADS is the authority on what figures exist; this map exists
+ * because the removal works per collection rather than per upload file, and because a
+ * dialog about deleting somebody's pay has to name what it is deleting in words.
+ *
+ * uploadFieldsMissing() is tested to prove this still covers everything PERF_UPLOADS
+ * knows about. A figure added there and forgotten here would be removed by the button
+ * without ever being named in the confirmation, which is the one thing this must not do.
+ */
+const UPLOAD_FIELDS = {
+  perfTeams: { stock: 'Stock', connections: 'Connections', activations: 'Activations' },
+  perfMonthly: { commissionRands: 'Commission', basicSalaryRands: 'Basic salary' },
+  perfFy: { fyStock: 'FY stock', fyConnections: 'FY connections', fyAmountRands: 'FY payable' }
+};
+
+/** Any figure PERF_UPLOADS carries that UPLOAD_FIELDS has not been told about. */
+function uploadFieldsMissing() {
+  const missing = [];
+  Object.keys(PERF_UPLOADS).forEach(kind => {
+    const spec = PERF_UPLOADS[kind];
+    const name = perfOnFy(kind) ? 'perfFy'
+      : spec.keyedOn === 'team' ? 'perfTeams' : 'perfMonthly';
+    perfFigures(kind).forEach(f => {
+      if (!UPLOAD_FIELDS[name]?.[f.field]) missing.push(`${name}.${f.field}`);
+    });
+  });
+  return [...new Set(missing)];
+}
+
+/**
+ * The millisecond range covering one SAST day, or null if the date will not parse.
+ *
+ * South Africa is UTC+2 all year with no daylight saving, so a day is exactly 24 hours
+ * from 00:00+02:00 and no timezone database is needed. Doing it on the browser's own
+ * clock would put the boundary wherever the admin happens to be sitting, and an upload
+ * made at eight in the morning in Johannesburg would fall on the day before for anybody
+ * looking from London.
+ */
+function uploadDayRange(day) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return null;
+  const start = Date.parse(`${day}T00:00:00+02:00`);
+  if (Number.isNaN(start)) return null;
+  return { start, end: start + 24 * 60 * 60 * 1000 };
+}
+
+/** True when a row carries a figure in that field — absent and blank are not figures. */
+function uploadHasFigure(row, field) {
+  const v = row[field];
+  return v !== undefined && v !== null && v !== '';
+}
+
+/**
+ * What a day's upload consists of: one line per collection per month, naming each figure
+ * and how many rows carry it.
+ *
+ * Pure, and separate from both the query and the render, so the thing that decides what
+ * is about to be deleted can be tested against rows made up on the spot. The counts in
+ * the confirmation come from here, and a confirmation that undercounts is worse than no
+ * confirmation at all.
+ */
+function summariseUploadBatch(found) {
+  const lines = [];
+  let documents = 0;
+  Object.keys(UPLOAD_FIELDS).forEach(name => {
+    const rows = found[name] ?? [];
+    documents += rows.length;
+    [...new Set(rows.map(r => r.month || '(no month)'))].sort().forEach(month => {
+      const inMonth = rows.filter(r => (r.month || '(no month)') === month);
+      const figures = Object.entries(UPLOAD_FIELDS[name])
+        .map(([field, label]) => ({
+          label, count: inMonth.filter(r => uploadHasFigure(r, field)).length
+        }))
+        .filter(f => f.count > 0);
+      lines.push({ collection: name, month, rows: inMonth.length, figures });
+    });
+  });
+  return { documents, lines };
+}
+
+/** The summary as markup, or a plain sentence when the day holds nothing. */
+function uploadBatchMarkup(day, summary) {
+  if (summary.documents === 0) {
+    return `<span class="meta">Nothing was uploaded on ${esc(day)}.</span>`;
+  }
+  const names = { perfTeams: 'Team figures', perfMonthly: 'Pay', perfFy: 'FY' };
+  const rows = summary.lines.map(l =>
+    `<tr><td>${esc(names[l.collection] ?? l.collection)}</td><td>${esc(l.month)}</td>`
+    + `<td style="text-align:right">${l.rows}</td>`
+    + `<td>${esc(l.figures.map(f => `${f.label} ${f.count}`).join(', ')) || '—'}</td></tr>`
+  ).join('');
+  return `<p><b>${summary.documents} row(s)</b> were uploaded on ${esc(day)}.</p>`
+    + '<table><thead><tr><th>Where</th><th>Month</th><th>Rows</th>'
+    + '<th>Figures</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+// Held between the check and the removal, so the button can only ever delete the rows
+// that were actually shown. Cleared whenever the date changes.
+let uploadBatchFound = null;
+
+/** Every performance row stamped with an upload time inside that SAST day. */
+async function findUploadBatch(range) {
+  const found = {};
+  for (const name of Object.keys(UPLOAD_FIELDS)) {
+    // A range on one field needs no composite index, and rows predating
+    // uploadedAtMillis simply do not match — which is right, nothing knows their day.
+    const snap = await getDocs(query(collection(db, name),
+      where('uploadedAtMillis', '>=', range.start),
+      where('uploadedAtMillis', '<', range.end)));
+    found[name] = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+  }
+  return found;
+}
+
+async function checkUploadDay() {
+  const day = $('uploadDay').value;
+  const range = uploadDayRange(day);
+  uploadBatchFound = null;
+  $('uploadDayRemove').disabled = true;
+  if (!range) {
+    $('uploadDayStatus').innerHTML =
+      '<span style="color:var(--error)">Pick a day first.</span>';
+    return;
+  }
+  $('uploadDayStatus').innerHTML = '<span class="meta">Looking…</span>';
+  try {
+    const found = await findUploadBatch(range);
+    const summary = summariseUploadBatch(found);
+    $('uploadDayStatus').innerHTML = uploadBatchMarkup(day, summary);
+    if (summary.documents > 0) {
+      uploadBatchFound = { day, found, summary };
+      $('uploadDayRemove').disabled = false;
+    }
+  } catch (err) {
+    $('uploadDayStatus').innerHTML =
+      `<span style="color:var(--error)">Could not read: ${esc(err.message)}</span>`;
+  }
+}
+
+/**
+ * Deletes the rows that were just listed, and only those.
+ *
+ * Works off the documents the check found rather than querying again, so what is removed
+ * is exactly what was shown and agreed to. The whole document goes: a row's figures all
+ * arrived on the day that stamped it, and clearing fields one at a time would leave
+ * empty shells behind.
+ *
+ * Confirmed by typing the date, like removing a month is confirmed by typing the month.
+ * This is the more dangerous of the two — it spans every month at once — so a yes/no box
+ * is not enough.
+ */
+async function removeUploadDay() {
+  if (!uploadBatchFound) return;
+  const { day, found, summary } = uploadBatchFound;
+
+  const typed = prompt(
+    `Remove everything uploaded on ${day}?\n\n`
+    + `${summary.documents} row(s) will be deleted, across `
+    + `${summary.lines.length} figure/month group(s). Rows uploaded on any other day are `
+    + `left alone, including in the same months.\n\n`
+    + `There is no undo. Type the date (${day}) to confirm.`);
+  if (typed === null) return;
+  if (typed.trim() !== day) {
+    $('uploadDayStatus').innerHTML =
+      `<span style="color:var(--error)">That did not match ${esc(day)} — nothing removed.</span>`;
+    return;
+  }
+
+  try {
+    let removed = 0;
+    for (const name of Object.keys(UPLOAD_FIELDS)) {
+      const rows = found[name] ?? [];
+      for (let start = 0; start < rows.length; start += 400) {
+        const batch = writeBatch(db);
+        rows.slice(start, start + 400).forEach(r => {
+          batch.delete(doc(db, name, r._id));
+          removed++;
+        });
+        await batch.commit();
+      }
+    }
+    $('uploadDayStatus').innerHTML = `<span style="color:var(--primary)">Removed ${
+      removed} row(s) uploaded on ${esc(day)}. Every other day is untouched.</span>`;
+    // Every month this touched has to be re-read, not just the one in the picker.
+    summary.lines.forEach(l => perfMonthsLoaded.delete(l.month));
+    uploadBatchFound = null;
+    $('uploadDayRemove').disabled = true;
+    await loadAll();
+  } catch (err) {
+    showMsg('Could not remove: ' + err.message, 'err');
+  }
+}
+
+$('uploadDayCheck').addEventListener('click', checkUploadDay);
+$('uploadDayRemove').addEventListener('click', removeUploadDay);
+// A changed date makes the listing above it stale, and a Remove button that acts on a
+// day other than the one in the box is exactly the accident this control exists to stop.
+$('uploadDay').addEventListener('change', () => {
+  uploadBatchFound = null;
+  $('uploadDayRemove').disabled = true;
+  $('uploadDayStatus').innerHTML =
+    '<span class="meta">Press "See what landed" to check this day.</span>';
+});
 
 /**
  * Writes one uploaded file.
