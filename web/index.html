@@ -1372,6 +1372,18 @@
             <label for="uploadDay">Day uploaded</label>
             <input id="uploadDay" type="date">
           </div>
+          <label class="checkline">
+            <input id="uploadArea-perfTeams" type="checkbox" checked>
+            <span>Team figures</span>
+          </label>
+          <label class="checkline">
+            <input id="uploadArea-perfMonthly" type="checkbox" checked>
+            <span>Pay</span>
+          </label>
+          <label class="checkline">
+            <input id="uploadArea-perfFy" type="checkbox" checked>
+            <span>FY</span>
+          </label>
           <button id="uploadDayCheck" class="outline">See what landed</button>
           <button id="uploadDayRemove" class="outline danger" disabled>Remove that day</button>
         </div>
@@ -8864,14 +8876,40 @@ function uploadBatchMarkup(day, summary) {
     + '<th>Figures</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
+/** How each area is written on screen, and the order the tick-boxes are in. */
+const UPLOAD_AREAS = {
+  perfTeams: 'team figures',
+  perfMonthly: 'pay',
+  perfFy: 'FY'
+};
+
+/**
+ * Which areas the tick-boxes have selected.
+ *
+ * One day's uploading is not always one kind of thing. The 23rd of October carried both
+ * the team figures and the pay, and only the pay turned out to be a dummy file — so a
+ * control that could only take the whole day was no use for it.
+ */
+function uploadAreasChosen() {
+  return Object.keys(UPLOAD_AREAS).filter(name => $('uploadArea-' + name)?.checked);
+}
+
+/** "team figures and pay", "pay", "team figures, pay and FY" — for the confirmation. */
+function uploadAreaLabel(areas) {
+  const names = areas.map(a => UPLOAD_AREAS[a]).filter(Boolean);
+  if (names.length === 0) return 'nothing';
+  if (names.length === 1) return names[0];
+  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+}
+
 // Held between the check and the removal, so the button can only ever delete the rows
-// that were actually shown. Cleared whenever the date changes.
+// that were actually shown. Cleared whenever the date or the tick-boxes change.
 let uploadBatchFound = null;
 
-/** Every performance row stamped with an upload time inside that SAST day. */
-async function findUploadBatch(range) {
+/** Every row in the chosen areas stamped with an upload time inside that SAST day. */
+async function findUploadBatch(range, areas) {
   const found = {};
-  for (const name of Object.keys(UPLOAD_FIELDS)) {
+  for (const name of areas) {
     // A range on one field needs no composite index, and rows predating
     // uploadedAtMillis simply do not match — which is right, nothing knows their day.
     const snap = await getDocs(query(collection(db, name),
@@ -8892,13 +8930,20 @@ async function checkUploadDay() {
       '<span style="color:var(--error)">Pick a day first.</span>';
     return;
   }
+  const areas = uploadAreasChosen();
+  if (areas.length === 0) {
+    $('uploadDayStatus').innerHTML =
+      '<span style="color:var(--error)">Tick at least one of team figures, pay or FY.</span>';
+    return;
+  }
   $('uploadDayStatus').innerHTML = '<span class="meta">Looking…</span>';
   try {
-    const found = await findUploadBatch(range);
+    const found = await findUploadBatch(range, areas);
     const summary = summariseUploadBatch(found);
-    $('uploadDayStatus').innerHTML = uploadBatchMarkup(day, summary);
+    $('uploadDayStatus').innerHTML = uploadBatchMarkup(day, summary)
+      + `<p class="meta">Looking at ${esc(uploadAreaLabel(areas))} only.</p>`;
     if (summary.documents > 0) {
-      uploadBatchFound = { day, found, summary };
+      uploadBatchFound = { day, found, summary, areas };
       $('uploadDayRemove').disabled = false;
     }
   } catch (err) {
@@ -8921,13 +8966,16 @@ async function checkUploadDay() {
  */
 async function removeUploadDay() {
   if (!uploadBatchFound) return;
-  const { day, found, summary } = uploadBatchFound;
+  const { day, found, summary, areas } = uploadBatchFound;
 
   const typed = prompt(
-    `Remove everything uploaded on ${day}?\n\n`
+    `Remove the ${uploadAreaLabel(areas)} uploaded on ${day}?\n\n`
     + `${summary.documents} row(s) will be deleted, across `
     + `${summary.lines.length} figure/month group(s). Rows uploaded on any other day are `
-    + `left alone, including in the same months.\n\n`
+    + `left alone, including in the same months`
+    + (areas.length < Object.keys(UPLOAD_AREAS).length
+      ? `, and so is everything outside ${uploadAreaLabel(areas)}` : '')
+    + `.\n\n`
     + `There is no undo. Type the date (${day}) to confirm.`);
   if (typed === null) return;
   if (typed.trim() !== day) {
@@ -8965,11 +9013,16 @@ $('uploadDayCheck').addEventListener('click', checkUploadDay);
 $('uploadDayRemove').addEventListener('click', removeUploadDay);
 // A changed date makes the listing above it stale, and a Remove button that acts on a
 // day other than the one in the box is exactly the accident this control exists to stop.
-$('uploadDay').addEventListener('change', () => {
-  uploadBatchFound = null;
-  $('uploadDayRemove').disabled = true;
-  $('uploadDayStatus').innerHTML =
-    '<span class="meta">Press "See what landed" to check this day.</span>';
+// The tick-boxes stale the listing for the same reason the date does: a Remove button
+// acting on a different set of areas from the one just read is the accident this exists
+// to stop.
+['uploadDay', ...Object.keys(UPLOAD_AREAS).map(n => 'uploadArea-' + n)].forEach(id => {
+  $(id).addEventListener('change', () => {
+    uploadBatchFound = null;
+    $('uploadDayRemove').disabled = true;
+    $('uploadDayStatus').innerHTML =
+      '<span class="meta">Press "See what landed" to check this day.</span>';
+  });
 });
 
 /**

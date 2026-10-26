@@ -21,7 +21,8 @@ import { loadPortal } from './portal-harness.mjs';
 
 const portal = await loadPortal(process.argv[2] ?? 'web/index.html', [
   'uploadDayRange', 'summariseUploadBatch', 'uploadBatchMarkup',
-  'uploadFieldsMissing', 'UPLOAD_FIELDS', 'uploadHasFigure'
+  'uploadFieldsMissing', 'UPLOAD_FIELDS', 'uploadHasFigure',
+  'uploadAreaLabel', 'UPLOAD_AREAS'
 ]);
 
 let failures = 0;
@@ -133,6 +134,29 @@ check('every figure PERF_UPLOADS can upload is one this control names',
 
 check('the three performance collections are all covered',
   Object.keys(portal.UPLOAD_FIELDS).sort(), ['perfFy', 'perfMonthly', 'perfTeams']);
+
+/* ---------------- choosing which areas go ---------------- */
+
+/* THE 23rd OF OCTOBER carried the team figures AND the pay, and only the pay was a
+   dummy file. A control that could only take the whole day would have taken ten months
+   of real team figures with it. */
+check('the three areas are the three collections',
+  Object.keys(portal.UPLOAD_AREAS).sort(), ['perfFy', 'perfMonthly', 'perfTeams']);
+check('one area reads as itself', portal.uploadAreaLabel(['perfMonthly']), 'pay');
+check('two are joined with and',
+  portal.uploadAreaLabel(['perfTeams', 'perfMonthly']), 'team figures and pay');
+check('three are comma then and',
+  portal.uploadAreaLabel(['perfTeams', 'perfMonthly', 'perfFy']),
+  'team figures, pay and FY');
+check('none says so rather than reading as an empty sentence',
+  portal.uploadAreaLabel([]), 'nothing');
+check('an area the map does not know is dropped, not printed as undefined',
+  portal.uploadAreaLabel(['perfMonthly', 'nonsense']), 'pay');
+
+/* The summary already copes with a collection that was never queried — that is what a
+   narrowed selection produces, so it is the same path as an empty day. */
+check('a narrowed selection summarises only what it asked for',
+  portal.summariseUploadBatch({ perfMonthly: found.perfMonthly }).documents, 2);
 
 console.log(failures === 0
   ? '\nUPLOAD DAY TESTS OK'
