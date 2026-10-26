@@ -3982,9 +3982,11 @@ check('the names come off the window already being read',
 /* THE TWO KEYS. What the phone writes is filed under the uid; what the admin uploads is
    filed under the employee number. Walking only one leaves half the person behind, and
    the half it leaves is invisible. */
+/* notes joined this list on 26 Oct 2026, the day the collection was added — it was
+   missed at first, and a person could be erased with their notes left behind. */
 check('the phone side is erased by id',
   portal.WIPE_BY_UID.map(c => c.collection).sort(),
-  ['fuelLogs', 'stockCounts', 'timeLogs']);
+  ['fuelLogs', 'notes', 'stockCounts', 'timeLogs']);
 check('and the uploaded side by employee number',
   portal.WIPE_BY_NUMBER.map(c => c.collection).sort(),
   ['debtLines', 'debtPayments', 'perfFy', 'perfMonthly']);

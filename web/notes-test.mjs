@@ -160,5 +160,38 @@ check('while only an admin may delete',
 check('and a note id must start with the writer uid',
   /noteId\.matches\(request\.auth\.uid/.test(notesRule), true);
 
+/* ---------------- erasing a person erases their notes ---------------- */
+
+/* THE BUG THIS CATCHES, found on 26 Oct 2026 the day notes were added: the collection
+   went in and "Erase everything belonging to one person" was not told about it, so a
+   person could be erased and their notes stayed — under a name with no record behind
+   it. A list called "everything" that quietly skips a collection is worse than one that
+   never claimed to, and notes are the most personal thing here. */
+const wipeList = src.slice(src.indexOf('const WIPE_BY_UID = ['),
+  src.indexOf('function wipeTarget'));
+check('erasing a person reaches their notes', /collection: 'notes'/.test(wipeList), true);
+/* And the dialog has to SAY so. Somebody agreeing to erase a list that does not mention
+   notes has not agreed to erase their notes. */
+check('and the confirmation says notes are going',
+  /work days, fuel, stock counts, notes/.test(src), true);
+
+/* The same omission in the other direction: a person deleted from the books, with
+   nothing left but notes, would not appear in the restore picker while their notes sat
+   on the Notes tab. */
+check('a leftover note makes its writer findable again',
+  /\(data\.notes \|\| \[\]\)\.forEach\(r => note\(/.test(src), true);
+
+/* ---------------- the limit means the same on both sides ---------------- */
+
+/* The phone refuses a long note and so does the rule. If they disagree, whichever is
+   looser lets a note through that the other rejects — and the rule rejecting it means
+   a rep watching their note fail to save with no idea why. */
+const kotlin = readFileSync(
+  'app/src/main/java/co/za/cspc/fleettracker/data/model/Note.kt', 'utf8');
+const kotlinLimit = Number((kotlin.match(/MOST_CHARACTERS = (\d+)/) || [])[1]);
+const ruleLimit = Number((notesRule.match(/text\.size\(\) <= (\d+)/) || [])[1]);
+check('the phone and the rule allow the same length', kotlinLimit, ruleLimit);
+check('and it is a real number, not a missed match', Number.isFinite(kotlinLimit), true);
+
 console.log(failures === 0 ? '\nNOTES TESTS OK' : `\nNOTES TESTS FAILED — ${failures} case(s)`);
 process.exit(failures ? 1 : 0);

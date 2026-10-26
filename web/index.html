@@ -4043,6 +4043,10 @@ function orphanedUids() {
   // within the window the activity snapshot covers but has counted stock or filled up.
   (data.stockCounts || []).forEach(r => note(r.uid, r.employeeName, r.countedOn));
   (data.fuelLogs || []).forEach(r => note(r.uid, r.employeeName, r.date));
+  // Notes too, since they carry the writer's name: somebody whose profile was deleted
+  // and who has nothing left but notes would otherwise be invisible to the restore
+  // picker, while their notes sat in the Notes tab under a name with no record behind it.
+  (data.notes || []).forEach(r => note(r.uid, r.employeeName, r.writtenOn));
   // Most recently seen first: the one just deleted is the one being looked for.
   return Object.values(seen).sort((a, b) => String(b.last).localeCompare(String(a.last)));
 }
@@ -4154,7 +4158,11 @@ $('rsSave').addEventListener('click', restoreByHand);
 const WIPE_BY_UID = [
   { collection: 'timeLogs', label: 'work days' },
   { collection: 'fuelLogs', label: 'fuel fills' },
-  { collection: 'stockCounts', label: 'stock counts' }
+  { collection: 'stockCounts', label: 'stock counts' },
+  // Added with the notes feature. A list called "erase everything" that quietly left a
+  // collection behind would be worse than one that never claimed to — and notes are the
+  // most personal thing here, being somebody's account of a conversation.
+  { collection: 'notes', label: 'notes' }
 ];
 const WIPE_BY_NUMBER = [
   { collection: 'perfMonthly', label: 'basic salary and commission' },
@@ -4303,8 +4311,8 @@ async function eraseEverything() {
     return;
   }
   if (!confirm(`Erase ${found.length} row(s) — everything for ${target.name}?\n\n`
-    + 'Their work days, fuel, stock counts, figures, salary and debt are deleted for '
-    + 'good, and past totals will change.\n\nTheir Firebase login is NOT deleted — that '
+    + 'Their work days, fuel, stock counts, notes, figures, salary and debt are deleted '
+    + 'for good, and past totals will change.\n\nTheir Firebase login is NOT deleted — that '
     + 'has to be done in the Firebase console if they are to sign up on the same email '
     + 'again.\n\nThis cannot be undone.')) return;
 
