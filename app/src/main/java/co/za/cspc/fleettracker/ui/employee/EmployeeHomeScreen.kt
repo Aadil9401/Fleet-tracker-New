@@ -659,7 +659,22 @@ private fun OdometerDialog(
     // Catches the classic slip of dropping a digit at knock off, which would
     // otherwise record a day of 0 km.
     val entered = text.toLongOrNull()
-    val tooLow = entered != null && minimumKm != null && entered < minimumKm
+    /*
+     * A MINIMUM THAT IS ITSELF IMPOSSIBLE IS NOT A MINIMUM.
+     *
+     * Six vehicles are sitting on a stored reading above a million, put there before
+     * the six-digit cap existed. Enforcing that as the floor while capping the box at
+     * six digits would mean the driver of one of those vehicles CANNOT TYPE A VALUE
+     * HIGH ENOUGH TO CLOCK IN OR OUT — the two rules together lock them out of the app
+     * entirely, and the only clue would be a button that never enables.
+     *
+     * So a floor that is itself over the ceiling is dropped. They can enter the real
+     * reading, the day is recorded, and the vehicle's bad figure stays for an admin to
+     * correct rather than taking the driver's whole day with it.
+     */
+    val usableMinimum = minimumKm?.takeIf { Odometer.isAllowed(it) }
+    val minimumIsBroken = minimumKm != null && usableMinimum == null
+    val tooLow = entered != null && usableMinimum != null && entered < usableMinimum
     /*
      * AND THE SLIP IN THE OTHER DIRECTION, which is the one that cannot be undone.
      *
@@ -704,11 +719,18 @@ private fun OdometerDialog(
                     supportingText = {
                         when {
                             tooLow -> Text(
-                                "Can't be less than $minimumKm km — the last reading recorded for this vehicle."
+                                "Can't be less than ${Odometer.format(usableMinimum ?: 0L)} km "
+                                    + "— the last reading recorded for this vehicle."
                             )
                             tooBig -> Text(
                                 "An odometer reading is at most ${Odometer.MOST_DIGITS} digits — "
                                     + "${Odometer.format(Odometer.MOST_KM)} km."
+                            )
+                            // Said out loud rather than leaving them wondering why the
+                            // app has stopped asking for a number above the last one.
+                            minimumIsBroken -> Text(
+                                "The reading saved for this vehicle is wrong and the office "
+                                    + "has been told. Enter the real reading off the dial."
                             )
                             else -> Text("${Odometer.MOST_DIGITS} digits at most")
                         }
