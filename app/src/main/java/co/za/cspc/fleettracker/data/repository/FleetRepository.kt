@@ -6,6 +6,7 @@ import co.za.cspc.fleettracker.data.model.Birthday
 import co.za.cspc.fleettracker.data.model.FuelLog
 import co.za.cspc.fleettracker.data.model.Leave
 import co.za.cspc.fleettracker.data.model.Note
+import co.za.cspc.fleettracker.data.model.Odometer
 import co.za.cspc.fleettracker.data.model.Performance
 import co.za.cspc.fleettracker.data.model.Role
 import co.za.cspc.fleettracker.data.model.StockCount
