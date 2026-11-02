@@ -58,6 +58,12 @@ jobs:
       # sides, and both invisible when wrong: the tab and the app read the same documents,
       # and the board hides the figures on purpose, so a drift shows one team two
       # different answers with no way for anybody to tell which is right.
+      # An odometer reading is at most six digits. Held in three places — Odometer.kt,
+      # the portal, and firestore.rules for phones still on an older APK — so the table
+      # is what stops the three drifting. The phone copy runs in build-apk.
+      - name: Portal matches the odometer spec
+        run: node web/odometer-test.mjs web/index.html odometer-cases.csv
+
       - name: Portal matches the performance spec
         run: node web/performance-spec-test.mjs web/index.html performance-network-cases.csv performance-rank-cases.csv
 
@@ -104,6 +110,7 @@ jobs:
             "functions/service-schedule-test.mjs service-schedule-cases.csv"
             "web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv"
             "web/plate-format-test.mjs web/index.html plate-format-cases.csv"
+            "web/odometer-test.mjs web/index.html odometer-cases.csv"
             "web/performance-spec-test.mjs web/index.html performance-network-cases.csv performance-rank-cases.csv"
             "web/birthday-spec-test.mjs web/index.html birthday-cases.csv"
             "web/debt-spec-test.mjs web/index.html debt-cases.csv"

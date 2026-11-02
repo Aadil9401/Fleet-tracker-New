@@ -516,6 +516,16 @@ class FleetRepository(
      */
     private suspend fun updateVehicleOdometer(vehicleId: String, odometerKm: Long) {
         if (vehicleId.isBlank()) return
+        /*
+         * THE LAST GATE INSIDE THE APP, after the dialogs that cap the typing.
+         *
+         * This is the write that does the lasting damage: a time log with a bad reading
+         * is one wrong row, but this pins the VEHICLE, and the comparison below only
+         * ever clamps upward — so nothing short of an admin correction brings it back.
+         * The dialogs cap at six digits; this refuses anything that got past them, and
+         * firestore.rules refuses it again for phones still on an older build.
+         */
+        if (!Odometer.isAllowed(odometerKm)) return
         runCatching {
             val ref = db.collection("vehicles").document(vehicleId)
             val current = ref.get().await().getLong("currentOdometerKm") ?: 0L

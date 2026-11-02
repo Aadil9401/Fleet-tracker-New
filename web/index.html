@@ -5044,12 +5044,62 @@ function vehicleExportRows() {
  * message names the figure and what to do, rather than quietly clamping and leaving the
  * admin to wonder why the number they typed is not the number on screen.
  */
-function odometerCorrection(vehicle, typed) {
+/* ---------------- what counts as an odometer reading ---------------- */
+
+/** The highest reading there is: six digits, all nines. Matches Odometer.MOST_KM. */
+const ODO_MOST_KM = 999999;
+const ODO_MOST_DIGITS = 6;
+
+/** "999 999", grouped the way South Africa writes it. */
+const odoFormat = (km) => String(km).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+/**
+ * A typed reading, or why it is not one. The portal's half of odometer-cases.csv.
+ *
+ * Aadil, 2 Nov 2026: "WRITE ME A RULE FOR VEHICLE MILEAGE TO NOT ALLOW MORE THAN 6
+ * DIGITS" — "EMPLOYEES ARE putting 7 , 8 9 digits and its wrong messing up everything".
+ *
+ * WHY A CEILING ON A NUMBER THAT ONLY GOES UP. Every path that writes a reading clamps
+ * UPWARD: the phone refuses one lower than the last, and recording a service takes the
+ * higher of the two. Each is right alone — a driver's clock-in must never drag a reading
+ * backwards — but together they make a mistyped extra digit permanent. One keypress at
+ * knock off turns 85 000 into 850 000, and the vehicle then reads as wildly overdue and
+ * reminds somebody every day until an admin works out why.
+ *
+ * JUDGED ON ITS VALUE, NOT ITS LENGTH. "0085000" is 85 000 written with two stray zeros;
+ * counting characters would refuse a correct reading because a key repeated.
+ *
+ * Grouping spaces and commas are allowed, because somebody reading 85 000 off a dial
+ * types it as they see it and a spreadsheet writes it that way. Nothing else is
+ * salvaged: a decimal, a sign, an exponent or a stray letter all mean this was not a
+ * reading, and guessing the part that was meant is how a wrong number gets stored.
+ */
+function odometerVerdict(typed) {
   const text = String(typed ?? '').trim();
-  const value = Number(text);
-  if (text === '' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
-    return { ok: false, why: 'Enter the reading as a whole number of kilometres.' };
+  if (text === '') return { ok: false, why: 'Enter the odometer reading.' };
+  const bare = text.replace(/[ ,]/g, '');
+  if (!/^\d+$/.test(bare)) {
+    return { ok: false, why: 'Enter the reading as a whole number of kilometres, digits only.' };
   }
+  const km = Number(bare);
+  if (!Number.isSafeInteger(km)) {
+    return { ok: false, why: 'That is not a reading this app can store.' };
+  }
+  if (km > ODO_MOST_KM) {
+    return { ok: false, why: `An odometer reading is at most ${ODO_MOST_DIGITS} digits — `
+      + `${odoFormat(ODO_MOST_KM)} km. Check for an extra digit.` };
+  }
+  return { ok: true, km };
+}
+
+/** True when a stored value is one this app will accept. For callers holding a number. */
+const odometerAllowed = (km) =>
+  Number.isFinite(Number(km)) && Number(km) >= 0 && Number(km) <= ODO_MOST_KM;
+
+function odometerCorrection(vehicle, typed) {
+  const reading = odometerVerdict(typed);
+  if (!reading.ok) return { ok: false, why: reading.why };
+  const value = reading.km;
   const lastService = Number(vehicle?.lastServiceOdometerKm || 0);
   if (lastService > 0 && value < lastService) {
     return { ok: false, why: `This vehicle's last service was recorded at ${km(lastService)}, `
@@ -5581,8 +5631,16 @@ $('odoSave').addEventListener('click', async () => {
 
 $('svcSave').addEventListener('click', async () => {
   if (!servicingVehicleId) return;
-  const odo = Number($('svcOdo').value || 0);
   const dateStr = $('svcDate').value;
+  // Through the same rule as everything else that takes a reading. This one writes
+  // BOTH lastServiceOdometerKm and, via Math.max below, the current reading — so a
+  // seventh digit typed here inflates the vehicle twice over.
+  const reading = odometerVerdict($('svcOdo').value);
+  if (!reading.ok) {
+    $('svcError').innerHTML = `<div class="msg err">${esc(reading.why)}</div>`;
+    return;
+  }
+  const odo = reading.km;
   if (!odo) {
     $('svcError').innerHTML = `<div class="msg err">Enter the odometer reading at the service.</div>`;
     return;
@@ -7101,6 +7159,10 @@ const percentLabel = (value) => value === null
 
 function parseVehicleLines(text) {
   const ignoredIntervals = [];
+  // Readings the upload would not accept if they were typed. Reported rather than
+  // silently truncated: a file is not a keyboard slip, and an admin loading a hundred
+  // vehicles needs to know which rows were wrong, not have them quietly altered.
+  const ignoredOdometers = [];
   const vehicles = text.split(/\r?\n/)
     .map(l => l.trim())
     .filter(Boolean)
@@ -7112,7 +7174,19 @@ function parseVehicleLines(text) {
       const p = splitCells(line);
       const reg = (p[0] || '').toUpperCase();
       if (!reg) return null;
-      const odo = digits(p[2]) ?? 0;
+      const suppliedOdo = digits(p[2]);
+      const suppliedLastService = digits(p[4]);
+      // Both readings go through the same ceiling as a typed one. A seventh digit in
+      // a spreadsheet pins the vehicle overdue for ever just as surely as one typed at
+      // knock off, and the upload was the one door with no lock on it.
+      const odo = odometerAllowed(suppliedOdo) ? suppliedOdo : 0;
+      const lastServiceOdo = odometerAllowed(suppliedLastService) ? suppliedLastService : 0;
+      if (suppliedOdo !== null && !odometerAllowed(suppliedOdo)) {
+        ignoredOdometers.push({ reg, supplied: suppliedOdo, column: 'current odometer' });
+      }
+      if (suppliedLastService !== null && !odometerAllowed(suppliedLastService)) {
+        ignoredOdometers.push({ reg, supplied: suppliedLastService, column: 'last service odometer' });
+      }
       const suppliedInterval = digits(p[5]);
       const usableInterval =
         suppliedInterval !== null && suppliedInterval >= MIN_SERVICE_INTERVAL_KM
@@ -7130,7 +7204,7 @@ function parseVehicleLines(text) {
         // Blank means "we don't know", not "serviced just now". Defaulting this to
         // the current reading claimed a service that never happened, which pinned
         // every uploaded vehicle at 0% and shifted its milestones.
-        lastServiceOdometerKm: digits(p[4]) ?? 0,
+        lastServiceOdometerKm: lastServiceOdo ?? 0,
         lastServiceDateMillis: parseServiceDate(p[3]),
         // Optional 6th column, for models on a different schedule (Magnites run
         // 10 000 km). Blank — or a figure too small to be real — falls back to the
@@ -7140,11 +7214,11 @@ function parseVehicleLines(text) {
       };
     })
     .filter(Boolean);
-  return { vehicles, ignoredIntervals };
+  return { vehicles, ignoredIntervals, ignoredOdometers };
 }
 
 $('bulkBtn').addEventListener('click', async () => {
-  const { vehicles: parsed, ignoredIntervals } = parseVehicleLines($('bulkText').value);
+  const { vehicles: parsed, ignoredIntervals, ignoredOdometers } = parseVehicleLines($('bulkText').value);
   if (parsed.length === 0) {
     showMsg('Nothing to add — check the format and try again.', 'err');
     return;
@@ -7176,7 +7250,14 @@ $('bulkBtn').addEventListener('click', async () => {
       report += ` Service interval too small to use, so ${num(SERVICE_INTERVAL_KM)} km`
         + ` applies instead: ${ignored.map(i => `${i.reg} (${i.supplied})`).join(', ')}.`;
     }
-    showMsg(report, ignored.length ? 'err' : 'ok');
+    // Named rather than silently zeroed. A reading dropped without a word looks like
+    // a vehicle nobody has read yet, which is a different problem with a different fix.
+    const badOdo = ignoredOdometers.filter(i => addedRegs.has(normReg(i.reg)));
+    if (badOdo.length) {
+      report += ` Over ${ODO_MOST_DIGITS} digits so left blank — set it with Correct the`
+        + ` odometer: ${badOdo.map(i => `${i.reg} ${i.column} (${i.supplied})`).join(', ')}.`;
+    }
+    showMsg(report, (ignored.length || badOdo.length) ? 'err' : 'ok');
     $('bulkText').value = '';
     $('csvFile').value = '';
     await loadAll();

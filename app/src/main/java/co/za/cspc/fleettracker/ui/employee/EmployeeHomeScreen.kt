@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.ABSENCE_REASONS
 import co.za.cspc.fleettracker.data.model.Birthday
+import co.za.cspc.fleettracker.data.model.Odometer
 import co.za.cspc.fleettracker.data.model.ParkingCurfew
 import co.za.cspc.fleettracker.data.model.UserProfile
 import co.za.cspc.fleettracker.data.model.VEHICLE_IN_SERVICE
@@ -659,6 +660,15 @@ private fun OdometerDialog(
     // otherwise record a day of 0 km.
     val entered = text.toLongOrNull()
     val tooLow = entered != null && minimumKm != null && entered < minimumKm
+    /*
+     * AND THE SLIP IN THE OTHER DIRECTION, which is the one that cannot be undone.
+     *
+     * Aadil: "EMPLOYEES ARE putting 7 , 8 9 digits and its wrong messing up everything".
+     * A reading only ever clamps upward from here — the next day refuses anything lower
+     * — so one extra digit pins the vehicle overdue for good and no driver can walk it
+     * back. 174 time logs were already carrying one when this was added.
+     */
+    val tooBig = entered != null && !Odometer.isAllowed(entered)
     // Areas are required on both clock in and knock off — a day with no areas is of
     // no use in the reports, and chasing it up afterwards never works.
     val areasMissing = areas.isBlank()
@@ -671,7 +681,7 @@ private fun OdometerDialog(
      * never works.
      */
     val lateReasonMissing = askLateReason && lateReason.isBlank()
-    val canConfirm = entered != null && !tooLow && !areasMissing && !lateReasonMissing
+    val canConfirm = entered != null && !tooLow && !tooBig && !areasMissing && !lateReasonMissing
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -683,12 +693,24 @@ private fun OdometerDialog(
                 Text("Enter the vehicle's current odometer reading (km)")
                 OutlinedTextField(
                     value = text,
-                    onValueChange = { text = it.filter { c -> c.isDigit() } },
+                    // Capped as they type, so a seventh digit simply does not appear
+                    // rather than being typed, accepted by the eye, and refused by a
+                    // message underneath at the moment they press the button.
+                    onValueChange = { typed ->
+                        text = typed.filter { c -> c.isDigit() }.take(Odometer.MOST_DIGITS)
+                    },
                     label = { Text("Odometer (km)") },
-                    isError = tooLow,
+                    isError = tooLow || tooBig,
                     supportingText = {
-                        if (tooLow) {
-                            Text("Can't be less than $minimumKm km — the last reading recorded for this vehicle.")
+                        when {
+                            tooLow -> Text(
+                                "Can't be less than $minimumKm km — the last reading recorded for this vehicle."
+                            )
+                            tooBig -> Text(
+                                "An odometer reading is at most ${Odometer.MOST_DIGITS} digits — "
+                                    + "${Odometer.format(Odometer.MOST_KM)} km."
+                            )
+                            else -> Text("${Odometer.MOST_DIGITS} digits at most")
                         }
                     },
                     singleLine = true,
@@ -779,8 +801,14 @@ private fun FuelDialog(
                 )
                 OutlinedTextField(
                     value = odometer,
-                    onValueChange = { odometer = it.filter { c -> c.isDigit() } },
+                    // Same cap as the clock-in dialog. A fuel log's reading feeds the
+                    // tank-to-tank consumption figure, so a seventh digit here does not
+                    // just sit there — it makes one fill read as thousands of km.
+                    onValueChange = { typed ->
+                        odometer = typed.filter { c -> c.isDigit() }.take(Odometer.MOST_DIGITS)
+                    },
                     label = { Text("Odometer (km)") },
+                    supportingText = { Text("${Odometer.MOST_DIGITS} digits at most") },
                     singleLine = true
                 )
                 // No photo of the slip is taken or kept, so the paper is the only record

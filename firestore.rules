@@ -16,6 +16,44 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    /*
+     * AN ODOMETER READING IS AT MOST SIX DIGITS — 999 999 km.
+     *
+     * Aadil, 2 Nov 2026: "EMPLOYEES ARE putting 7 , 8 9 digits and its wrong messing up
+     * everything". By then 174 time logs, 8 vehicle records and 2 fuel logs were already
+     * carrying one, including an end reading of 354 898 355 008 km.
+     *
+     * THE APP ALSO REFUSES THESE NOW, AND THAT IS NOT ENOUGH. A phone keeps whatever APK
+     * it has until somebody installs the next one, so every handset still running the old
+     * build would go on sending seven digits for weeks. This is the only check those
+     * phones cannot get past, which is the whole reason it is here rather than only in
+     * Kotlin — see Odometer.kt and odometer-cases.csv for the same rule stated twice more.
+     *
+     * UNCHANGED VALUES ARE LET THROUGH, deliberately. 174 logs already hold a bad reading,
+     * and a rep clocking out writes endOdometerKm onto a document whose startOdometerKm is
+     * already wrong — judging the whole document would refuse the write and leave them
+     * unable to knock off at all. So a field passes if it is within range OR if it is not
+     * being changed. Bad readings can be corrected or left; they cannot be made worse, and
+     * no new one can be written.
+     */
+    function odoOk(field) {
+      return !(field in request.resource.data)
+        || (request.resource.data[field] is number
+            && request.resource.data[field] >= 0
+            && request.resource.data[field] <= 999999)
+        || (resource != null
+            && field in resource.data
+            && request.resource.data[field] == resource.data[field]);
+    }
+
+    function odoFieldsOk() {
+      return odoOk('startOdometerKm')
+        && odoOk('endOdometerKm')
+        && odoOk('odometerKm')
+        && odoOk('currentOdometerKm')
+        && odoOk('lastServiceOdometerKm');
+    }
+
     // User profiles. Admin-created accounts come from the createEmployee Cloud
     // Function (Admin SDK bypasses these rules). Self-registration from the
     // sign-up screen is allowed, but ONLY for the caller's own document and ONLY
@@ -115,8 +153,11 @@ service cloud.firestore {
 
     match /vehicles/{vehicleId} {
       allow read: if isSignedIn();
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() || advancesOwnOdometer(vehicleId);
+      // Split: a delete has no request.resource at all, so asking odoFieldsOk() about
+      // one would error and take vehicle deletion with it.
+      allow create: if isAdmin() && odoFieldsOk();
+      allow delete: if isAdmin();
+      allow update: if (isAdmin() || advancesOwnOdometer(vehicleId)) && odoFieldsOk();
     }
 
     // Time logs: an employee can create/update and read only their own; admin can
@@ -137,9 +178,10 @@ service cloud.firestore {
       allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       // Admins can create on someone's behalf, so a forgotten day can be recorded
       // after the fact. Employees can still only create their own.
-      allow create: if isAdmin() ||
-        (isSignedIn() && request.resource.data.uid == request.auth.uid);
-      allow update: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create: if (isAdmin() ||
+        (isSignedIn() && request.resource.data.uid == request.auth.uid)) && odoFieldsOk();
+      allow update: if (isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid))
+        && odoFieldsOk();
       allow delete: if isAdmin();
     }
 
@@ -148,8 +190,10 @@ service cloud.firestore {
       allow get: if isAdmin() ||
         (isSignedIn() && (resource == null || resource.data.uid == request.auth.uid));
       allow list: if isAdmin();
-      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid
+        && odoFieldsOk();
+      allow update: if isAdmin() && odoFieldsOk();
+      allow delete: if isAdmin();
     }
 
     // Performance figures, uploaded by an admin from a spreadsheet. They split two ways,

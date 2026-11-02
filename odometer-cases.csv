@@ -1,0 +1,55 @@
+# The odometer reading contract. THIS FILE IS THE SPECIFICATION.
+#
+# Aadil, 2 Nov 2026: "WRITE ME A RULE FOR VEHICLE MILEAGE TO NOT ALLOW MORE THAN
+# 6 DIGITS". So a reading runs from 0 to 999999 km and no further.
+#
+# WHY A CEILING AT ALL, when an odometer only ever goes up: because every path that
+# writes one CLAMPS UPWARD. The phone refuses a reading lower than the last, and
+# recording a service takes the higher of the two. Those are right on their own — a
+# driver's clock-in must never drag a reading backwards — but together they make a
+# mistyped extra digit PERMANENT. One stray keypress at knock off turns 85 000 into
+# 850 000, and from that moment the vehicle reads as wildly overdue, sends a service
+# reminder every single day, and no driver can ever bring it back down.
+#
+# Six digits is also simply what the instrument shows. A bakkie that has done 999 999 km
+# has rolled over, and a reading above it is a typo rather than a long life.
+#
+# A reading is judged on its VALUE, not on how it was typed. "0085000" is 85 000 km and
+# seven characters; refusing it for its length would reject a correct reading because
+# somebody's keyboard repeated a zero.
+#
+# The rule is implemented twice — Odometer.kt on the phone, odometerVerdict in the admin
+# portal — and both are run against this table. A ceiling held in one place only is a
+# ceiling the other side does not have, and the side without it is the side the bad
+# reading gets in through.
+#
+# Columns:
+#   name     what the case is about
+#   typed    exactly what was entered, between the pipes so spaces are visible
+#   ok       yes if it is accepted, no if it is refused
+#   value    the kilometres it comes to when accepted, blank when refused
+#
+name,typed,ok,value
+a plain reading,|85000|,yes,85000
+zero is a real reading on a new vehicle,|0|,yes,0
+the largest reading there is,|999999|,yes,999999
+one past it is refused,|1000000|,no,
+a seventh digit is refused,|1234567|,no,
+the classic slip of one extra zero,|850000|,yes,850000
+two extra zeros takes it over,|8500000|,no,
+leading zeros are not extra digits,|0085000|,yes,85000
+a single padded zero,|0999999|,yes,999999
+padded zeros cannot smuggle a big number in,|01000000|,no,
+spaces around the number are ignored,| 85000 |,yes,85000
+a grouping space is read as a number,|85 000|,yes,85000
+a grouping comma is read as a number,|85,000|,yes,85000
+grouped up to the ceiling,|999 999|,yes,999999
+grouped past the ceiling,|1 000 000|,no,
+nothing typed is refused,||,no,
+only spaces is refused,|   |,no,
+letters are refused,|85000km|,no,
+a negative reading is refused,|-1|,no,
+a decimal is refused,|85000.5|,no,
+a decimal that ends in zero is still a decimal,|85000.0|,no,
+a stray plus is refused,|+85000|,no,
+scientific notation is refused,|8.5e4|,no,
