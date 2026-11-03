@@ -4,9 +4,14 @@ name: Checks
 # portal or the Cloud Functions — and those are the two things that get deployed by
 # hand. This job is the guard for them, and it finishes in well under a minute.
 
+# verify/** for the same reason build-apk.yml has it: that is the branch an app change
+# is pushed to in order to be compiled, because there is no JDK on the machine this is
+# written on. A sweep that touched the portal and the app at once was pushed there and
+# only half of it ran — the APK was built and tested, and nothing looked at the portal
+# until the branch reached main, which is exactly the point at which it is too late.
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'verify/**' ]
   pull_request:
   workflow_dispatch:
 
