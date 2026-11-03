@@ -37,6 +37,13 @@ jobs:
       - name: Notes are shown as written, and cannot be edited
         run: node web/notes-test.mjs web/index.html
 
+      # The one box every figures file is dropped on. Its 18 cases were written with the
+      # box and then never wired in here, so the thing Aadil actually uploads through was
+      # the one part of the portal with no check running on it — a file routed to the
+      # wrong collection overwrites a month of figures with another month's.
+      - name: A dropped file is routed to the right figures
+        run: node web/drop-upload-test.mjs web/index.html
+
       - name: Portal matches the service schedule spec
         run: node web/service-schedule-test.mjs web/index.html service-schedule-cases.csv
 
@@ -106,6 +113,7 @@ jobs:
             "web/parser-test.mjs web/index.html"
             "web/render-test.mjs web/index.html"
             "web/notes-test.mjs web/index.html"
+            "web/drop-upload-test.mjs web/index.html"
             "web/service-schedule-test.mjs web/index.html service-schedule-cases.csv"
             "functions/service-schedule-test.mjs service-schedule-cases.csv"
             "web/parking-curfew-test.mjs web/index.html parking-curfew-cases.csv"

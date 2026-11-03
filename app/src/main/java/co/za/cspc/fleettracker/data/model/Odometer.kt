@@ -81,6 +81,22 @@ object Odometer {
     /** True when the value is one this app will store. For callers holding a number. */
     fun isAllowed(km: Long): Boolean = km in 0L..MOST_KM
 
+    /**
+     * What an entry box should START with, given the reading already stored.
+     *
+     * EMPTY WHEN THE STORED READING IS IMPOSSIBLE. Six vehicles are sitting on a figure
+     * above a million, put there before this ceiling existed, and a box pre-filled from
+     * one opens already in error — the driver is shown a red field and a message about
+     * six digits for a number THEY DID NOT TYPE. They can clear it and carry on, so it
+     * is not a lock-out, but the first thing the app says to them is that they have made
+     * a mistake, every clock in and every knock off, until somebody corrects the vehicle.
+     *
+     * So a reading the app would refuse is not offered back as a starting point. The box
+     * opens empty, they read the dial, and the day is recorded.
+     */
+    fun prefill(storedKm: Long): String =
+        if (storedKm > 0L && isAllowed(storedKm)) storedKm.toString() else ""
+
     /** "999 999", grouped the way South Africa writes it. */
     fun format(km: Long): String =
         km.toString().reversed().chunked(3).joinToString(" ").reversed()

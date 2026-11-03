@@ -652,7 +652,11 @@ private fun OdometerDialog(
     onConfirm: (odometerKm: Long, mainAreasWorked: String, lateReason: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var text by remember { mutableStateOf(if (initialValue > 0) initialValue.toString() else "") }
+    // Empty rather than pre-filled when the vehicle's stored reading is itself
+    // impossible — see Odometer.prefill. Opening a driver's clock-in already in error,
+    // over a number the app put there, is not how they should be told the office has a
+    // figure to correct.
+    var text by remember { mutableStateOf(Odometer.prefill(initialValue)) }
     var areas by remember { mutableStateOf(initialAreas) }
     var lateReason by remember { mutableStateOf("") }
 
@@ -802,7 +806,14 @@ private fun FuelDialog(
 ) {
     var amount by remember { mutableStateOf("") }
     var litres by remember { mutableStateOf("") }
-    var odometer by remember { mutableStateOf(if (defaultOdometer > 0) defaultOdometer.toString() else "") }
+    // Same as the clock-in dialog: a stored reading the app would refuse is not handed
+    // back as a starting point. This box was the worse of the two — Save did not look at
+    // the reading at all, so a pre-filled seven digits went straight to Firestore and
+    // came back refused by the security rule, losing the fill with a message about
+    // permissions that means nothing to a driver at a pump.
+    var odometer by remember { mutableStateOf(Odometer.prefill(defaultOdometer)) }
+    val odoTyped = odometer.toLongOrNull()
+    val odoTooBig = odoTyped != null && !Odometer.isAllowed(odoTyped)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -830,7 +841,17 @@ private fun FuelDialog(
                         odometer = typed.filter { c -> c.isDigit() }.take(Odometer.MOST_DIGITS)
                     },
                     label = { Text("Odometer (km)") },
-                    supportingText = { Text("${Odometer.MOST_DIGITS} digits at most") },
+                    isError = odoTooBig,
+                    supportingText = {
+                        if (odoTooBig) {
+                            Text(
+                                "An odometer reading is at most ${Odometer.MOST_DIGITS} digits — "
+                                    + "${Odometer.format(Odometer.MOST_KM)} km."
+                            )
+                        } else {
+                            Text("${Odometer.MOST_DIGITS} digits at most")
+                        }
+                    },
                     singleLine = true
                 )
                 // No photo of the slip is taken or kept, so the paper is the only record
@@ -848,10 +869,12 @@ private fun FuelDialog(
                     onConfirm(
                         amount.toAmountOrNull() ?: 0.0,
                         litres.toAmountOrNull() ?: 0.0,
-                        odometer.toLongOrNull() ?: 0L
+                        odoTyped ?: 0L
                     )
                 },
-                enabled = amount.toAmountOrNull() != null
+                // The reading is checked here too, not only capped as they type: the box
+                // can open holding a value nobody typed, and the rules refuse that write.
+                enabled = amount.toAmountOrNull() != null && !odoTooBig
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }

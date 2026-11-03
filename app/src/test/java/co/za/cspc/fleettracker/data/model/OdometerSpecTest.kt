@@ -105,4 +105,50 @@ class OdometerSpecTest {
         assertEquals("0", Odometer.format(0L))
         assertEquals("1 000", Odometer.format(1_000L))
     }
+
+    /*
+     * AN ENTRY BOX IS NOT PRE-FILLED WITH A READING THE APP WOULD REFUSE.
+     *
+     * Six vehicles carry a figure above a million from before the ceiling existed, and
+     * both the clock-in dialog and the fuel dialog start from the vehicle's stored
+     * reading. Pre-filled from one of those, the clock-in box opened already red over a
+     * number the driver had not typed, and the fuel box — which never checked the
+     * reading at Save — sent it to Firestore, where the rules refused it and the fill
+     * was lost.
+     */
+    @Test
+    fun `a sane stored reading is offered back`() {
+        assertEquals("85000", Odometer.prefill(85_000L))
+        assertEquals("999999", Odometer.prefill(Odometer.MOST_KM))
+    }
+
+    @Test
+    fun `an impossible stored reading opens the box empty`() {
+        listOf(1_000_000L, 3_665_559L, 354_898_355_008L).forEach {
+            assertEquals("a box must not open holding $it", "", Odometer.prefill(it))
+        }
+    }
+
+    /* Nothing recorded is nothing to offer, which is what the box already did. */
+    @Test
+    fun `nothing stored opens the box empty`() {
+        assertEquals("", Odometer.prefill(0L))
+        assertEquals("", Odometer.prefill(-1L))
+    }
+
+    /* Whatever is offered back must itself be acceptable — the property that was
+       broken, stated as a property rather than as three examples. */
+    @Test
+    fun `whatever is pre-filled is a reading this app would accept`() {
+        listOf(0L, 1L, 85_000L, 999_999L, 1_000_000L, 3_665_559L, Long.MAX_VALUE)
+            .forEach { stored ->
+                val offered = Odometer.prefill(stored)
+                if (offered.isNotEmpty()) {
+                    assertTrue(
+                        "prefill($stored) offered $offered, which read() refuses",
+                        Odometer.read(offered) is Odometer.Verdict.Ready
+                    )
+                }
+            }
+    }
 }

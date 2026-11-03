@@ -5127,8 +5127,8 @@ function odometerCorrection(vehicle, typed) {
  * and a vehicle with no date recorded is not a vehicle whose disc is fine:
  *
  *   none      nothing recorded — invisible rather than safe, so it is chased too
- *   expired   past its date. Driving on it is an offence, not an inconvenience
- *   due       expires this month, and has not yet
+ *   due       expires this month, whether or not the date itself has passed
+ *   lapsed    a month that has gone by. Still shown on the vehicle, no longer queued
  *   ok        nothing to do
  *
  * Whole days, counted from midnight to midnight, so "expires today" is 0 and yesterday

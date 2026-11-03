@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import co.za.cspc.fleettracker.data.model.AppSettings
+import co.za.cspc.fleettracker.data.model.Odometer
 import co.za.cspc.fleettracker.data.model.PlateFormat
 import co.za.cspc.fleettracker.data.model.Birthday
 import co.za.cspc.fleettracker.data.model.SA_PROVINCES
@@ -855,9 +856,24 @@ private fun EditVehicleDialog(
     val lastValue = lastService.toLongOrNull()
     val intervalValue = interval.toLongOrNull()
     val lastAboveCurrent = odoValue != null && lastValue != null && lastValue > odoValue
+    /*
+     * THE SAME CEILING THE DRIVERS ARE HELD TO.
+     *
+     * The reading is capped at six digits on the employee screens and in the security
+     * rules, and was capped nowhere on this one — so an admin could still type seven,
+     * and from 2 November the rules refuse that write. The save then fails with a
+     * permission error, which reads as the app being broken rather than as the number
+     * being wrong.
+     *
+     * The box is NOT blanked when the stored value is already too big, unlike the
+     * driver's: this dialog is where a bad reading gets corrected, and the figure being
+     * corrected is the one thing it has to show.
+     */
+    val odoTooBig = odoValue != null && !Odometer.isAllowed(odoValue)
+    val lastTooBig = lastValue != null && !Odometer.isAllowed(lastValue)
     val canSave = !busy && registration.isNotBlank() &&
         odoValue != null && lastValue != null && intervalValue != null &&
-        intervalValue > 0 && !lastAboveCurrent
+        intervalValue > 0 && !lastAboveCurrent && !odoTooBig && !lastTooBig
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -887,8 +903,17 @@ private fun EditVehicleDialog(
                     value = odometer,
                     onValueChange = { odometer = it.filter { c -> c.isDigit() } },
                     label = { Text("Current odometer (km)") },
+                    isError = odoTooBig,
                     supportingText = {
-                        Text("Correct a mistyped reading here — clock-in can only move it up.")
+                        if (odoTooBig) {
+                            Text(
+                                "This vehicle is carrying ${Odometer.format(odoValue ?: 0L)} km, "
+                                    + "which is not a reading. At most ${Odometer.MOST_DIGITS} "
+                                    + "digits — ${Odometer.format(Odometer.MOST_KM)} km."
+                            )
+                        } else {
+                            Text("Correct a mistyped reading here — clock-in can only move it up.")
+                        }
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -897,9 +922,16 @@ private fun EditVehicleDialog(
                     value = lastService,
                     onValueChange = { lastService = it.filter { c -> c.isDigit() } },
                     label = { Text("Odometer at last service (km)") },
-                    isError = lastAboveCurrent,
+                    isError = lastAboveCurrent || lastTooBig,
                     supportingText = {
-                        if (lastAboveCurrent) Text("Can't be higher than the current reading.")
+                        when {
+                            lastTooBig -> Text(
+                                "At most ${Odometer.MOST_DIGITS} digits — "
+                                    + "${Odometer.format(Odometer.MOST_KM)} km."
+                            )
+                            lastAboveCurrent ->
+                                Text("Can't be higher than the current reading.")
+                        }
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1787,6 +1819,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
         var odometer by remember(v.id) { mutableStateOf(v.currentOdometerKm.toString()) }
         var provider by remember(v.id) { mutableStateOf(v.lastServiceProvider) }
         val odoValue = odometer.toLongOrNull()
+        val serviceOdoTooBig = odoValue != null && !Odometer.isAllowed(odoValue)
         AlertDialog(
             onDismissRequest = { vehicleToService = null },
             title = { Text("Record a service") },
@@ -1802,6 +1835,19 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
                         value = odometer,
                         onValueChange = { odometer = it.filter { c -> c.isDigit() } },
                         label = { Text("Odometer at service") },
+                        // Held to the same ceiling as everywhere else. Recording a
+                        // service writes lastServiceOdometerKm, which the rules refuse
+                        // above six digits — and a vehicle whose last service reads
+                        // higher than its interval never comes due again.
+                        isError = serviceOdoTooBig,
+                        supportingText = {
+                            if (serviceOdoTooBig) {
+                                Text(
+                                    "At most ${Odometer.MOST_DIGITS} digits — "
+                                        + "${Odometer.format(Odometer.MOST_KM)} km."
+                                )
+                            }
+                        },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1830,7 +1876,7 @@ private fun VehiclesTab(state: AdminUiState, viewModel: AdminViewModel) {
             },
             confirmButton = {
                 TextButton(
-                    enabled = odoValue != null && !state.busy,
+                    enabled = odoValue != null && !serviceOdoTooBig && !state.busy,
                     onClick = {
                         viewModel.markServiced(v.id, odoValue ?: 0L, provider)
                         vehicleToService = null
@@ -2057,7 +2103,16 @@ private fun AddVehicleDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Vehicle name") }, singleLine = true, visualTransformation = CAPITALS_WHILE_TYPING)
                 OutlinedTextField(value = reg, onValueChange = { reg = it }, label = { Text("Registration number") }, singleLine = true, visualTransformation = CAPITALS_WHILE_TYPING)
-                OutlinedTextField(value = odo, onValueChange = { odo = it.filter { c -> c.isDigit() } }, label = { Text("Current odometer (km)") }, singleLine = true)
+                // A new vehicle's reading is held to the same ceiling as every other.
+                // The create rule refuses seven digits, so without this the dialog
+                // simply fails to add the vehicle and does not say why.
+                OutlinedTextField(
+                    value = odo,
+                    onValueChange = { odo = it.filter { c -> c.isDigit() }.take(Odometer.MOST_DIGITS) },
+                    label = { Text("Current odometer (km)") },
+                    supportingText = { Text("${Odometer.MOST_DIGITS} digits at most") },
+                    singleLine = true
+                )
                 OutlinedTextField(value = intervalKm, onValueChange = { intervalKm = it.filter { c -> c.isDigit() } }, label = { Text("Service every (km)") }, singleLine = true)
                 OutlinedTextField(value = intervalMonths, onValueChange = { intervalMonths = it.filter { c -> c.isDigit() } }, label = { Text("Service every (months)") }, singleLine = true)
             }
