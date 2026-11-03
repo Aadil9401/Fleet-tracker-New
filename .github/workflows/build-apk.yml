@@ -197,18 +197,28 @@ jobs:
       # Deliberately AFTER the tests, unlike the artifact: something failing its own
       # tests should not become the build that staff install.
       #
-      # ONLY FROM main, and only on a push.
+      # ONLY FROM main — by a push, or by Run workflow on main.
       #
       # A pull request from a fork has no write permission, so this would be the step
-      # that fails — that is what the push test was always for.
+      # that fails — that is what the event test was always for.
       #
       # The branch test was added after a verify branch replaced this file: verify/** is
       # pushed to on purpose, to compile something that is NOT ready to go near main, and
       # every one of those pushes was quietly swapping the APK that staff install. The
       # whole point of a verify branch is to try a change without consequences, and this
       # was the consequence.
+      #
+      # workflow_dispatch was added on 3 November 2026, when the signing key secret was
+      # finally set and the obvious next move — Run workflow, to rebuild main with the
+      # key in place — built a correctly signed APK and then published nothing. The run
+      # went green, and the link staff install from still pointed at the throwaway-signed
+      # build from the push before it. A rebuild of main that cannot replace the download
+      # is not a rebuild of anything. The ref test is what keeps forks and verify
+      # branches out, and it does that on its own.
       - name: Publish the APK to one fixed download link
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
